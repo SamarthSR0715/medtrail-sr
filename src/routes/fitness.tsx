@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Droplet, Dumbbell, Minus, Plus, Scale, TrendingUp } from "lucide-react";
+import { Beef, Droplet, Dumbbell, Minus, Plus, Scale, TrendingUp } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -51,6 +51,19 @@ const trend = [
   { week: "W6", volume: 11200, weight: 66.5 },
 ];
 
+const dietFactors = [
+  { id: "veg", label: "Vegetarian", factor: 1.8, note: "Dal, paneer, curd, soy" },
+  { id: "eggetarian", label: "Eggetarian", factor: 1.9, note: "Eggs + dairy staples" },
+  { id: "nonveg", label: "Non-veg", factor: 2.0, note: "Chicken, fish, eggs" },
+  { id: "vegan", label: "Vegan", factor: 1.7, note: "Soy, tofu, legumes" },
+] as const;
+
+const goalFactors = [
+  { id: "maintain", label: "Maintain", mult: 0.9 },
+  { id: "build", label: "Build muscle", mult: 1 },
+  { id: "cut", label: "Fat loss", mult: 1.05 },
+] as const;
+
 function FitnessTracker() {
   const [logs, setLogs] = useState<Log[]>(seedLogs);
   const [form, setForm] = useState({ name: "", sets: "3", reps: "10", weight: "40" });
@@ -58,6 +71,8 @@ function FitnessTracker() {
   const [weight, setWeight] = useState("67");
   const [glasses, setGlasses] = useState(5);
   const goal = 10;
+  const [diet, setDiet] = useState<(typeof dietFactors)[number]["id"]>("veg");
+  const [proteinGoal, setProteinGoal] = useState<(typeof goalFactors)[number]["id"]>("build");
 
   const volume = logs.reduce((s, l) => s + l.sets * l.reps * (l.weight || 1), 0);
 
@@ -67,6 +82,14 @@ function FitnessTracker() {
     if (!h || !w) return null;
     return w / (h * h);
   }, [height, weight]);
+
+  const dietPick = dietFactors.find((d) => d.id === diet)!;
+  const goalPick = goalFactors.find((g) => g.id === proteinGoal)!;
+  const protein = useMemo(() => {
+    const w = Number(weight);
+    if (!w) return null;
+    return Math.round(w * dietPick.factor * goalPick.mult);
+  }, [weight, dietPick, goalPick]);
 
   const bmiBand = !bmi
     ? ""
