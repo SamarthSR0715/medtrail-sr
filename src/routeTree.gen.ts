@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FitnessRouteImport } from './routes/fitness'
 import { Route as MbbsRouteImport } from './routes/mbbs'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FitnessRoute = FitnessRouteImport.update({
+  id: '/fitness',
+  path: '/fitness',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MbbsRoute = MbbsRouteImport.update({
@@ -25,27 +31,31 @@ const MbbsRoute = MbbsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/fitness': typeof FitnessRoute
   '/mbbs': typeof MbbsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/fitness': typeof FitnessRoute
   '/mbbs': typeof MbbsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/fitness': typeof FitnessRoute
   '/mbbs': typeof MbbsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/mbbs'
+  fullPaths: '/' | '/fitness' | '/mbbs'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/mbbs'
-  id: '__root__' | '/' | '/mbbs'
+  to: '/' | '/fitness' | '/mbbs'
+  id: '__root__' | '/' | '/fitness' | '/mbbs'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FitnessRoute: typeof FitnessRoute
   MbbsRoute: typeof MbbsRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fitness': {
+      id: '/fitness'
+      path: '/fitness'
+      fullPath: '/fitness'
+      preLoaderRoute: typeof FitnessRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mbbs': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FitnessRoute: FitnessRoute,
   MbbsRoute: MbbsRoute,
 }
 export const routeTree = rootRouteImport
