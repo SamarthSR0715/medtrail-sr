@@ -215,7 +215,11 @@
 }
 
 @utility text-gradient {
-  background-image: var(--gradient-brand);
+  background-image: linear-gradient(
+    100deg,
+    var(--brand) 0%,
+    color-mix(in oklab, var(--brand) 55%, var(--accent)) 100%
+  );
   background-clip: text;
   color: transparent;
 }
