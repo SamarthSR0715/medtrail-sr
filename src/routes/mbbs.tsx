@@ -228,7 +228,7 @@ function MbbsHub() {
                 onClick={() => setFlipped((f) => !f)}
                 className="mt-5 flex min-h-44 w-full items-center justify-center rounded-3xl border border-border/60 bg-secondary/40 px-6 py-8 text-center text-lg font-medium leading-snug transition-colors hover:bg-secondary/65"
               >
-                {flipped ? cards[cardIdx].a : cards[cardIdx].q}
+                {flipped ? cards[cardIdx]?.a : cards[cardIdx]?.q}
               </button>
               <div className="mt-6 flex items-center justify-between gap-3">
                 <button
