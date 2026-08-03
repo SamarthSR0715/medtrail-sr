@@ -27,9 +27,9 @@ export const searchIndex: SearchEntry[] = [
   { to: "/fitness", title: "Workout log", group: "Fitness", keywords: "gym push pull legs sets reps" },
   { to: "/fitness", title: "BMI calculator", group: "Fitness", keywords: "height weight body mass index" },
   { to: "/fitness", title: "Hydration tracker", group: "Fitness", keywords: "water glasses litres" },
+  { to: "/fitness", title: "Protein calculator", group: "Fitness", keywords: "protein grams diet veg vegan weight macros" },
   { to: "/fitness", title: "Progress charts", group: "Fitness", keywords: "weight volume graph analytics" },
   { to: "/portfolio", title: "About Samarth", group: "Portfolio", keywords: "bio medical student" },
-  { to: "/portfolio", title: "Certificates", group: "Portfolio", keywords: "bls acls credentials" },
   { to: "/portfolio", title: "Projects", group: "Portfolio", keywords: "work builds case studies" },
   { to: "/portfolio", title: "Contact", group: "Portfolio", keywords: "email instagram linkedin message" },
 ];

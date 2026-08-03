@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Award,
   Check,
   Instagram,
   Linkedin,
@@ -20,24 +19,17 @@ export const Route = createFileRoute("/portfolio")({
       {
         name: "description",
         content:
-          "About Samarth Rautrao: MBBS student, trekker and builder. Certificates, projects and ways to get in touch.",
+          "About Samarth Rautrao: MBBS student, trekker and builder. Projects and ways to get in touch.",
       },
       { property: "og:title", content: "Portfolio — Samarth Rautrao" },
       {
         property: "og:description",
-        content: "MBBS student, trekker and builder — certificates, projects and contact.",
+        content: "MBBS student, trekker and builder — projects and contact.",
       },
     ],
   }),
   component: Portfolio,
 });
-
-const certificates = [
-  { title: "Basic Life Support (BLS)", issuer: "Indian Resuscitation Council", year: "2025" },
-  { title: "Advanced Cardiac Life Support", issuer: "AHA aligned programme", year: "2025" },
-  { title: "Research Methodology Workshop", issuer: "Medical College CME", year: "2024" },
-  { title: "First Aid & Trek Safety", issuer: "Sahyadri Trekkers Guild", year: "2024" },
-];
 
 const projects = [
   {
@@ -89,7 +81,7 @@ function Portfolio() {
             </div>
             <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
               <p>
-                Most of my week is lectures, dissection hall and revision blocks. The rest belongs to
+                Most of my week is lectures, practicals and revision blocks. The rest belongs to
                 the Sahyadris — forts before sunrise, waterfalls in July, and long drives with a
                 notebook in the bag.
               </p>
@@ -105,25 +97,6 @@ function Portfolio() {
             </div>
           </div>
         </Reveal>
-
-        <h2 className="mt-20 text-2xl font-semibold sm:text-3xl">Certificates</h2>
-        <div className="mt-6 grid gap-5 sm:grid-cols-2">
-          {certificates.map((c, i) => (
-            <Reveal key={c.title} delay={i * 70}>
-              <article className="glass flex h-full items-start gap-4 rounded-[1.5rem] p-6">
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-secondary/70">
-                  <Award className="size-5 text-primary" aria-hidden="true" />
-                </span>
-                <div>
-                  <h3 className="text-base font-semibold leading-snug">{c.title}</h3>
-                  <p className="mt-1.5 text-sm text-muted-foreground">
-                    {c.issuer} · {c.year}
-                  </p>
-                </div>
-              </article>
-            </Reveal>
-          ))}
-        </div>
 
         <h2 className="mt-20 text-2xl font-semibold sm:text-3xl">Projects</h2>
         <div className="mt-6 grid gap-5 lg:grid-cols-3">
