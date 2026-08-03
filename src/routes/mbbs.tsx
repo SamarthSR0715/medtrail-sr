@@ -175,14 +175,14 @@ function MbbsHub() {
               </ul>
             </div>
 
-            <div className="glass flex flex-col justify-between rounded-[1.75rem] p-6 sm:p-8">
+            <div className="glass flex h-fit flex-col gap-8 rounded-[1.75rem] p-6 sm:p-8">
               <div>
                 <h3 className="text-lg font-semibold">Weekly load</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {doneHrs}h of {totalHrs}h complete
                 </p>
               </div>
-              <div className="mt-8">
+              <div>
                 <div className="h-2.5 w-full overflow-hidden rounded-full bg-secondary">
                   <div
                     className="bg-gradient-brand h-full rounded-full transition-all duration-700"
