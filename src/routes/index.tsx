@@ -76,7 +76,7 @@ function Index() {
           height={1088}
           className="h-[78svh] min-h-[520px] w-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/55 to-background/10" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-transparent" />
         <div className="absolute inset-0 flex flex-col justify-end p-6 sm:p-12">
           <Reveal>
             <span className="glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium tracking-wide">
