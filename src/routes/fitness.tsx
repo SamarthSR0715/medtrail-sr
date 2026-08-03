@@ -30,7 +30,7 @@ export const Route = createFileRoute("/fitness")({
       },
     ],
   }),
-  component: FitnessTracker;
+  component: FitnessTracker,
 });
 
 type Log = { id: number; name: string; sets: number; reps: number; weight: number };
