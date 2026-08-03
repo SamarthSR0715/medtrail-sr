@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FitnessRouteImport } from './routes/fitness'
 import { Route as MbbsRouteImport } from './routes/mbbs'
+import { Route as PortfolioRouteImport } from './routes/portfolio'
+import { Route as TravelRouteImport } from './routes/travel'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +30,53 @@ const MbbsRoute = MbbsRouteImport.update({
   path: '/mbbs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PortfolioRoute = PortfolioRouteImport.update({
+  id: '/portfolio',
+  path: '/portfolio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TravelRoute = TravelRouteImport.update({
+  id: '/travel',
+  path: '/travel',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/fitness': typeof FitnessRoute
   '/mbbs': typeof MbbsRoute
+  '/portfolio': typeof PortfolioRoute
+  '/travel': typeof TravelRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/fitness': typeof FitnessRoute
   '/mbbs': typeof MbbsRoute
+  '/portfolio': typeof PortfolioRoute
+  '/travel': typeof TravelRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/fitness': typeof FitnessRoute
   '/mbbs': typeof MbbsRoute
+  '/portfolio': typeof PortfolioRoute
+  '/travel': typeof TravelRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/fitness' | '/mbbs'
+  fullPaths: '/' | '/fitness' | '/mbbs' | '/portfolio' | '/travel'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/fitness' | '/mbbs'
-  id: '__root__' | '/' | '/fitness' | '/mbbs'
+  to: '/' | '/fitness' | '/mbbs' | '/portfolio' | '/travel'
+  id: '__root__' | '/' | '/fitness' | '/mbbs' | '/portfolio' | '/travel'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   FitnessRoute: typeof FitnessRoute
   MbbsRoute: typeof MbbsRoute
+  PortfolioRoute: typeof PortfolioRoute
+  TravelRoute: typeof TravelRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +102,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MbbsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/portfolio': {
+      id: '/portfolio'
+      path: '/portfolio'
+      fullPath: '/portfolio'
+      preLoaderRoute: typeof PortfolioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/travel': {
+      id: '/travel'
+      path: '/travel'
+      fullPath: '/travel'
+      preLoaderRoute: typeof TravelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +123,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   FitnessRoute: FitnessRoute,
   MbbsRoute: MbbsRoute,
+  PortfolioRoute: PortfolioRoute,
+  TravelRoute: TravelRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
