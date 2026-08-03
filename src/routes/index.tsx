@@ -24,7 +24,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "MedTrail — Study, Travel & Train in One Place" },
       {
         property: "og:description",
-        content: "MBBS study hub, Maharashtra travel journal, fitness tracker and portfolio.",
+        content: "A premium personal workspace by Samarth Rautrao: MBBS study hub, Maharashtra travel journal, fitness tracking and portfolio.",
       },
     ],
   }),
