@@ -275,6 +275,61 @@ function FitnessTracker() {
                 </div>
               </div>
             </Reveal>
+
+            <Reveal delay={240}>
+              <div className="glass rounded-[1.75rem] p-6 sm:p-8">
+                <div className="flex items-center gap-3">
+                  <Beef className="size-5 text-primary" aria-hidden="true" />
+                  <h3 className="text-lg font-semibold">Protein target</h3>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Based on your weight ({weight || "—"} kg), diet and goal.
+                </p>
+
+                <div className="mt-5 flex flex-wrap gap-1.5">
+                  {dietFactors.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setDiet(d.id)}
+                      className={cn(
+                        "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                        diet === d.id
+                          ? "bg-gradient-brand text-brand-foreground"
+                          : "bg-secondary/70 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {goalFactors.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => setProteinGoal(g.id)}
+                      className={cn(
+                        "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
+                        proteinGoal === g.id
+                          ? "border-primary/70 text-foreground"
+                          : "border-border/60 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="font-display mt-6 text-4xl font-semibold">
+                  {protein ? `${protein} g` : "—"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {protein ? `≈ ${Math.round(protein / 4)} g per meal across 4 meals` : "Enter a weight above"}
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">{dietPick.note}</p>
+              </div>
+            </Reveal>
           </div>
         </div>
 
