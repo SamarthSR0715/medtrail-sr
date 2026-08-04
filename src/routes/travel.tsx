@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { IndianRupee, MapPin, Mountain, Star, Waves } from "lucide-react";
 import fortImg from "@/assets/fort.jpg";
 import waterfallImg from "@/assets/waterfall.jpg";
@@ -7,6 +7,10 @@ import hillImg from "@/assets/hillstation.jpg";
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { cn } from "@/lib/utils";
+import { StatsDashboard } from "@/components/travel/stats-dashboard";
+import { DestinationCard } from "@/components/travel/destination-sections";
+import { PhotoGallery } from "@/components/travel/photo-gallery";
+import { destinations, photos, travelStats } from "@/lib/travel-content";
 
 export const Route = createFileRoute("/travel")({
   head: () => ({
@@ -167,6 +171,30 @@ function TravelJournal() {
           description="Tap a pin on the map to open the field notes — what it cost, how it rated and when to go."
         />
 
+        <Reveal delay={40} className="mt-8">
+          <div className="flex flex-wrap gap-3">
+            <Link
+              to="/travel-map"
+              className="bg-gradient-brand inline-flex rounded-full px-5 py-2.5 text-sm font-semibold text-brand-foreground shadow-md transition-transform hover:scale-105"
+            >
+              Interactive map
+            </Link>
+            <Link to="/destinations" className="glass inline-flex rounded-full px-5 py-2.5 text-sm font-semibold transition-transform hover:scale-105">
+              Destination guides
+            </Link>
+            <Link to="/gallery" className="glass inline-flex rounded-full px-5 py-2.5 text-sm font-semibold transition-transform hover:scale-105">
+              Photo gallery
+            </Link>
+            <Link to="/bucket-list" className="glass inline-flex rounded-full px-5 py-2.5 text-sm font-semibold transition-transform hover:scale-105">
+              Bucket list
+            </Link>
+          </div>
+        </Reveal>
+
+        <div className="mt-10">
+          <StatsDashboard />
+        </div>
+
         <Reveal delay={80} className="mt-10">
           <div className="glass inline-flex gap-1 rounded-full p-1.5">
             {filters.map((f) => (
@@ -323,6 +351,37 @@ function TravelJournal() {
             );
           })}
         </div>
+
+        <section className="mt-16">
+          <Reveal>
+            <span className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Guides</span>
+            <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">Detailed trip guides</h2>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Route cards, hour-by-hour timelines, real budgets and gear lists — latest trip:{" "}
+              {travelStats.recent.name}.
+            </p>
+          </Reveal>
+          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {destinations.map((d, i) => (
+              <Reveal key={d.slug} delay={i * 60}>
+                <DestinationCard d={d} />
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-16 pb-4">
+          <Reveal>
+            <span className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Gallery</span>
+            <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">Recent frames</h2>
+          </Reveal>
+          <PhotoGallery photos={photos.slice(0, 9)} withFilters={false} withSearch={false} />
+          <Reveal className="mt-6">
+            <Link to="/gallery" className="glass inline-flex rounded-full px-5 py-2.5 text-sm font-semibold transition-transform hover:scale-105">
+              Open full gallery
+            </Link>
+          </Reveal>
+        </section>
       </section>
     </div>
   );
