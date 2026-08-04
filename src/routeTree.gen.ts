@@ -10,19 +10,34 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BucketListRouteImport } from './routes/bucket-list'
 import { Route as FitnessRouteImport } from './routes/fitness'
+import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as MbbsRouteImport } from './routes/mbbs'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as TravelRouteImport } from './routes/travel'
+import { Route as TravelMapRouteImport } from './routes/travel-map'
+import { Route as DestinationsIndexRouteImport } from './routes/destinations.index'
+import { Route as DestinationsSlugRouteImport } from './routes/destinations.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BucketListRoute = BucketListRouteImport.update({
+  id: '/bucket-list',
+  path: '/bucket-list',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FitnessRoute = FitnessRouteImport.update({
   id: '/fitness',
   path: '/fitness',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GalleryRoute = GalleryRouteImport.update({
+  id: '/gallery',
+  path: '/gallery',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MbbsRoute = MbbsRouteImport.update({
@@ -40,43 +55,109 @@ const TravelRoute = TravelRouteImport.update({
   path: '/travel',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TravelMapRoute = TravelMapRouteImport.update({
+  id: '/travel-map',
+  path: '/travel-map',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DestinationsIndexRoute = DestinationsIndexRouteImport.update({
+  id: '/destinations/',
+  path: '/destinations/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DestinationsSlugRoute = DestinationsSlugRouteImport.update({
+  id: '/destinations/$slug',
+  path: '/destinations/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/bucket-list': typeof BucketListRoute
   '/fitness': typeof FitnessRoute
+  '/gallery': typeof GalleryRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
   '/travel': typeof TravelRoute
+  '/travel-map': typeof TravelMapRoute
+  '/destinations/$slug': typeof DestinationsSlugRoute
+  '/destinations/': typeof DestinationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/bucket-list': typeof BucketListRoute
   '/fitness': typeof FitnessRoute
+  '/gallery': typeof GalleryRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
   '/travel': typeof TravelRoute
+  '/travel-map': typeof TravelMapRoute
+  '/destinations/$slug': typeof DestinationsSlugRoute
+  '/destinations': typeof DestinationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/bucket-list': typeof BucketListRoute
   '/fitness': typeof FitnessRoute
+  '/gallery': typeof GalleryRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
   '/travel': typeof TravelRoute
+  '/travel-map': typeof TravelMapRoute
+  '/destinations/$slug': typeof DestinationsSlugRoute
+  '/destinations/': typeof DestinationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/fitness' | '/mbbs' | '/portfolio' | '/travel'
+  fullPaths:
+    | '/'
+    | '/bucket-list'
+    | '/fitness'
+    | '/gallery'
+    | '/mbbs'
+    | '/portfolio'
+    | '/travel'
+    | '/travel-map'
+    | '/destinations/$slug'
+    | '/destinations/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/fitness' | '/mbbs' | '/portfolio' | '/travel'
-  id: '__root__' | '/' | '/fitness' | '/mbbs' | '/portfolio' | '/travel'
+  to:
+    | '/'
+    | '/bucket-list'
+    | '/fitness'
+    | '/gallery'
+    | '/mbbs'
+    | '/portfolio'
+    | '/travel'
+    | '/travel-map'
+    | '/destinations/$slug'
+    | '/destinations'
+  id:
+    | '__root__'
+    | '/'
+    | '/bucket-list'
+    | '/fitness'
+    | '/gallery'
+    | '/mbbs'
+    | '/portfolio'
+    | '/travel'
+    | '/travel-map'
+    | '/destinations/$slug'
+    | '/destinations/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BucketListRoute: typeof BucketListRoute
   FitnessRoute: typeof FitnessRoute
+  GalleryRoute: typeof GalleryRoute
   MbbsRoute: typeof MbbsRoute
   PortfolioRoute: typeof PortfolioRoute
   TravelRoute: typeof TravelRoute
+  TravelMapRoute: typeof TravelMapRoute
+  DestinationsSlugRoute: typeof DestinationsSlugRoute
+  DestinationsIndexRoute: typeof DestinationsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -88,11 +169,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bucket-list': {
+      id: '/bucket-list'
+      path: '/bucket-list'
+      fullPath: '/bucket-list'
+      preLoaderRoute: typeof BucketListRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/fitness': {
       id: '/fitness'
       path: '/fitness'
       fullPath: '/fitness'
       preLoaderRoute: typeof FitnessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gallery': {
+      id: '/gallery'
+      path: '/gallery'
+      fullPath: '/gallery'
+      preLoaderRoute: typeof GalleryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mbbs': {
@@ -116,15 +211,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TravelRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/travel-map': {
+      id: '/travel-map'
+      path: '/travel-map'
+      fullPath: '/travel-map'
+      preLoaderRoute: typeof TravelMapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/destinations/': {
+      id: '/destinations/'
+      path: '/destinations'
+      fullPath: '/destinations/'
+      preLoaderRoute: typeof DestinationsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/destinations/$slug': {
+      id: '/destinations/$slug'
+      path: '/destinations/$slug'
+      fullPath: '/destinations/$slug'
+      preLoaderRoute: typeof DestinationsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BucketListRoute: BucketListRoute,
   FitnessRoute: FitnessRoute,
+  GalleryRoute: GalleryRoute,
   MbbsRoute: MbbsRoute,
   PortfolioRoute: PortfolioRoute,
   TravelRoute: TravelRoute,
+  TravelMapRoute: TravelMapRoute,
+  DestinationsSlugRoute: DestinationsSlugRoute,
+  DestinationsIndexRoute: DestinationsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
