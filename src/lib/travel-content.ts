@@ -467,7 +467,30 @@ export function getDestination(slug: string) {
   return destinations.find((d) => d.slug === slug);
 }
 
-export const photos: Photo[] = destinations.flatMap((d, di) =>
+const extraPhotos: Photo[] = [
+  {
+    id: "extra-beach",
+    src: beachImg,
+    destination: "Konkan Coast",
+    district: "Ratnagiri",
+    state: "Maharashtra",
+    date: "2025-05-04",
+    caption: "Sunset over the Konkan shoreline",
+    tags: ["Beaches", "Nature"],
+  },
+  {
+    id: "extra-temple",
+    src: templeImg,
+    destination: "Sahyadri Ridge Temple",
+    district: "Satara",
+    state: "Maharashtra",
+    date: "2025-01-19",
+    caption: "First light on a ridge-top shrine",
+    tags: ["Temples", "Nature"],
+  },
+];
+
+export const photos: Photo[] = destinations.flatMap<Photo>((d) =>
   d.gallery.map((src, i) => ({
     id: `${d.slug}-${i}`,
     src,
@@ -479,33 +502,8 @@ export const photos: Photo[] = destinations.flatMap((d, di) =>
     caption: i === 0 ? d.tagline : `${d.name} — frame ${i + 1}`,
     tags: d.categories,
     cover: i === 0,
-  })).concat(
-    di === 0
-      ? [
-          {
-            id: "extra-beach",
-            src: beachImg,
-            destination: "Konkan Coast",
-            district: "Ratnagiri",
-            state: "Maharashtra",
-            date: "2025-05-04",
-            caption: "Sunset over the Konkan shoreline",
-            tags: ["Beaches", "Nature"] as Category[],
-          },
-          {
-            id: "extra-temple",
-            src: templeImg,
-            destination: "Sahyadri Ridge Temple",
-            district: "Satara",
-            state: "Maharashtra",
-            date: "2025-01-19",
-            caption: "First light on a ridge-top shrine",
-            tags: ["Temples", "Nature"] as Category[],
-          },
-        ]
-      : [],
-  ),
-);
+  })),
+).concat(extraPhotos);
 
 export type BucketItem = {
   id: string;
