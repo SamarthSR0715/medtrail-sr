@@ -18,6 +18,7 @@ import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as TravelRouteImport } from './routes/travel'
 import { Route as TravelMapRouteImport } from './routes/travel-map'
 import { Route as DestinationsIndexRouteImport } from './routes/destinations.index'
+import { Route as DestinationsSlugRouteImport } from './routes/destinations.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +65,11 @@ const DestinationsIndexRoute = DestinationsIndexRouteImport.update({
   path: '/destinations/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DestinationsSlugRoute = DestinationsSlugRouteImport.update({
+  id: '/destinations/$slug',
+  path: '/destinations/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -74,6 +80,7 @@ export interface FileRoutesByFullPath {
   '/portfolio': typeof PortfolioRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
+  '/destinations/$slug': typeof DestinationsSlugRoute
   '/destinations/': typeof DestinationsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -85,6 +92,7 @@ export interface FileRoutesByTo {
   '/portfolio': typeof PortfolioRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
+  '/destinations/$slug': typeof DestinationsSlugRoute
   '/destinations': typeof DestinationsIndexRoute
 }
 export interface FileRoutesById {
@@ -97,6 +105,7 @@ export interface FileRoutesById {
   '/portfolio': typeof PortfolioRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
+  '/destinations/$slug': typeof DestinationsSlugRoute
   '/destinations/': typeof DestinationsIndexRoute
 }
 export interface FileRouteTypes {
@@ -110,6 +119,7 @@ export interface FileRouteTypes {
     | '/portfolio'
     | '/travel'
     | '/travel-map'
+    | '/destinations/$slug'
     | '/destinations/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -121,6 +131,7 @@ export interface FileRouteTypes {
     | '/portfolio'
     | '/travel'
     | '/travel-map'
+    | '/destinations/$slug'
     | '/destinations'
   id:
     | '__root__'
@@ -132,6 +143,7 @@ export interface FileRouteTypes {
     | '/portfolio'
     | '/travel'
     | '/travel-map'
+    | '/destinations/$slug'
     | '/destinations/'
   fileRoutesById: FileRoutesById
 }
@@ -144,6 +156,7 @@ export interface RootRouteChildren {
   PortfolioRoute: typeof PortfolioRoute
   TravelRoute: typeof TravelRoute
   TravelMapRoute: typeof TravelMapRoute
+  DestinationsSlugRoute: typeof DestinationsSlugRoute
   DestinationsIndexRoute: typeof DestinationsIndexRoute
 }
 
@@ -212,6 +225,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DestinationsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/destinations/$slug': {
+      id: '/destinations/$slug'
+      path: '/destinations/$slug'
+      fullPath: '/destinations/$slug'
+      preLoaderRoute: typeof DestinationsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -224,6 +244,7 @@ const rootRouteChildren: RootRouteChildren = {
   PortfolioRoute: PortfolioRoute,
   TravelRoute: TravelRoute,
   TravelMapRoute: TravelMapRoute,
+  DestinationsSlugRoute: DestinationsSlugRoute,
   DestinationsIndexRoute: DestinationsIndexRoute,
 }
 export const routeTree = rootRouteImport

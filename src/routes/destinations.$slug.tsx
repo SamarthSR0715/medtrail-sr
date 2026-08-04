@@ -51,7 +51,9 @@ export const Route = createFileRoute("/destinations/$slug")({
 });
 
 function DestinationPage() {
-  const { destination: d } = Route.useLoaderData();
+  const { slug } = Route.useParams();
+  const d = getDestination(slug);
+  if (!d) return null;
   const gallery = photos.filter((p) => p.slug === d.slug);
   const related = destinations.filter((x) => x.slug !== d.slug).slice(0, 3);
 
