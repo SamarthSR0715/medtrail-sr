@@ -1,16 +1,29 @@
-import fortImg from "@/assets/fort.jpg";
-import waterfallImg from "@/assets/waterfall.jpg";
-import hillImg from "@/assets/hillstation.jpg";
-import heroImg from "@/assets/hero.jpg";
-import templeImg from "@/assets/temple.jpg";
-import beachImg from "@/assets/beach.jpg";
-import campingImg from "@/assets/camping.jpg";
-import cavesImg from "@/assets/caves.jpg";
 import routeKataldhar from "@/assets/routes/route-0281.jpg.asset.json";
 import routeVisapur from "@/assets/routes/route-0282.jpg.asset.json";
-import routeSinhagad from "@/assets/routes/route-0283.jpg.asset.json";
 import routePawna from "@/assets/routes/route-0284.jpg.asset.json";
 import routeTikona from "@/assets/routes/route-0285.jpg.asset.json";
+import kataldharWide from "@/assets/photos-0286.jpg.asset.json";
+import kataldharDrops from "@/assets/photos-0287.jpg.asset.json";
+import tikonaPeak from "@/assets/photos-0288.jpg.asset.json";
+import tikonaSummit from "@/assets/photos-0289.jpg.asset.json";
+import pawnaTent from "@/assets/photos-0290.jpg.asset.json";
+import pawnaEvening from "@/assets/photos-0291.jpg.asset.json";
+import pawnaFromTikona from "@/assets/photos-0292.jpg.asset.json";
+import lonavalaBhutta from "@/assets/photos-0293.jpg.asset.json";
+import bhajeCaves from "@/assets/photos-0294.jpg.asset.json";
+
+/** Real, unedited photographs shot on the trips themselves. */
+export const realPhotos = {
+  kataldharWide: kataldharWide.url,
+  kataldharDrops: kataldharDrops.url,
+  tikonaPeak: tikonaPeak.url,
+  tikonaSummit: tikonaSummit.url,
+  pawnaTent: pawnaTent.url,
+  pawnaEvening: pawnaEvening.url,
+  pawnaFromTikona: pawnaFromTikona.url,
+  lonavalaBhutta: lonavalaBhutta.url,
+  bhajeCaves: bhajeCaves.url,
+} as const;
 
 export const categories = [
   "Forts",
@@ -100,7 +113,7 @@ export const destinations: Destination[] = [
     district: "Pune",
     state: "Maharashtra",
     categories: ["Waterfalls", "Forts", "Trekking", "Nature"],
-    hero: waterfallImg,
+    hero: realPhotos.kataldharWide,
     routeMap: routeKataldhar.url,
     lat: 18.8291,
     lng: 73.4285,
@@ -164,7 +177,7 @@ export const destinations: Destination[] = [
       camping: "Allowed at Rajmachi village",
       guide: "Recommended in monsoon",
     },
-    gallery: [waterfallImg, fortImg, hillImg, heroImg],
+    gallery: [realPhotos.kataldharWide, realPhotos.kataldharDrops, realPhotos.lonavalaBhutta],
     googleMapsUrl: "https://www.google.com/maps/dir/Pune/Rajmachi+Fort",
   },
   {
@@ -174,7 +187,7 @@ export const destinations: Destination[] = [
     district: "Pune",
     state: "Maharashtra",
     categories: ["Forts", "Trekking", "Caves", "Waterfalls"],
-    hero: fortImg,
+    hero: realPhotos.bhajeCaves,
     routeMap: routeVisapur.url,
     lat: 18.7128,
     lng: 73.4831,
@@ -238,82 +251,8 @@ export const destinations: Destination[] = [
       camping: "Not permitted on fort",
       guide: "Not required",
     },
-    gallery: [fortImg, cavesImg, waterfallImg, hillImg],
+    gallery: [realPhotos.bhajeCaves],
     googleMapsUrl: "https://www.google.com/maps/dir/Pune/Lohagad+Fort",
-  },
-  {
-    slug: "sinhagad-fort",
-    name: "Sinhagad Fort",
-    tagline: "A perfect escape into history & nature",
-    district: "Pune",
-    state: "Maharashtra",
-    categories: ["Forts", "Trekking", "Temples"],
-    hero: fortImg,
-    routeMap: routeSinhagad.url,
-    lat: 18.3664,
-    lng: 73.7556,
-    distanceKm: 35,
-    travelTime: "1.5 – 2 hrs",
-    trekTime: "1.5 – 2 hrs one way",
-    trekDistanceKm: 2.5,
-    elevationM: 1316,
-    difficulty: "Easy to Moderate",
-    rating: 4.6,
-    season: "July to February",
-    weather: "Monsoon clouds sit on the ridge; winter mornings drop to 12°C with 360° valley views.",
-    sunrise: "6:12 AM",
-    sunset: "6:58 PM",
-    visitedOn: "2025-12-14",
-    summary:
-      "Metro to Swargate, PMPML bus to the base, then a historic 2.5 km trail to a fort that stands at 4,312 ft above Pune.",
-    story:
-      "Sinhagad is the fort Pune grows up with. Metro to Swargate, the special bus stop just outside, and forty minutes of switchbacks later you're at Donje Phata. The old trail climbs past Kondhana Darwaja, and at the top the whole city lies flat below you. Pitla bhakri with thecha at the summit stalls is the actual summit.",
-    highlights: [
-      "Kondhana Darwaja, the main historic entrance",
-      "Tanhaji Malusare Samadhi",
-      "Amruteshwar Temple",
-      "360° views of Pune city and valleys",
-    ],
-    carry: ["Water", "Snacks", "Cap", "Sunscreen", "Power bank", "Comfortable shoes"],
-    nearby: ["Khadakwasla Dam", "Panshet", "Rajgad Fort", "Donje Phata"],
-    photoSpots: ["Kalyan Darwaja steps", "Pune Darwaja exit", "Tanhaji Samadhi", "West-facing cliff at sunset"],
-    tips: [
-      "Weekdays are far quieter than weekends",
-      "Sharing cabs run from base to top in 15–20 min",
-      "Carry cash for the food stalls",
-    ],
-    safety: [
-      "Road to the top is narrow — avoid driving in fog",
-      "Trail stones are slippery in monsoon",
-      "Last bus down leaves by 7pm",
-    ],
-    expenses: [
-      { label: "Metro + PMPML bus", amount: "₹60 – 90" },
-      { label: "Only trek total", amount: "~₹300" },
-      { label: "Shared cab option", amount: "~₹500" },
-      { label: "Food & snacks", amount: "₹150 – 200" },
-    ],
-    timeline: [
-      { mode: "start", title: "Pune Railway Station", detail: "Start of the journey", time: "0:00" },
-      { mode: "metro", title: "Swargate Metro Station", detail: "Metro from Pune station", time: "25 – 30 min" },
-      { mode: "walk", title: "Special bus stop", detail: "Walk from Swargate exit gate", time: "2 – 5 min" },
-      { mode: "bus", title: "PMPML bus to Sinhagad", detail: "Frequent and affordable", time: "40 – 50 min" },
-      { mode: "view", title: "Sinhagad Base (Thoptewadi / Donje Phata)", detail: "Ascent starting point", time: "—" },
-      { mode: "trek", title: "Historic trail", detail: "2.5 km one way, easy to moderate", time: "1.5 – 2 hrs" },
-      { mode: "end", title: "Sinhagad Fort", detail: "4,312 ft — gates, samadhi, temple", time: "2 hrs explore" },
-    ],
-    info: {
-      entryFee: "₹20 per person",
-      parking: "Available at top, ₹50",
-      food: "Pitla bhakri, kanda bhaji, taak",
-      water: "Stalls all along the top",
-      washrooms: "Available at the top",
-      network: "Strong 4G throughout",
-      camping: "Not permitted",
-      guide: "Not required",
-    },
-    gallery: [fortImg, templeImg, heroImg, hillImg],
-    googleMapsUrl: "https://www.google.com/maps/dir/Pune/Sinhagad+Fort",
   },
   {
     slug: "pawna-lake",
@@ -322,7 +261,7 @@ export const destinations: Destination[] = [
     district: "Pune",
     state: "Maharashtra",
     categories: ["Camping", "Nature"],
-    hero: campingImg,
+    hero: realPhotos.pawnaTent,
     routeMap: routePawna.url,
     lat: 18.6489,
     lng: 73.4869,
@@ -385,7 +324,7 @@ export const destinations: Destination[] = [
       camping: "Yes — the main draw",
       guide: "Not required",
     },
-    gallery: [campingImg, hillImg, beachImg, heroImg],
+    gallery: [realPhotos.pawnaTent, realPhotos.pawnaEvening],
     googleMapsUrl: "https://www.google.com/maps/dir/Pune/Pawna+Lake",
   },
   {
@@ -395,7 +334,7 @@ export const destinations: Destination[] = [
     district: "Pune",
     state: "Maharashtra",
     categories: ["Forts", "Trekking", "Caves", "Temples"],
-    hero: hillImg,
+    hero: realPhotos.tikonaPeak,
     routeMap: routeTikona.url,
     lat: 18.6167,
     lng: 73.5,
@@ -458,7 +397,7 @@ export const destinations: Destination[] = [
       camping: "Allowed at base village",
       guide: "Not required",
     },
-    gallery: [hillImg, fortImg, cavesImg, templeImg],
+    gallery: [realPhotos.tikonaPeak, realPhotos.tikonaSummit, realPhotos.pawnaFromTikona],
     googleMapsUrl: "https://www.google.com/maps/dir/Pune/Tikona+Fort",
   },
 ];
@@ -467,43 +406,115 @@ export function getDestination(slug: string) {
   return destinations.find((d) => d.slug === slug);
 }
 
-const extraPhotos: Photo[] = [
+/**
+ * Every frame below is an original photograph shot on the trip named in it —
+ * no stock or AI imagery anywhere on the site.
+ */
+export const photos: Photo[] = [
   {
-    id: "extra-beach",
-    src: beachImg,
-    destination: "Konkan Coast",
-    district: "Ratnagiri",
+    id: "kataldhar-wide",
+    src: realPhotos.kataldharWide,
+    destination: "Kataldhar Waterfall",
+    slug: "kataldhar-rajmachi",
+    district: "Pune",
     state: "Maharashtra",
-    date: "2025-05-04",
-    caption: "Sunset over the Konkan shoreline",
-    tags: ["Beaches", "Nature"],
+    date: "2025-08-16",
+    caption:
+      "Kataldhar Waterfall in full monsoon flow, framed by the dense Rajmachi forest on the trek in from Lonavala.",
+    tags: ["Waterfalls", "Nature", "Trekking"],
+    cover: true,
   },
   {
-    id: "extra-temple",
-    src: templeImg,
-    destination: "Sahyadri Ridge Temple",
-    district: "Satara",
+    id: "kataldhar-drops",
+    src: realPhotos.kataldharDrops,
+    destination: "Kataldhar Waterfall",
+    slug: "kataldhar-rajmachi",
+    district: "Pune",
     state: "Maharashtra",
-    date: "2025-01-19",
-    caption: "First light on a ridge-top shrine",
-    tags: ["Temples", "Nature"],
+    date: "2025-08-16",
+    caption: "The three main drops of Kataldhar up close — roughly 100 m of falling water after a week of rain.",
+    tags: ["Waterfalls", "Nature"],
+  },
+  {
+    id: "tikona-peak",
+    src: realPhotos.tikonaPeak,
+    destination: "Tikona Fort",
+    slug: "tikona-fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-09-21",
+    caption: "The triangular peak of Tikona Fort with the ghat road winding through the valley far below.",
+    tags: ["Forts", "Trekking", "Nature"],
+    cover: true,
+  },
+  {
+    id: "tikona-summit",
+    src: realPhotos.tikonaSummit,
+    destination: "Tikona Fort",
+    slug: "tikona-fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-09-21",
+    caption: "Looking up at the Tikona summit block against a monsoon sky, minutes before the final flight of steps.",
+    tags: ["Forts", "Trekking"],
+  },
+  {
+    id: "pawna-from-tikona",
+    src: realPhotos.pawnaFromTikona,
+    destination: "Pawna Lake from Tikona Fort",
+    slug: "tikona-fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-09-21",
+    caption: "Pawna Lake and the Tung–Lohagad ridges seen from the top of Tikona — the view everyone climbs for.",
+    tags: ["Nature", "Forts"],
+  },
+  {
+    id: "pawna-tent",
+    src: realPhotos.pawnaTent,
+    destination: "Pawna Lake",
+    slug: "pawna-lake",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-11-08",
+    caption: "Our teepee tent pitched a few metres from the Pawna Lake shoreline at sunset.",
+    tags: ["Camping", "Nature"],
+    cover: true,
+  },
+  {
+    id: "pawna-evening",
+    src: realPhotos.pawnaEvening,
+    destination: "Pawna Lake",
+    slug: "pawna-lake",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-11-08",
+    caption: "Blue hour on the Pawna shore — lit tents, still water and the bonfire being started behind us.",
+    tags: ["Camping", "Nature"],
+  },
+  {
+    id: "lonavala-bhutta",
+    src: realPhotos.lonavalaBhutta,
+    destination: "Lonavala",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-08-16",
+    caption: "Roasted bhutta on the way back through Lonavala — the unofficial end to every monsoon trek.",
+    tags: ["Nature", "Trekking"],
+  },
+  {
+    id: "bhaje-caves",
+    src: realPhotos.bhajeCaves,
+    destination: "Bhaje (Bhaje Leni) Caves",
+    slug: "visapur-lohagad",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-27",
+    caption: "The stone stairway up to the 2,000-year-old Bhaje Leni Buddhist caves, on the Visapur–Lohagad route.",
+    tags: ["Caves", "Temples", "Trekking"],
+    cover: true,
   },
 ];
-
-export const photos: Photo[] = destinations.flatMap<Photo>((d) =>
-  d.gallery.map((src, i) => ({
-    id: `${d.slug}-${i}`,
-    src,
-    destination: d.name,
-    slug: d.slug,
-    district: d.district,
-    state: d.state,
-    date: d.visitedOn,
-    caption: i === 0 ? d.tagline : `${d.name} — frame ${i + 1}`,
-    tags: d.categories,
-    cover: i === 0,
-  })),
-).concat(extraPhotos);
 
 export type BucketItem = {
   id: string;
@@ -512,7 +523,7 @@ export type BucketItem = {
   priority: "High" | "Medium" | "Low";
   season: string;
   notes: string;
-  status: "Planned" | "Researching" | "Booked";
+  status: "Planned" | "Researching" | "Booked" | "Wishlist";
   done: boolean;
 };
 
@@ -525,6 +536,11 @@ export const bucketList: BucketItem[] = [
   { id: "torna", name: "Torna Fort", district: "Pune", priority: "Medium", season: "Oct – Feb", notes: "Shivaji's first fort — long ridge walk.", status: "Researching", done: false },
   { id: "ajanta", name: "Ajanta & Ellora Caves", district: "Aurangabad", priority: "Low", season: "Nov – Feb", notes: "Two full days, hire an official guide.", status: "Planned", done: false },
   { id: "tarkarli", name: "Tarkarli Beach", district: "Sindhudurg", priority: "Medium", season: "Nov – Mar", notes: "Scuba diving and Sindhudurg fort by boat.", status: "Planned", done: false },
+  { id: "sinhagad", name: "Sinhagad Fort", district: "Pune", priority: "High", season: "Jul – Feb", notes: "Metro to Swargate, PMPML bus to Donje Phata, 2.5 km historic trail. Pitla-bhakri at the top.", status: "Wishlist", done: false },
+  { id: "thoseghar", name: "Thoseghar Falls", district: "Satara", priority: "Medium", season: "Jul – Sep", notes: "Peak roar in late July — reach the viewing deck before 10am.", status: "Wishlist", done: false },
+  { id: "randha", name: "Randha Falls", district: "Ahmednagar", priority: "Low", season: "Jul – Sep", notes: "Pair it with Bhandardara lake; spray reaches the path.", status: "Wishlist", done: false },
+  { id: "mahabaleshwar", name: "Mahabaleshwar", district: "Satara", priority: "Medium", season: "Oct – Feb", notes: "Arthur's Seat at dawn, strawberries after. Stay outside the market.", status: "Wishlist", done: false },
+  { id: "chikhaldara", name: "Chikhaldara", district: "Amravati", priority: "Low", season: "Nov – Feb", notes: "Vidarbha's only hill station — coffee plantations and empty viewpoints.", status: "Wishlist", done: false },
 ];
 
 export const travelStats = (() => {
@@ -533,7 +549,7 @@ export const travelStats = (() => {
   const recent = [...destinations].sort((a, b) => b.visitedOn.localeCompare(a.visitedOn))[0]!;
   const favourite = [...destinations].sort((a, b) => b.rating - a.rating)[0]!;
   return {
-    trips: destinations.length + 7,
+    trips: destinations.length,
     destinations: destinations.length,
     forts: count("Forts"),
     waterfalls: count("Waterfalls"),

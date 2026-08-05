@@ -26,7 +26,11 @@ export const Route = createFileRoute("/mbbs")({
         property: "og:description",
         content: "Weekly planner, notes library, flashcards and quizzes for MBBS revision.",
       },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://medtrail-sr.lovable.app/mbbs" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
+    links: [{ rel: "canonical", href: "https://medtrail-sr.lovable.app/mbbs" }],
   }),
   component: MbbsHub,
 });

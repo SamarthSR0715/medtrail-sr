@@ -28,7 +28,11 @@ export const Route = createFileRoute("/fitness")({
         property: "og:description",
         content: "Workout logs, BMI calculator, hydration goals and progress charts.",
       },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://medtrail-sr.lovable.app/fitness" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
+    links: [{ rel: "canonical", href: "https://medtrail-sr.lovable.app/fitness" }],
   }),
   component: FitnessTracker,
 });

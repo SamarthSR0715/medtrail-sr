@@ -15,6 +15,7 @@ import { Route as FitnessRouteImport } from './routes/fitness'
 import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as MbbsRouteImport } from './routes/mbbs'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TravelRouteImport } from './routes/travel'
 import { Route as TravelMapRouteImport } from './routes/travel-map'
 import { Route as DestinationsIndexRouteImport } from './routes/destinations.index'
@@ -50,6 +51,11 @@ const PortfolioRoute = PortfolioRouteImport.update({
   path: '/portfolio',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TravelRoute = TravelRouteImport.update({
   id: '/travel',
   path: '/travel',
@@ -78,6 +84,7 @@ export interface FileRoutesByFullPath {
   '/gallery': typeof GalleryRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
   '/destinations/$slug': typeof DestinationsSlugRoute
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/gallery': typeof GalleryRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
   '/destinations/$slug': typeof DestinationsSlugRoute
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/gallery': typeof GalleryRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
   '/destinations/$slug': typeof DestinationsSlugRoute
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/mbbs'
     | '/portfolio'
+    | '/sitemap.xml'
     | '/travel'
     | '/travel-map'
     | '/destinations/$slug'
@@ -129,6 +139,7 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/mbbs'
     | '/portfolio'
+    | '/sitemap.xml'
     | '/travel'
     | '/travel-map'
     | '/destinations/$slug'
@@ -141,6 +152,7 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/mbbs'
     | '/portfolio'
+    | '/sitemap.xml'
     | '/travel'
     | '/travel-map'
     | '/destinations/$slug'
@@ -154,6 +166,7 @@ export interface RootRouteChildren {
   GalleryRoute: typeof GalleryRoute
   MbbsRoute: typeof MbbsRoute
   PortfolioRoute: typeof PortfolioRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TravelRoute: typeof TravelRoute
   TravelMapRoute: typeof TravelMapRoute
   DestinationsSlugRoute: typeof DestinationsSlugRoute
@@ -204,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortfolioRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/travel': {
       id: '/travel'
       path: '/travel'
@@ -242,6 +262,7 @@ const rootRouteChildren: RootRouteChildren = {
   GalleryRoute: GalleryRoute,
   MbbsRoute: MbbsRoute,
   PortfolioRoute: PortfolioRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TravelRoute: TravelRoute,
   TravelMapRoute: TravelMapRoute,
   DestinationsSlugRoute: DestinationsSlugRoute,

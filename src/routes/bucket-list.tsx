@@ -3,26 +3,33 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Check, MapPin } from "lucide-react";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Reveal } from "@/components/site/reveal";
-import { bucketList } from "@/lib/travel-content";
+import { bucketList, realPhotos } from "@/lib/travel-content";
 import { cn } from "@/lib/utils";
+
+const SITE = "https://medtrail-sr.lovable.app";
+const cover = `${SITE}${realPhotos.tikonaPeak}`;
 
 export const Route = createFileRoute("/bucket-list")({
   head: () => ({
     meta: [
-      { title: "Travel Bucket List — Next Sahyadri Treks & Trips | MedTrail" },
+      { title: "Travel Wishlist — Next Sahyadri Treks & Trips | MedTrail" },
       {
         name: "description",
         content:
-          "The upcoming trek and travel wishlist — Kalsubai, Harishchandragad, Andharban, Devkund and more, with seasons, priority and planning notes.",
+          "The upcoming trek and travel wishlist — Kalsubai, Harishchandragad, Sinhagad, Devkund, Mahabaleshwar and more, with best seasons, priority and planning notes.",
       },
-      { property: "og:title", content: "Travel Bucket List — MedTrail" },
+      { property: "og:title", content: "Travel Wishlist — MedTrail" },
       {
         property: "og:description",
         content: "Upcoming Sahyadri treks and trips with best seasons, priority and planning notes.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: `${SITE}/bucket-list` },
+      { property: "og:image", content: cover },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: cover },
     ],
+    links: [{ rel: "canonical", href: `${SITE}/bucket-list` }],
   }),
   component: BucketListPage,
 });
@@ -38,9 +45,9 @@ function BucketListPage() {
       <section className="mx-auto max-w-4xl">
         <SectionHeading
           align="left"
-          eyebrow="Bucket List"
+          eyebrow="Wishlist"
           title={<>What's still on the list.</>}
-          description="Tick one off as it happens — priority, season and the note-to-self for each plan."
+          description="Places not visited yet, so there are no photos or guides for them. Tick one off as it happens — priority, season and the note-to-self for each plan."
         />
 
         <Reveal delay={60} className="mt-8">

@@ -26,6 +26,28 @@ export const Route = createFileRoute("/portfolio")({
         property: "og:description",
         content: "MBBS student, trekker and builder — projects and contact.",
       },
+      { property: "og:type", content: "profile" },
+      { property: "og:url", content: "https://medtrail-sr.lovable.app/portfolio" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+    links: [{ rel: "canonical", href: "https://medtrail-sr.lovable.app/portfolio" }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Person",
+          name: "Samarth Rautrao",
+          jobTitle: "MBBS student",
+          description:
+            "MBBS student, Sahyadri trekker and builder based in Pune, Maharashtra. Creator of MedTrail.",
+          url: "https://medtrail-sr.lovable.app/portfolio",
+          sameAs: [
+            "https://www.instagram.com/samarth_rautrao_07",
+            "https://www.linkedin.com/in/samarth-rautrao-859804411",
+          ],
+        }),
+      },
     ],
   }),
   component: Portfolio,

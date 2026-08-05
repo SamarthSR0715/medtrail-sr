@@ -5,8 +5,11 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Reveal } from "@/components/site/reveal";
 import { DestinationMap } from "@/components/travel/destination-map";
 import { DestinationCard } from "@/components/travel/destination-sections";
-import { categories, destinations, type Category } from "@/lib/travel-content";
+import { categories, destinations, realPhotos, type Category } from "@/lib/travel-content";
 import { cn } from "@/lib/utils";
+
+const SITE = "https://medtrail-sr.lovable.app";
+const cover = `${SITE}${realPhotos.pawnaFromTikona}`;
 
 export const Route = createFileRoute("/travel-map")({
   head: () => ({
@@ -15,7 +18,7 @@ export const Route = createFileRoute("/travel-map")({
       {
         name: "description",
         content:
-          "An interactive clustered map of every trip from Pune — forts, waterfalls, lakes and caves with distances, difficulty and illustrated route cards.",
+          "An interactive clustered map of every completed trip from Pune — Kataldhar, Rajmachi, Visapur, Lohagad, Tikona and Pawna Lake with distances, difficulty and route cards.",
       },
       { property: "og:title", content: "Interactive Travel Map — MedTrail" },
       {
@@ -23,8 +26,12 @@ export const Route = createFileRoute("/travel-map")({
         content: "Clustered map of Sahyadri trips with routes from Pune, distances and difficulty.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: `${SITE}/travel-map` },
+      { property: "og:image", content: cover },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: cover },
     ],
+    links: [{ rel: "canonical", href: `${SITE}/travel-map` }],
   }),
   component: TravelMapPage,
 });

@@ -2,7 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Reveal } from "@/components/site/reveal";
 import { DestinationCard } from "@/components/travel/destination-sections";
-import { destinations } from "@/lib/travel-content";
+import { destinations, realPhotos } from "@/lib/travel-content";
+
+const SITE = "https://medtrail-sr.lovable.app";
+const cover = `${SITE}${realPhotos.kataldharWide}`;
 
 export const Route = createFileRoute("/destinations/")({
   head: () => ({
@@ -11,7 +14,7 @@ export const Route = createFileRoute("/destinations/")({
       {
         name: "description",
         content:
-          "Full destination guides for Kataldhar, Rajmachi, Visapur, Lohagad, Sinhagad, Pawna Lake and Tikona — routes, timelines, budgets, gear lists and safety notes.",
+          "Full destination guides for Kataldhar, Rajmachi, Visapur, Lohagad, Pawna Lake and Tikona — routes, timelines, real budgets, gear lists and safety notes.",
       },
       { property: "og:title", content: "Destination Guides — MedTrail" },
       {
@@ -19,7 +22,27 @@ export const Route = createFileRoute("/destinations/")({
         content: "Route maps, timelines, budgets and gear lists for every Sahyadri trip from Pune.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: `${SITE}/destinations` },
+      { property: "og:image", content: cover },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: cover },
+    ],
+    links: [{ rel: "canonical", href: `${SITE}/destinations` }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          name: "Sahyadri destination guides from Pune",
+          itemListElement: destinations.map((d, i) => ({
+            "@type": "ListItem",
+            position: i + 1,
+            name: d.name,
+            url: `${SITE}/destinations/${d.slug}`,
+          })),
+        }),
+      },
     ],
   }),
   component: DestinationsIndex,

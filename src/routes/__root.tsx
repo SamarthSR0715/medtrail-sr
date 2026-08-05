@@ -96,8 +96,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "MedTrail — Study, Travel & Train in One Place" },
       { name: "twitter:description", content: "A premium personal workspace by Samarth Rautrao: MBBS study hub, Maharashtra travel journal, fitness tracking and portfolio." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c2e79b09-d143-4ea9-a59c-855013b1b0fb/id-preview-244e029f--9a88447a-7703-4572-b880-6651f4ac4c33.lovable.app-1785749557798.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/c2e79b09-d143-4ea9-a59c-855013b1b0fb/id-preview-244e029f--9a88447a-7703-4572-b880-6651f4ac4c33.lovable.app-1785749557798.png" },
+      { property: "og:site_name", content: "MedTrail" },
+      { property: "og:locale", content: "en_IN" },
     ],
     links: [
       {

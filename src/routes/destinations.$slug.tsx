@@ -23,6 +23,8 @@ import {
 } from "@/components/travel/destination-sections";
 import { destinations, getDestination, photos } from "@/lib/travel-content";
 
+const SITE = "https://medtrail-sr.lovable.app";
+
 export const Route = createFileRoute("/destinations/$slug")({
   loader: ({ params }) => {
     const destination = getDestination(params.slug);
@@ -36,6 +38,8 @@ export const Route = createFileRoute("/destinations/$slug")({
     const d = loaderData.destination;
     const title = `${d.name} from Pune — Route, Budget & Trek Guide | MedTrail`;
     const description = `${d.summary.slice(0, 150)}`;
+    const url = `${SITE}/destinations/${d.slug}`;
+    const image = `${SITE}${d.hero}`;
     return {
       meta: [
         { title },
@@ -43,7 +47,84 @@ export const Route = createFileRoute("/destinations/$slug")({
         { property: "og:title", content: `${d.name} — Complete Trip Guide` },
         { property: "og:description", content: description },
         { property: "og:type", content: "article" },
+        { property: "og:url", content: url },
+        { property: "og:image", content: image },
         { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:image", content: image },
+      ],
+      links: [{ rel: "canonical", href: url }],
+      scripts: [
+        {
+          type: "application/ld+json",
+          children: JSON.stringify([
+            {
+              "@context": "https://schema.org",
+              "@type": "TouristAttraction",
+              name: d.name,
+              description: d.summary,
+              url,
+              image,
+              address: {
+                "@type": "PostalAddress",
+                addressLocality: d.district,
+                addressRegion: d.state,
+                addressCountry: "IN",
+              },
+              geo: { "@type": "GeoCoordinates", latitude: d.lat, longitude: d.lng },
+              aggregateRating: {
+                "@type": "AggregateRating",
+                ratingValue: d.rating,
+                bestRating: 5,
+                ratingCount: 1,
+              },
+              touristType: d.categories.join(", "),
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Home", item: `${SITE}/` },
+                { "@type": "ListItem", position: 2, name: "Destinations", item: `${SITE}/destinations` },
+                { "@type": "ListItem", position: 3, name: d.name, item: url },
+              ],
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "FAQPage",
+              mainEntity: [
+                {
+                  "@type": "Question",
+                  name: `How far is ${d.name} from Pune?`,
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: `${d.name} is about ${d.distanceKm} km from Pune and takes ${d.travelTime} to reach.`,
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: `How difficult is the ${d.name} trek?`,
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: `The trek is rated ${d.difficulty}, covering roughly ${d.trekDistanceKm} km and taking ${d.trekTime}, topping out around ${d.elevationM} m.`,
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: `What is the best time to visit ${d.name}?`,
+                  acceptedAnswer: { "@type": "Answer", text: `${d.season}. ${d.weather}` },
+                },
+                {
+                  "@type": "Question",
+                  name: `How much does a trip to ${d.name} cost?`,
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: d.expenses.map((e) => `${e.label}: ${e.amount}`).join(". "),
+                  },
+                },
+              ],
+            },
+          ]),
+        },
       ],
     };
   },

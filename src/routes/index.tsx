@@ -8,23 +8,55 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
-import heroImg from "@/assets/hero.jpg";
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
+import { realPhotos, travelStats } from "@/lib/travel-content";
+
+const SITE = "https://medtrail-sr.lovable.app";
+const heroImg = realPhotos.pawnaFromTikona;
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "MedTrail — Study, Travel & Train in One Place" },
+      { title: "MedTrail — MBBS Study Hub & Sahyadri Travel Journal" },
       {
         name: "description",
         content:
-          "A premium personal workspace by Samarth Rautrao: MBBS study hub, Maharashtra travel journal, fitness tracking and portfolio.",
+          "Samarth Rautrao's personal workspace: an MBBS study hub, a first-hand Maharashtra trek journal with real photos, fitness tracking and portfolio.",
       },
-      { property: "og:title", content: "MedTrail — Study, Travel & Train in One Place" },
+      { property: "og:title", content: "MedTrail — MBBS Study Hub & Sahyadri Travel Journal" },
       {
         property: "og:description",
-        content: "A premium personal workspace by Samarth Rautrao: MBBS study hub, Maharashtra travel journal, fitness tracking and portfolio.",
+        content:
+          "MBBS study tools, real Sahyadri trek guides from Pune, fitness tracking and portfolio — all in one calm workspace.",
+      },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: `${SITE}/` },
+      { property: "og:image", content: `${SITE}${heroImg}` },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: `${SITE}${heroImg}` },
+    ],
+    links: [{ rel: "canonical", href: `${SITE}/` }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: "MedTrail",
+          url: SITE,
+          description:
+            "MBBS study hub, Maharashtra trek journal, fitness tracking and portfolio by Samarth Rautrao.",
+          author: {
+            "@type": "Person",
+            name: "Samarth Rautrao",
+            description: "MBBS student and Sahyadri trekker based in Pune, Maharashtra.",
+            sameAs: [
+              "https://www.instagram.com/samarth_rautrao_07",
+              "https://www.linkedin.com/in/samarth-rautrao-859804411",
+            ],
+          },
+        }),
       },
     ],
   }),
@@ -60,9 +92,9 @@ const pillars = [
 
 const stats = [
   { value: "19", label: "Subjects tracked" },
-  { value: "34", label: "Trails logged" },
+  { value: String(travelStats.destinations), label: "Trips documented" },
+  { value: String(travelStats.photos), label: "Original photos" },
   { value: "412", label: "Workouts done" },
-  { value: "6.2k", label: "Flashcards revised" },
 ];
 
 function Index() {
@@ -71,9 +103,10 @@ function Index() {
       <section className="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem]">
         <img
           src={heroImg}
-          alt="Abstract flowing glass ribbons in teal and amber"
+          alt="Pawna Lake and the Sahyadri ridges seen from the summit of Tikona Fort"
           width={1920}
           height={1088}
+          fetchPriority="high"
           className="h-[78svh] min-h-[520px] w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-transparent" />
