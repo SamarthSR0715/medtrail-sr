@@ -2,7 +2,7 @@
 
 Hey create me a website.
 
-Create a premium Apple-inspired website called "MedTrail". The design should be minimal, elegant, and modern, with glassmorphism cards, smooth scrolling animations, rounded corners, subtle gradients, and a responsive layout. The website should have five sections: Home, MBBS Hub (study planner, notes, flashcards, quizzes), Maharashtra Travel Journal (interactive map with forts, waterfalls, hill stations, budgets, ratings, and photos), Fitness Tracker (workout logs, BMI, hydration, progress charts), and Portfolio (about, certificates, projects, contact). Include dark/light mode, a search bar, modern navigation, beautiful icons, and high-quality UI suitable for desktop, tablet, and mobile.
+Create a premium Apple-inspired website called "MedTrail". The design should be minimal, elegant, smooth and modern, with glassmorphism cards, smooth scrolling animations, rounded corners, subtle gradients, and a responsive layout. The website should have five sections: Home, MBBS Hub (study planner, notes, flashcards, quizzes), Maharashtra Travel Journal (interactive map with forts, waterfalls, hill stations, budgets, ratings, and photos), Fitness Tracker (workout logs, BMI, hydration, progress charts), and Portfolio (about, certificates, projects, contact). Include dark/light mode, a search bar, modern navigation, beautiful icons, and high-quality UI suitable for desktop, tablet, and mobile.
 
 My details:
 
