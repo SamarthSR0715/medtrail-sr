@@ -523,7 +523,7 @@ export type BucketItem = {
   priority: "High" | "Medium" | "Low";
   season: string;
   notes: string;
-  status: "Planned" | "Researching" | "Booked";
+  status: "Planned" | "Researching" | "Booked" | "Wishlist";
   done: boolean;
 };
 
@@ -536,6 +536,11 @@ export const bucketList: BucketItem[] = [
   { id: "torna", name: "Torna Fort", district: "Pune", priority: "Medium", season: "Oct – Feb", notes: "Shivaji's first fort — long ridge walk.", status: "Researching", done: false },
   { id: "ajanta", name: "Ajanta & Ellora Caves", district: "Aurangabad", priority: "Low", season: "Nov – Feb", notes: "Two full days, hire an official guide.", status: "Planned", done: false },
   { id: "tarkarli", name: "Tarkarli Beach", district: "Sindhudurg", priority: "Medium", season: "Nov – Mar", notes: "Scuba diving and Sindhudurg fort by boat.", status: "Planned", done: false },
+  { id: "sinhagad", name: "Sinhagad Fort", district: "Pune", priority: "High", season: "Jul – Feb", notes: "Metro to Swargate, PMPML bus to Donje Phata, 2.5 km historic trail. Pitla-bhakri at the top.", status: "Wishlist", done: false },
+  { id: "thoseghar", name: "Thoseghar Falls", district: "Satara", priority: "Medium", season: "Jul – Sep", notes: "Peak roar in late July — reach the viewing deck before 10am.", status: "Wishlist", done: false },
+  { id: "randha", name: "Randha Falls", district: "Ahmednagar", priority: "Low", season: "Jul – Sep", notes: "Pair it with Bhandardara lake; spray reaches the path.", status: "Wishlist", done: false },
+  { id: "mahabaleshwar", name: "Mahabaleshwar", district: "Satara", priority: "Medium", season: "Oct – Feb", notes: "Arthur's Seat at dawn, strawberries after. Stay outside the market.", status: "Wishlist", done: false },
+  { id: "chikhaldara", name: "Chikhaldara", district: "Amravati", priority: "Low", season: "Nov – Feb", notes: "Vidarbha's only hill station — coffee plantations and empty viewpoints.", status: "Wishlist", done: false },
 ];
 
 export const travelStats = (() => {
@@ -544,7 +549,7 @@ export const travelStats = (() => {
   const recent = [...destinations].sort((a, b) => b.visitedOn.localeCompare(a.visitedOn))[0]!;
   const favourite = [...destinations].sort((a, b) => b.rating - a.rating)[0]!;
   return {
-    trips: destinations.length + 7,
+    trips: destinations.length,
     destinations: destinations.length,
     forts: count("Forts"),
     waterfalls: count("Waterfalls"),
