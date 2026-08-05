@@ -1,16 +1,29 @@
-import fortImg from "@/assets/fort.jpg";
-import waterfallImg from "@/assets/waterfall.jpg";
-import hillImg from "@/assets/hillstation.jpg";
-import heroImg from "@/assets/hero.jpg";
-import templeImg from "@/assets/temple.jpg";
-import beachImg from "@/assets/beach.jpg";
-import campingImg from "@/assets/camping.jpg";
-import cavesImg from "@/assets/caves.jpg";
 import routeKataldhar from "@/assets/routes/route-0281.jpg.asset.json";
 import routeVisapur from "@/assets/routes/route-0282.jpg.asset.json";
-import routeSinhagad from "@/assets/routes/route-0283.jpg.asset.json";
 import routePawna from "@/assets/routes/route-0284.jpg.asset.json";
 import routeTikona from "@/assets/routes/route-0285.jpg.asset.json";
+import kataldharWide from "@/assets/photos-0286.jpg.asset.json";
+import kataldharDrops from "@/assets/photos-0287.jpg.asset.json";
+import tikonaPeak from "@/assets/photos-0288.jpg.asset.json";
+import tikonaSummit from "@/assets/photos-0289.jpg.asset.json";
+import pawnaTent from "@/assets/photos-0290.jpg.asset.json";
+import pawnaEvening from "@/assets/photos-0291.jpg.asset.json";
+import pawnaFromTikona from "@/assets/photos-0292.jpg.asset.json";
+import lonavalaBhutta from "@/assets/photos-0293.jpg.asset.json";
+import bhajeCaves from "@/assets/photos-0294.jpg.asset.json";
+
+/** Real, unedited photographs shot on the trips themselves. */
+export const realPhotos = {
+  kataldharWide: kataldharWide.url,
+  kataldharDrops: kataldharDrops.url,
+  tikonaPeak: tikonaPeak.url,
+  tikonaSummit: tikonaSummit.url,
+  pawnaTent: pawnaTent.url,
+  pawnaEvening: pawnaEvening.url,
+  pawnaFromTikona: pawnaFromTikona.url,
+  lonavalaBhutta: lonavalaBhutta.url,
+  bhajeCaves: bhajeCaves.url,
+} as const;
 
 export const categories = [
   "Forts",
