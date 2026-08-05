@@ -1,3 +1,6 @@
+import tikonaSummit from "@/assets/photos-0289.jpg"
+import tikonapeak from "@/assets/photos-0288.jpg";
+import bhajeCaves from "@/assets/photos-0294.jpg";
 import routeKataldhar from "@/assets/routes/route-0281.jpg";
 import routeVisapur from "@/assets/routes/route-0282.jpg";
 import routePawna from "@/assets/routes/route-0284.jpg";
