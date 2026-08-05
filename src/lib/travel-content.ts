@@ -1,28 +1,28 @@
-import routeKataldhar from "@/assets/routes/route-0281.jpg.asset.json";
-import routeVisapur from "@/assets/routes/route-0282.jpg.asset.json";
-import routePawna from "@/assets/routes/route-0284.jpg.asset.json";
-import routeTikona from "@/assets/routes/route-0285.jpg.asset.json";
-import kataldharWide from "@/assets/photos-0286.jpg.asset.json";
-import kataldharDrops from "@/assets/photos-0287.jpg.asset.json";
-import tikonaPeak from "@/assets/photos-0288.jpg.asset.json";
-import tikonaSummit from "@/assets/photos-0289.jpg.asset.json";
-import pawnaTent from "@/assets/photos-0290.jpg.asset.json";
-import pawnaEvening from "@/assets/photos-0291.jpg.asset.json";
-import pawnaFromTikona from "@/assets/photos-0292.jpg.asset.json";
-import lonavalaBhutta from "@/assets/photos-0293.jpg.asset.json";
-import bhajeCaves from "@/assets/photos-0294.jpg.asset.json";
+import routeKataldhar from "@/assets/routes/route-0281.jpg";
+import routeVisapur from "@/assets/routes/route-0282.jpg";
+import routePawna from "@/assets/routes/route-0284.jpg";
+import routeTikona from "@/assets/routes/route-0285.jpg";
+import kataldharWide from "@/assets/photos-0286.jpg";
+import kataldharDrops from "@/assets/photos-0287.jpg";
+import tikonaPeak from "@/assets/photos-0288.jpg";
+import tikonaSummit from "@/assets/photos-0289.jpg";
+import pawnaTent from "@/assets/photos-0290.jpg";
+import pawnaEvening from "@/assets/photos-0291.jpg";
+import pawnaFromTikona from "@/assets/photos-0292.jpg";
+import lonavalaBhutta from "@/assets/photos-0293.jpg";
+import bhajeCaves from "@/assets/photos-0294.jpg";
 
 /** Real, unedited photographs shot on the trips themselves. */
 export const realPhotos = {
-  kataldharWide: kataldharWide.url,
-  kataldharDrops: kataldharDrops.url,
-  tikonaPeak: tikonaPeak.url,
-  tikonaSummit: tikonaSummit.url,
-  pawnaTent: pawnaTent.url,
-  pawnaEvening: pawnaEvening.url,
-  pawnaFromTikona: pawnaFromTikona.url,
-  lonavalaBhutta: lonavalaBhutta.url,
-  bhajeCaves: bhajeCaves.url,
+  kataldharWide,
+  kataldharDrops,
+  tikonaPeak,
+  tikonaSummit,
+  pawnaTent,
+  pawnaEvening,
+  pawnaFromTikona,
+  lonavalaBhutta,
+  bhajeCaves,
 } as const;
 
 export const categories = [
@@ -114,7 +114,7 @@ export const destinations: Destination[] = [
     state: "Maharashtra",
     categories: ["Waterfalls", "Forts", "Trekking", "Nature"],
     hero: realPhotos.kataldharWide,
-    routeMap: routeKataldhar.url,
+    routeMap: routeKataldhar,
     lat: 18.8291,
     lng: 73.4285,
     distanceKm: 68,
@@ -188,7 +188,7 @@ export const destinations: Destination[] = [
     state: "Maharashtra",
     categories: ["Forts", "Trekking", "Caves", "Waterfalls"],
     hero: realPhotos.bhajeCaves,
-    routeMap: routeVisapur.url,
+    routeMap: routeVisapur,
     lat: 18.7128,
     lng: 73.4831,
     distanceKm: 62,
@@ -262,7 +262,7 @@ export const destinations: Destination[] = [
     state: "Maharashtra",
     categories: ["Camping", "Nature"],
     hero: realPhotos.pawnaTent,
-    routeMap: routePawna.url,
+    routeMap: routePawna,
     lat: 18.6489,
     lng: 73.4869,
     distanceKm: 65,
@@ -335,7 +335,7 @@ export const destinations: Destination[] = [
     state: "Maharashtra",
     categories: ["Forts", "Trekking", "Caves", "Temples"],
     hero: realPhotos.tikonaPeak,
-    routeMap: routeTikona.url,
+    routeMap: routeTikona,
     lat: 18.6167,
     lng: 73.5,
     distanceKm: 29,
