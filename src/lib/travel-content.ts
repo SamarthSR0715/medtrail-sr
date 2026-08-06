@@ -527,6 +527,74 @@ export const photos: Photo[] = [
     tags: ["Caves", "Temples", "Trekking"],
     cover: true,
   },
+  {
+    id: "sinhagad-relief",
+    src: realPhotos.sinhagadRelief,
+    destination: "Sinhagad Fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2026-01-18",
+    caption:
+      "Bronze relief mural at Sinhagad Fort showing Chhatrapati Shivaji Maharaj holding court while the battle for the fort unfolds around the durbar.",
+    tags: ["Forts", "Temples", "Trekking"],
+    cover: true,
+  },
+  {
+    id: "sinhagad-warriors",
+    src: realPhotos.sinhagadWarriors,
+    destination: "Sinhagad Fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2026-01-18",
+    caption:
+      "Golden Maratha warrior statues mid-charge in the memorial garden at Sinhagad Fort, with the Sahyadri treeline behind them.",
+    tags: ["Forts", "Nature", "Trekking"],
+  },
+  {
+    id: "sinhagad-route-map",
+    src: realPhotos.routeSinhagad,
+    destination: "Sinhagad Fort — Route Map",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2026-01-18",
+    caption:
+      "My own route map for Pune to Sinhagad Fort — Pune Station, metro to Swargate, PMPML bus to Donje Phata, then the 2.5 km historic trail, with costs and quick info.",
+    tags: ["Forts", "Trekking"],
+  },
+  {
+    id: "hidden-waterfall",
+    src: realPhotos.hiddenWaterfall,
+    destination: "Hidden Waterfall (Kanhe – Khandi)",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-20",
+    caption:
+      "A hidden two-tier waterfall on the Kanhe–Khandi monsoon route, dropping into flooded paddy terraces that mirror the fall.",
+    tags: ["Waterfalls", "Nature"],
+    cover: true,
+  },
+  {
+    id: "hidden-waterfall-maggi",
+    src: realPhotos.hiddenWaterfallMaggi,
+    destination: "Hidden Waterfall (Kanhe – Khandi)",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-20",
+    caption:
+      "Hot maggi cooked on the trail with the hidden Kanhe–Khandi waterfall in the frame — the best monsoon breakfast spot of the season.",
+    tags: ["Waterfalls", "Nature", "Camping"],
+  },
+  {
+    id: "kanhe-khandi-route-map",
+    src: realPhotos.routeKanheKhandi,
+    destination: "Hidden Waterfall — Route Map",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-20",
+    caption:
+      "My own Kanhe to Khandi monsoon drive map — 70–75 km from Pune via NH48 past Vadeshwar, Muli, Jugjur, Lahivadi and Bardenwad waterfalls to Khandi Point.",
+    tags: ["Waterfalls", "Nature"],
+  },
 ];
 
 export type BucketItem = {
