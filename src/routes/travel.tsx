@@ -7,23 +7,25 @@ import { DestinationCard } from "@/components/travel/destination-sections";
 import { PhotoGallery } from "@/components/travel/photo-gallery";
 import { bucketList, destinations, photos, realPhotos, travelStats } from "@/lib/travel-content";
 
-const SITE = "https://medtrail-sr.lovable.app";
+const SITE = "https://medtrailsr.in";
 const heroPhoto = `${SITE}${realPhotos.pawnaFromTikona}`;
 
 export const Route = createFileRoute("/travel")({
   head: () => ({
     meta: [
-      { title: "Maharashtra Travel Journal — Real Trek Guides from Pune | MedTrail" },
+      { title: "Weekend gateways near pune mumbai|sahydari Treks|MedtrailSR" },
       {
         name: "description",
         content:
-          "First-hand Sahyadri travel journal from Pune: Kataldhar, Rajmachi, Visapur, Lohagad, Tikona and Pawna Lake with real photos, routes, costs and field notes.",
+          "Discover weekend getaways near Pune and Mumbai, Sahyadri treks, forts, waterfalls, nature trails, Lonavala trips, and real travel guides with photos by MedTrailsR.",
+},.",
       },
-      { property: "og:title", content: "Maharashtra Travel Journal — Real Trek Guides from Pune" },
+      { property: "og:title", content: "Weekend Gateway near pune & mumbai| MedtrailSR" },
       {
         property: "og:description",
         content:
-          "Four completed Sahyadri trips documented with original photographs, hour-by-hour routes and real per-person budgets.",
+          "content:
+"Explore Sahyadri treks, weekend trips, forts, waterfalls and nature trails around Pune, Mumbai and Maharashtra with original photos and detailed travel guides.",
       },
       { property: "og:type", content: "website" },
       { property: "og:url", content: `${SITE}/travel` },
@@ -38,9 +40,9 @@ export const Route = createFileRoute("/travel")({
         children: JSON.stringify({
           "@context": "https://schema.org",
           "@type": "CollectionPage",
-          name: "Maharashtra Travel Journal",
+          name: "Weekend Gateway near Pune and Mumbai",
           description:
-            "First-hand Sahyadri trek and travel guides from Pune with original photographs, routes and budgets.",
+"Collection of Sahyadri trekking guides, weekend getaways, forts, waterfalls, camping destinations and nature trails in Maharashtra.",
           url: `${SITE}/travel`,
           hasPart: destinations.map((d) => ({
             "@type": "TouristAttraction",
@@ -78,8 +80,8 @@ function TravelJournal() {
         <SectionHeading
           align="left"
           eyebrow="Travel Journal"
-          title={<>Maharashtra, one ridge at a time.</>}
-          description="Every trip below was actually done — the photographs are mine, the timings are what the day really took and the budgets are what it really cost."
+          title={<>Weekend gateway near pune mumbai and maharashtra</>}
+          description="Explore real trekking guides, forts, waterfalls, nature trails, camping destinations and weekend trips across the Sahyadris with original photos and practical travel information."
         />
 
         <Reveal delay={40} className="mt-8">
