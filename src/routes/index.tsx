@@ -18,11 +18,11 @@ const heroImg = realPhotos.pawnaFromTikona;
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "MedTrailSR| MBBS Study hub & Weekend gateways Near Pune and Mumbai",},
+      { title: "MedTrailSR| MBBS Study hub & Weekend gateways Near Pune and Mumbai"},
       {
         name: "description",
         content:
-          "MedTrailSR helps MBBS students discover study resources, Sahyadri treks, nature trails, forts, waterfalls, and budget-friendly weekend getaways across Pune, Mumbai, Lonavala, and Maharashtra.",
+          "MedTrailSR helps MBBS students discover study resources, Sahyadri treks, nature trails, forts, waterfalls, and budget-friendly weekend getaways across Pune, Mumbai, Lonavala, and Maharashtra.",},
 
     
       { property: "og:title", content: "MedTrailSR| MBBS Study Hub and Weekend Getaways Near Pune and Mumbai", },
