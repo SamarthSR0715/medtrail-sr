@@ -3,6 +3,8 @@ import routeKataldhar from "@/assets/routes/route-0281.jpg";
 import routeVisapur from "@/assets/routes/route-0282.jpg";
 import routePawna from "@/assets/routes/route-0284.jpg";
 import routeTikona from "@/assets/routes/route-0285.jpg";
+import routeSinhagadAsset from "@/assets/routes/route-0283.jpg.asset.json";
+import routeKanheKhandiAsset from "@/assets/routes/route-0297.jpg.asset.json";
 import kataldharWide from "@/assets/photos-0286.jpg";
 import kataldharDrops from "@/assets/photos-0287.jpg";
 import tikonaPeak from "@/assets/photos-0288.jpg";
@@ -12,6 +14,10 @@ import pawnaEvening from "@/assets/photos-0291.jpg";
 import pawnaFromTikona from "@/assets/photos-0292.jpg";
 import lonavalaBhutta from "@/assets/photos-0293.jpg";
 import bhajeCaves from "@/assets/photos-0294.jpg";
+import sinhagadReliefAsset from "@/assets/photos-0295.jpg.asset.json";
+import sinhagadWarriorsAsset from "@/assets/photos-0296.jpg.asset.json";
+import hiddenWaterfallAsset from "@/assets/photos-0298.jpg.asset.json";
+import hiddenWaterfallMaggiAsset from "@/assets/photos-0299.jpg.asset.json";
 
 /** Real, unedited photographs shot on the trips themselves. */
 export const realPhotos = {
@@ -24,6 +30,12 @@ export const realPhotos = {
   pawnaFromTikona,
   lonavalaBhutta,
   bhajeCaves,
+  sinhagadRelief: sinhagadReliefAsset.url,
+  sinhagadWarriors: sinhagadWarriorsAsset.url,
+  hiddenWaterfall: hiddenWaterfallAsset.url,
+  hiddenWaterfallMaggi: hiddenWaterfallMaggiAsset.url,
+  routeSinhagad: routeSinhagadAsset.url,
+  routeKanheKhandi: routeKanheKhandiAsset.url,
 } as const;
 
 export const categories = [
@@ -515,6 +527,74 @@ export const photos: Photo[] = [
     tags: ["Caves", "Temples", "Trekking"],
     cover: true,
   },
+  {
+    id: "sinhagad-relief",
+    src: realPhotos.sinhagadRelief,
+    destination: "Sinhagad Fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2026-01-18",
+    caption:
+      "Bronze relief mural at Sinhagad Fort showing Chhatrapati Shivaji Maharaj holding court while the battle for the fort unfolds around the durbar.",
+    tags: ["Forts", "Temples", "Trekking"],
+    cover: true,
+  },
+  {
+    id: "sinhagad-warriors",
+    src: realPhotos.sinhagadWarriors,
+    destination: "Sinhagad Fort",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2026-01-18",
+    caption:
+      "Golden Maratha warrior statues mid-charge in the memorial garden at Sinhagad Fort, with the Sahyadri treeline behind them.",
+    tags: ["Forts", "Nature", "Trekking"],
+  },
+  {
+    id: "sinhagad-route-map",
+    src: realPhotos.routeSinhagad,
+    destination: "Sinhagad Fort — Route Map",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2026-01-18",
+    caption:
+      "My own route map for Pune to Sinhagad Fort — Pune Station, metro to Swargate, PMPML bus to Donje Phata, then the 2.5 km historic trail, with costs and quick info.",
+    tags: ["Forts", "Trekking"],
+  },
+  {
+    id: "hidden-waterfall",
+    src: realPhotos.hiddenWaterfall,
+    destination: "Hidden Waterfall (Kanhe – Khandi)",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-20",
+    caption:
+      "A hidden two-tier waterfall on the Kanhe–Khandi monsoon route, dropping into flooded paddy terraces that mirror the fall.",
+    tags: ["Waterfalls", "Nature"],
+    cover: true,
+  },
+  {
+    id: "hidden-waterfall-maggi",
+    src: realPhotos.hiddenWaterfallMaggi,
+    destination: "Hidden Waterfall (Kanhe – Khandi)",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-20",
+    caption:
+      "Hot maggi cooked on the trail with the hidden Kanhe–Khandi waterfall in the frame — the best monsoon breakfast spot of the season.",
+    tags: ["Waterfalls", "Nature", "Camping"],
+  },
+  {
+    id: "kanhe-khandi-route-map",
+    src: realPhotos.routeKanheKhandi,
+    destination: "Hidden Waterfall — Route Map",
+    district: "Pune",
+    state: "Maharashtra",
+    date: "2025-07-20",
+    caption:
+      "My own Kanhe to Khandi monsoon drive map — 70–75 km from Pune via NH48 past Vadeshwar, Muli, Jugjur, Lahivadi and Bardenwad waterfalls to Khandi Point.",
+    tags: ["Waterfalls", "Nature"],
+  },
 ];
 
 export type BucketItem = {
@@ -537,7 +617,6 @@ export const bucketList: BucketItem[] = [
   { id: "torna", name: "Torna Fort", district: "Pune", priority: "Medium", season: "Oct – Feb", notes: "Shivaji's first fort — long ridge walk.", status: "Researching", done: false },
   { id: "ajanta", name: "Ajanta & Ellora Caves", district: "Aurangabad", priority: "Low", season: "Nov – Feb", notes: "Two full days, hire an official guide.", status: "Planned", done: false },
   { id: "tarkarli", name: "Tarkarli Beach", district: "Sindhudurg", priority: "Medium", season: "Nov – Mar", notes: "Scuba diving and Sindhudurg fort by boat.", status: "Planned", done: false },
-  { id: "sinhagad", name: "Sinhagad Fort", district: "Pune", priority: "High", season: "Jul – Feb", notes: "Metro to Swargate, PMPML bus to Donje Phata, 2.5 km historic trail. Pitla-bhakri at the top.", status: "Wishlist", done: false },
   { id: "thoseghar", name: "Thoseghar Falls", district: "Satara", priority: "Medium", season: "Jul – Sep", notes: "Peak roar in late July — reach the viewing deck before 10am.", status: "Wishlist", done: false },
   { id: "randha", name: "Randha Falls", district: "Ahmednagar", priority: "Low", season: "Jul – Sep", notes: "Pair it with Bhandardara lake; spray reaches the path.", status: "Wishlist", done: false },
   { id: "mahabaleshwar", name: "Mahabaleshwar", district: "Satara", priority: "Medium", season: "Oct – Feb", notes: "Arthur's Seat at dawn, strawberries after. Stay outside the market.", status: "Wishlist", done: false },
