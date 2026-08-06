@@ -18,13 +18,12 @@ export const Route = createFileRoute("/travel")({
         name: "description",
         content:
           "Discover weekend getaways near Pune and Mumbai, Sahyadri treks, forts, waterfalls, nature trails, Lonavala trips, and real travel guides with photos by MedTrailsR.",
-},.",
-      },
+},
+      
       { property: "og:title", content: "Weekend Gateway near pune & mumbai| MedtrailSR" },
       {
         property: "og:description",
         content:
-          "content:
 "Explore Sahyadri treks, weekend trips, forts, waterfalls and nature trails around Pune, Mumbai and Maharashtra with original photos and detailed travel guides.",
       },
       { property: "og:type", content: "website" },
