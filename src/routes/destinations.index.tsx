@@ -10,11 +10,10 @@ const cover = `${SITE}${realPhotos.kataldharWide}`;
 export const Route = createFileRoute("/destinations/")({
   head: () => ({
     meta: [
-      { title: "Sahydari Trek guides, Forts and Weekend Destination Near Pune|MedtrailSR" },
+      { title: "Sahydari Trek guides, Forts and Weekend Destination Near Pune|MedtrailSR"},
       {
         name: "description",
         content:
-          "{
     "Explore detailed guides for Tikona Fort, Lohagad, Visapur, Rajmachi, Pawna Lake, Kataldhar Waterfall and other Sahyadri destinations with routes, maps, budgets and travel tips.",
 },
       
