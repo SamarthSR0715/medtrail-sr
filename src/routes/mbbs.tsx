@@ -15,22 +15,22 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/mbbs")({
   head: () => ({
     meta: [
-      { title: "MBBS Hub — Planner, Notes, Flashcards & Quizzes | MedTrail" },
+      { title: "MBBS Study Hub| Study Planner, Notes, Flashcards & MCQ | MedTrailSR" },
       {
         name: "description",
         content:
-          "A focused MBBS workspace: weekly study planner, subject notes library, flashcard revision and self-scored quizzes.",
+          "MedtrailSR MBBS Sudy Hub offers study planner, subject notes library, flashcard revision and self-scored MCQ,Revision tools and resource to help medical tudents prepare ectively.",
       },
-      { property: "og:title", content: "MBBS Hub — Planner, Notes, Flashcards & Quizzes" },
+      { property: "og:title", content: "MBBS Study Hub|Planner, Notes, Flashcards & McQ|MedtrailSR" },
       {
         property: "og:description",
-        content: "Weekly planner, notes library, flashcards and quizzes for MBBS revision.",
+        content: "Study Anatomy,Physiology,Biochemitry and oter MBBS Subjectsusing planner, notes library, flashcards and quizzes for MBBS revision.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:url", content: "https://medtrail-sr.lovable.app/mbbs" },
+      { property: "og:url", content: "https://medtrailsr.in/mbbs" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
-    links: [{ rel: "canonical", href: "https://medtrail-sr.lovable.app/mbbs" }],
+    links: [{ rel: "canonical", href: "https://medtrailsr.in/mbbs" }],
   }),
   component: MbbsHub,
 });
@@ -106,8 +106,8 @@ function MbbsHub() {
         <SectionHeading
           align="left"
           eyebrow="MBBS Hub"
-          title={<>Study deep, revise often, forget less.</>}
-          description="A planner that respects energy levels, notes you can actually find, and revision that fits between clinics."
+          title={<>MBBS Study Hub</>}
+          description=" Orginise your MBBS Studies With a planner, revision notes, flashds and mcq study resource designed for mbbs students."
         />
 
         <Reveal delay={100} className="mt-10">
