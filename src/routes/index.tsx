@@ -12,24 +12,24 @@ import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { realPhotos, travelStats } from "@/lib/travel-content";
 
-const SITE = "https://medtrail-sr.lovable.app";
+const SITE = "https://medtrailsr.in";
 const heroImg = realPhotos.pawnaFromTikona;
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "MedTrail — MBBS Study Hub & Sahyadri Travel Journal" },
+      { title: "MedTrailSR| MBBS Study hub & Weekend gateways Near Pune and Mumbai",},
       {
         name: "description",
         content:
-          "Samarth Rautrao's personal workspace: an MBBS study hub, a first-hand Maharashtra trek journal with real photos, fitness tracking and portfolio.",
-      },
-      { property: "og:title", content: "MedTrail — MBBS Study Hub & Sahyadri Travel Journal" },
+          "MedTrailSR helps MBBS students discover study resources, Sahyadri treks, nature trails, forts, waterfalls, and budget-friendly weekend getaways across Pune, Mumbai, Lonavala, and Maharashtra.",
+
+    
+      { property: "og:title", content: "MedTrailSR| MBBS Study Hub and Weekend Getaways Near Pune and Mumbai", },
       {
         property: "og:description",
         content:
-          "MBBS study tools, real Sahyadri trek guides from Pune, fitness tracking and portfolio — all in one calm workspace.",
-      },
+          "MedtrailSR| is a platform for MBBS students featuring Study respurces,Sahyadri trekking guides,weekend gateways,fitness tracking, and student life across Maharashtra",},
       { property: "og:type", content: "website" },
       { property: "og:url", content: `${SITE}/` },
       { property: "og:image", content: `${SITE}${heroImg}` },
@@ -46,11 +46,11 @@ export const Route = createFileRoute("/")({
           name: "MedTrail",
           url: SITE,
           description:
-            "MBBS study hub, Maharashtra trek journal, fitness tracking and portfolio by Samarth Rautrao.",
+            "MedtrailSR is a platform for MBBS Students featuring Study resources,Sahyadri trekking guides,weekend gateways, fitness and student lifestyle in Maharashtra",
           author: {
             "@type": "Person",
             name: "Samarth Rautrao",
-            description: "MBBS student and Sahyadri trekker based in Pune, Maharashtra.",
+            description: "Founder of MedtrailSR,Sharing MBBS Study resources,Sahyadri travel experiences, fitness,and student lifestyle.",
             sameAs: [
               "https://www.instagram.com/samarth_rautrao_07",
               "https://www.linkedin.com/in/samarth-rautrao-859804411",
