@@ -14,10 +14,10 @@ import pawnaEvening from "@/assets/photos-0291.jpg";
 import pawnaFromTikona from "@/assets/photos-0292.jpg";
 import lonavalaBhutta from "@/assets/photos-0293.jpg";
 import bhajeCaves from "@/assets/photos-0294.jpg";
-import sinhagadReliefAsset from "@/assets/photos-0295.jpg.asset.json";
-import sinhagadWarriorsAsset from "@/assets/photos-0296.jpg.asset.json";
-import hiddenWaterfallAsset from "@/assets/photos-0298.jpg.asset.json";
-import hiddenWaterfallMaggiAsset from "@/assets/photos-0299.jpg.asset.json";
+import sinhagadReliefAsset from "@/assets/photos-0295.jpg";
+import sinhagadWarriorsAsset from "@/assets/photos-0296.jpg";
+import hiddenWaterfallAsset from "@/assets/photos-0298.jpg";
+import hiddenWaterfallMaggiAsset from "@/assets/photos-0299.jpg";
 
 /** Real, unedited photographs shot on the trips themselves. */
 export const realPhotos = {
@@ -30,12 +30,12 @@ export const realPhotos = {
   pawnaFromTikona,
   lonavalaBhutta,
   bhajeCaves,
-  sinhagadRelief: sinhagadReliefAsset.url,
-  sinhagadWarriors: sinhagadWarriorsAsset.url,
-  hiddenWaterfall: hiddenWaterfallAsset.url,
-  hiddenWaterfallMaggi: hiddenWaterfallMaggiAsset.url,
-  routeSinhagad: routeSinhagadAsset.url,
-  routeKanheKhandi: routeKanheKhandiAsset.url,
+  sinhagadRelief,
+  sinhagadWarriors,
+  hiddenWaterfall,
+  hiddenWaterfallMaggi,
+  routeSinhagad,
+  routeKanheKhandi,
 } as const;
 
 export const categories = [
