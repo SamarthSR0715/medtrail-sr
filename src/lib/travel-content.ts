@@ -3,6 +3,8 @@ import routeKataldhar from "@/assets/routes/route-0281.jpg";
 import routeVisapur from "@/assets/routes/route-0282.jpg";
 import routePawna from "@/assets/routes/route-0284.jpg";
 import routeTikona from "@/assets/routes/route-0285.jpg";
+import routeSinhagad from "@/assets/routes/route-0283.jpg";
+import routeKanheKhandi from "@/assets/routes/route-0297.jpg";
 import kataldharWide from "@/assets/photos-0286.jpg";
 import kataldharDrops from "@/assets/photos-0287.jpg";
 import tikonaPeak from "@/assets/photos-0288.jpg";
@@ -12,6 +14,10 @@ import pawnaEvening from "@/assets/photos-0291.jpg";
 import pawnaFromTikona from "@/assets/photos-0292.jpg";
 import lonavalaBhutta from "@/assets/photos-0293.jpg";
 import bhajeCaves from "@/assets/photos-0294.jpg";
+import sinhagadRelief from "@/assets/photos-0295.jpg";
+import sinhagadWarriors from "@/assets/photos-0296.jpg";
+import hiddenWaterfall from "@/assets/photos-0298.jpg";
+import hiddenWaterfallMaggi from "@/assets/photos-0299.jpg";
 
 /** Real, unedited photographs shot on the trips themselves. */
 export const realPhotos = {
@@ -24,6 +30,12 @@ export const realPhotos = {
   pawnaFromTikona,
   lonavalaBhutta,
   bhajeCaves,
+  sinhagadRelief,
+  sinhagadWarriors,
+  hiddenWaterfall,
+  hiddenWaterfallMaggi,
+  routeSinhagad,
+  routeKanheKhandi,
 } as const;
 
 export const categories = [
