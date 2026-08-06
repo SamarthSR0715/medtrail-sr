@@ -4,22 +4,25 @@ import { Reveal } from "@/components/site/reveal";
 import { DestinationCard } from "@/components/travel/destination-sections";
 import { destinations, realPhotos } from "@/lib/travel-content";
 
-const SITE = "https://medtrail-sr.lovable.app";
+const SITE = "https://medtrailsr.in";
 const cover = `${SITE}${realPhotos.kataldharWide}`;
 
 export const Route = createFileRoute("/destinations/")({
   head: () => ({
     meta: [
-      { title: "Destination Guides — Detailed Trip Plans from Pune | MedTrail" },
+      { title: "Sahydari Trek guides, Forts and Weekend Destination Near Pune|MedtrailSR" },
       {
         name: "description",
         content:
-          "Full destination guides for Kataldhar, Rajmachi, Visapur, Lohagad, Pawna Lake and Tikona — routes, timelines, real budgets, gear lists and safety notes.",
-      },
-      { property: "og:title", content: "Destination Guides — MedTrail" },
+          "{
+    "Explore detailed guides for Tikona Fort, Lohagad, Visapur, Rajmachi, Pawna Lake, Kataldhar Waterfall and other Sahyadri destinations with routes, maps, budgets and travel tips.",
+},
+      
+      { property: "og:title", content: "Sahydari Trek and Destination guides|MedTrailSR" },
       {
         property: "og:description",
-        content: "Route maps, timelines, budgets and gear lists for every Sahyadri trip from Pune.",
+        content: 
+"Explore detailed trekking guides, forts, waterfalls, camping spots and weekend destinations near Pune, Mumbai and Maharashtra.",
       },
       { property: "og:type", content: "website" },
       { property: "og:url", content: `${SITE}/destinations` },
@@ -34,7 +37,7 @@ export const Route = createFileRoute("/destinations/")({
         children: JSON.stringify({
           "@context": "https://schema.org",
           "@type": "ItemList",
-          name: "Sahyadri destination guides from Pune",
+          name: "Sahyadri Trek & Destination Guides",
           itemListElement: destinations.map((d, i) => ({
             "@type": "ListItem",
             position: i + 1,
@@ -55,8 +58,8 @@ function DestinationsIndex() {
         <SectionHeading
           align="left"
           eyebrow="Destinations"
-          title={<>Guides, not just galleries.</>}
-          description="Each guide carries the route card, a stop-by-stop timeline, real costs, gear lists and the things nobody tells you before the climb."
+          title={<>Sahydari Trek & Destination Guide.</>}
+          description="Find detailed travel guides for forts, waterfalls, camping spots and weekend getaways across Maharashtra. Every guide includes routes, timings, budgets, safety tips and original photographs."
         />
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {destinations.map((d, i) => (
