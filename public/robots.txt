@@ -25,4 +25,4 @@ Allow: /
 User-agent: Google-Extended
 Allow: /
 
-Sitemap: https://medtrail-sr.lovable.app/sitemap.xml
+Sitemap: https://medtrailsr.in/sitemap.xml
