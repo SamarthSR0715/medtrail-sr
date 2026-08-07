@@ -30,12 +30,12 @@ export const realPhotos = {
   pawnaFromTikona,
   lonavalaBhutta,
   bhajeCaves,
-  sinhagadRelief,
-  sinhagadWarriors,
-  hiddenWaterfall,
-  hiddenWaterfallMaggi,
-  routeSinhagad,
-  routeKanheKhandi,
+  sinhagadRelief: sinhagadReliefAsset,
+  sinhagadWarriors: sinhagadWarriorsAsset,
+  hiddenWaterfall: hiddenWaterfallAsset,
+  hiddenWaterfallMaggi: hiddenWaterfallMaggiAsset,
+  routeSinhagad: routeSinhagadAsset,
+  routeKanheKhandi: routeKanheKhandiAsset,
 } as const;
 
 export const categories = [
