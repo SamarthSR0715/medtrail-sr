@@ -12,7 +12,7 @@ import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { realPhotos, travelStats } from "@/lib/travel-content";
 
-const SITE = "https://medtrailsr.in";
+const SITE = "https://medtrail-sr.lovable.app";
 const heroImg = realPhotos.pawnaFromTikona;
 
 export const Route = createFileRoute("/")({

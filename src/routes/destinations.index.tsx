@@ -4,7 +4,7 @@ import { Reveal } from "@/components/site/reveal";
 import { DestinationCard } from "@/components/travel/destination-sections";
 import { destinations, realPhotos } from "@/lib/travel-content";
 
-const SITE = "https://medtrailsr.in";
+const SITE = "https://medtrail-sr.lovable.app";
 const cover = `${SITE}${realPhotos.kataldharWide}`;
 
 export const Route = createFileRoute("/destinations/")({

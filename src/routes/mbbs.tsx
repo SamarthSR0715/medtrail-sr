@@ -27,10 +27,10 @@ export const Route = createFileRoute("/mbbs")({
         content: "Study Anatomy,Physiology,Biochemitry and oter MBBS Subjectsusing planner, notes library, flashcards and quizzes for MBBS revision.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:url", content: "https://medtrailsr.in/mbbs" },
+      { property: "og:url", content: "https://medtrail-sr.lovable.app/mbbs" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
-    links: [{ rel: "canonical", href: "https://medtrailsr.in/mbbs" }],
+    links: [{ rel: "canonical", href: "https://medtrail-sr.lovable.app/mbbs" }],
   }),
   component: MbbsHub,
 });
