@@ -8,7 +8,7 @@ import { DestinationCard } from "@/components/travel/destination-sections";
 import { categories, destinations, realPhotos, type Category } from "@/lib/travel-content";
 import { cn } from "@/lib/utils";
 
-const SITE = "https://medtrailsr.in";
+const SITE = "https://medtrail-sr.lovable.app";
 const cover = `${SITE}${realPhotos.pawnaFromTikona}`;
 
 export const Route = createFileRoute("/travel-map")({

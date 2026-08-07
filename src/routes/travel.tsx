@@ -7,7 +7,7 @@ import { DestinationCard } from "@/components/travel/destination-sections";
 import { PhotoGallery } from "@/components/travel/photo-gallery";
 import { bucketList, destinations, photos, realPhotos, travelStats } from "@/lib/travel-content";
 
-const SITE = "https://medtrailsr.in";
+const SITE = "https://medtrail-sr.lovable.app";
 const heroPhoto = `${SITE}${realPhotos.pawnaFromTikona}`;
 
 export const Route = createFileRoute("/travel")({
