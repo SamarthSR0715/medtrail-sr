@@ -11,7 +11,7 @@ import {
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
+impor
 
 
 export const Route = createFileRoute("/mbbs")({
@@ -88,13 +88,6 @@ const tabs = [
 ] as const;
 
 function MbbsHub() {
-  
-  const [session, setSession] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authMessage, setAuthMessage] = useState("");
 
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("planner");
   const [done, setDone] = useState<number[]>([1, 2]);
