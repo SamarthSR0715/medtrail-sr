@@ -11,7 +11,6 @@ import {
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { cn } from "@/lib/utils";
-impor
 
 
 export const Route = createFileRoute("/mbbs")({
