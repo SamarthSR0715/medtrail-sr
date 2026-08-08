@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import {  useEffect,useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   BookOpen,
@@ -11,6 +11,8 @@ import {
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+
 
 export const Route = createFileRoute("/mbbs")({
   head: () => ({
