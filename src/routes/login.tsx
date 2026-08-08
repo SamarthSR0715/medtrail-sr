@@ -1,3 +1,4 @@
+// MedTrail authentication route 
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Eye, EyeOff, LockKeyhole, Mail, ArrowLeft } from "lucide-react";
