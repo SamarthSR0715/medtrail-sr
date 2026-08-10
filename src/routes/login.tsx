@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Eye, EyeOff, LockKeyhole, Mail, Mountain } from "lucide-react";
+import { useState, useId } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { AlertCircle, Check, Eye, EyeOff, LockKeyhole, Mail, Mountain } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/auth-context";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -16,6 +18,9 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -23,26 +28,67 @@ function LoginPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const emailId = useId();
+  const passwordId = useId();
+
+  // If user is already authenticated, redirect to home page
+  if (user && !message) {
+    navigate({ to: "/" });
+  }
+
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (loading) return;
 
     setLoading(true);
     setError("");
     setMessage("");
 
-    // DO NOT connect Supabase/auth yet — keep login UI only.
-    // In future we'll call the Supabase client here. For now, simulate a safe response
-    // so that importing this route never triggers server-side env checks.
-    await new Promise((r) => setTimeout(r, 600));
+    if (!email.trim()) {
+      setError("Please enter your email address.");
+      setLoading(false);
+      return;
+    }
 
-    setLoading(false);
-    setMessage("Login is disabled for now — authentication will be connected later.");
+    if (!password) {
+      setError("Please enter your password.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (signInError) {
+        let msg = signInError.message;
+        if (msg.includes("Invalid login credentials")) {
+          msg = "Incorrect email or password. Please check your credentials and try again.";
+        } else if (msg.includes("Email not confirmed")) {
+          msg = "Please confirm your email address before logging in. Check your inbox for the confirmation link.";
+        }
+        setError(msg);
+        setLoading(false);
+        return;
+      }
+
+      setMessage("Logged in successfully! Redirecting...");
+      setTimeout(() => {
+        navigate({ to: "/" });
+      }, 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <div className="min-h-[80vh] px-4 py-12">
       <div className="mx-auto flex max-w-md flex-col items-center">
-        <div className="glass w-full rounded-[2rem] p-7 sm:p-9">
+        <div className="glass w-full rounded-[2rem] p-7 sm:p-9 shadow-xl border border-white/20 dark:border-white/10">
           <div className="text-center">
             <div className="bg-gradient-brand mx-auto flex size-14 items-center justify-center rounded-2xl text-brand-foreground shadow-lg">
               <Mountain className="size-7" aria-hidden="true" />
@@ -57,7 +103,7 @@ function LoginPage() {
 
           <form onSubmit={handleLogin} className="mt-8 space-y-5">
             <div>
-              <label htmlFor="email" className="mb-2 block text-sm font-medium">
+              <label htmlFor={emailId} className="mb-2 block text-sm font-medium">
                 Email
               </label>
 
@@ -68,20 +114,20 @@ function LoginPage() {
                 />
 
                 <input
-                  id="email"
+                  id={emailId}
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="you@example.com"
                   required
                   autoComplete="email"
-                  className="w-full rounded-xl border border-border bg-background px-10 py-3 text-sm outline-none transition focus:border-primary"
+                  className="w-full rounded-xl border border-border bg-background/50 px-10 py-3 text-sm outline-none transition focus:border-primary focus:bg-background"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-2 block text-sm font-medium">
+              <label htmlFor={passwordId} className="mb-2 block text-sm font-medium">
                 Password
               </label>
 
@@ -92,14 +138,14 @@ function LoginPage() {
                 />
 
                 <input
-                  id="password"
+                  id={passwordId}
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
-                  className="w-full rounded-xl border border-border bg-background px-10 py-3 pr-11 text-sm outline-none transition focus:border-primary"
+                  className="w-full rounded-xl border border-border bg-background/50 px-10 py-3 pr-11 text-sm outline-none transition focus:border-primary focus:bg-background"
                 />
 
                 <button
@@ -114,26 +160,30 @@ function LoginPage() {
             </div>
 
             {error ? (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {error}
+              <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs sm:text-sm text-destructive">
+                <AlertCircle className="size-4.5 shrink-0 mt-0.5" />
+                <div>{error}</div>
               </div>
             ) : null}
 
             {message ? (
-              <div className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm">{message}</div>
+              <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
+                <Check className="size-4.5 shrink-0 mt-0.5" />
+                <div>{message}</div>
+              </div>
             ) : null}
 
             <button
               type="submit"
               disabled={loading}
-              className="bg-gradient-brand w-full rounded-xl px-5 py-3 text-sm font-semibold text-brand-foreground shadow-md transition-transform hover:scale-[1.01] disabled:cursor-not-allowed"
+              className="bg-gradient-brand w-full rounded-xl px-5 py-3 text-sm font-semibold text-brand-foreground shadow-md transition-all hover:opacity-95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Logging in..." : "Login"}
             </button>
           </form>
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            Don't have an account?{' '}
+            Don't have an account?{" "}
             <Link to="/signup" className="font-medium text-primary hover:underline">
               Create an account
             </Link>

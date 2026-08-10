@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ThemeProvider } from "../lib/theme";
 import { SiteNav } from "../components/site/nav";
 import { SiteFooter } from "../components/site/footer";
+import { AuthProvider } from "../contexts/auth-context";
 
 function NotFoundComponent() {
   return (
@@ -144,16 +145,18 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <div className="hero-aura min-h-screen">
-          <SiteNav />
-          <main className="pt-24 sm:pt-28">
-            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-            <Outlet />
-          </main>
-          <SiteFooter />
-        </div>
-      </ThemeProvider>
+      <AuthProvider>
+        <ThemeProvider>
+          <div className="hero-aura min-h-screen">
+            <SiteNav />
+            <main className="pt-24 sm:pt-28">
+              {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+              <Outlet />
+            </main>
+            <SiteFooter />
+          </div>
+        </ThemeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

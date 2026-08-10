@@ -43,4 +43,6 @@ export const searchIndex: SearchEntry[] = [
   { to: "/portfolio", title: "About Samarth", group: "Portfolio", keywords: "bio medical student" },
   { to: "/portfolio", title: "Projects", group: "Portfolio", keywords: "work builds case studies" },
   { to: "/portfolio", title: "Contact", group: "Portfolio", keywords: "email instagram linkedin message" },
+  { to: "/login", title: "Login", group: "Account", keywords: "login signin auth password email" },
+  { to: "/signup", title: "Sign Up", group: "Account", keywords: "signup register account join auth" },
 ];
