@@ -13,8 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as BucketListRouteImport } from './routes/bucket-list'
 import { Route as FitnessRouteImport } from './routes/fitness'
 import { Route as GalleryRouteImport } from './routes/gallery'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as MbbsRouteImport } from './routes/mbbs'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TravelRouteImport } from './routes/travel'
 import { Route as TravelMapRouteImport } from './routes/travel-map'
@@ -41,6 +43,11 @@ const GalleryRoute = GalleryRouteImport.update({
   path: '/gallery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MbbsRoute = MbbsRouteImport.update({
   id: '/mbbs',
   path: '/mbbs',
@@ -49,6 +56,11 @@ const MbbsRoute = MbbsRouteImport.update({
 const PortfolioRoute = PortfolioRouteImport.update({
   id: '/portfolio',
   path: '/portfolio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -82,8 +94,10 @@ export interface FileRoutesByFullPath {
   '/bucket-list': typeof BucketListRoute
   '/fitness': typeof FitnessRoute
   '/gallery': typeof GalleryRoute
+  '/login': typeof LoginRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
+  '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
@@ -95,8 +109,10 @@ export interface FileRoutesByTo {
   '/bucket-list': typeof BucketListRoute
   '/fitness': typeof FitnessRoute
   '/gallery': typeof GalleryRoute
+  '/login': typeof LoginRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
+  '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
@@ -109,8 +125,10 @@ export interface FileRoutesById {
   '/bucket-list': typeof BucketListRoute
   '/fitness': typeof FitnessRoute
   '/gallery': typeof GalleryRoute
+  '/login': typeof LoginRoute
   '/mbbs': typeof MbbsRoute
   '/portfolio': typeof PortfolioRoute
+  '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
@@ -124,8 +142,10 @@ export interface FileRouteTypes {
     | '/bucket-list'
     | '/fitness'
     | '/gallery'
+    | '/login'
     | '/mbbs'
     | '/portfolio'
+    | '/signup'
     | '/sitemap.xml'
     | '/travel'
     | '/travel-map'
@@ -137,8 +157,10 @@ export interface FileRouteTypes {
     | '/bucket-list'
     | '/fitness'
     | '/gallery'
+    | '/login'
     | '/mbbs'
     | '/portfolio'
+    | '/signup'
     | '/sitemap.xml'
     | '/travel'
     | '/travel-map'
@@ -150,8 +172,10 @@ export interface FileRouteTypes {
     | '/bucket-list'
     | '/fitness'
     | '/gallery'
+    | '/login'
     | '/mbbs'
     | '/portfolio'
+    | '/signup'
     | '/sitemap.xml'
     | '/travel'
     | '/travel-map'
@@ -164,8 +188,10 @@ export interface RootRouteChildren {
   BucketListRoute: typeof BucketListRoute
   FitnessRoute: typeof FitnessRoute
   GalleryRoute: typeof GalleryRoute
+  LoginRoute: typeof LoginRoute
   MbbsRoute: typeof MbbsRoute
   PortfolioRoute: typeof PortfolioRoute
+  SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TravelRoute: typeof TravelRoute
   TravelMapRoute: typeof TravelMapRoute
@@ -203,6 +229,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GalleryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mbbs': {
       id: '/mbbs'
       path: '/mbbs'
@@ -215,6 +248,13 @@ declare module '@tanstack/react-router' {
       path: '/portfolio'
       fullPath: '/portfolio'
       preLoaderRoute: typeof PortfolioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sitemap.xml': {
@@ -260,8 +300,10 @@ const rootRouteChildren: RootRouteChildren = {
   BucketListRoute: BucketListRoute,
   FitnessRoute: FitnessRoute,
   GalleryRoute: GalleryRoute,
+  LoginRoute: LoginRoute,
   MbbsRoute: MbbsRoute,
   PortfolioRoute: PortfolioRoute,
+  SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TravelRoute: TravelRoute,
   TravelMapRoute: TravelMapRoute,
