@@ -5,21 +5,24 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
+function sanitizeSupabaseUrl(rawUrl?: string): string {
+  const url = (rawUrl || "https://jgurginsphlfdzwkitso.supabase.co").trim();
+  return url
+    .replace(/\/+$/, "")
+    .replace(/\/(rest|auth|storage)(\/v\d+)?$/i, "")
+    .replace(/\/v\d+$/i, "");
+}
+
 function createSupabaseAdminClient() {
-  const SUPABASE_URL = process.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
+  const rawUrl = process.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
+  const SUPABASE_URL = sanitizeSupabaseUrl(rawUrl);
   const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
 
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    const missing = [
-      ...(!SUPABASE_URL ? ['VITE_SUPABASE_URL / SUPABASE_URL'] : []),
-      ...(!SUPABASE_SERVICE_ROLE_KEY ? ['SUPABASE_SERVICE_ROLE_KEY'] : []),
-    ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn(`[Supabase] Missing SUPABASE_SERVICE_ROLE_KEY for admin client.`);
   }
 
-  return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || '', {
     auth: {
       storage: undefined,
       persistSession: false,
