@@ -1,5 +1,5 @@
 import { createMiddleware } from '@tanstack/react-start';
-import { } from '@tanstack/react-start/server';
+import { getRequest } from '@tanstack/react-start/server';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
