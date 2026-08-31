@@ -2,7 +2,6 @@ export type NavItem = { to: string; label: string };
 
 export const navItems: NavItem[] = [
   { to: "/", label: "Home" },
-  { to: "/med-hub", label: "Med Hub" },
   { to: "/mbbs", label: "MBBS Hub" },
   { to: "/travel", label: "Travel" },
   { to: "/destinations", label: "Destinations" },
@@ -21,17 +20,13 @@ export type SearchEntry = { to: string; title: string; group: string; keywords: 
 
 export const searchIndex: SearchEntry[] = [
   { to: "/", title: "Home overview", group: "Pages", keywords: "start landing medtrail hero" },
-  { to: "/med-hub", title: "Med Hub Dashboard", group: "Med Hub", keywords: "medical student dashboard productivity tasks goals streak exams notes" },
-  { to: "/med-hub", title: "Daily Tasks Checklist", group: "Med Hub", keywords: "daily tasks priority checklist study time" },
-  { to: "/med-hub", title: "Subject & Topic Planner", group: "Med Hub", keywords: "subjects pathology pharmacology topics status" },
-  { to: "/med-hub", title: "Monthly Goals", group: "Med Hub", keywords: "monthly goals target study progress" },
-  { to: "/med-hub", title: "Exam Countdown Tracker", group: "Med Hub", keywords: "exams viva internal assessment countdown" },
-  { to: "/med-hub", title: "Personal Notes", group: "Med Hub", keywords: "notes study notes subject topic search" },
-  { to: "/med-hub", title: "Progress Analytics", group: "Med Hub", keywords: "analytics streak charts progress tasks topics" },
-  { to: "/mbbs", title: "Study planner", group: "MBBS Hub", keywords: "schedule tasks subjects anatomy" },
-  { to: "/mbbs", title: "Notes library", group: "MBBS Hub", keywords: "notes physiology biochem pdf" },
-  { to: "/mbbs", title: "Flashcards", group: "MBBS Hub", keywords: "spaced repetition revise cards" },
-  { to: "/mbbs", title: "Quizzes", group: "MBBS Hub", keywords: "mcq test exam practice" },
+  { to: "/mbbs", title: "MBBS Hub Dashboard", group: "MBBS Hub", keywords: "medical student dashboard productivity tasks goals streak exams notes mbbs" },
+  { to: "/mbbs", title: "Daily Tasks Checklist", group: "MBBS Hub", keywords: "daily tasks priority checklist study time streak completion" },
+  { to: "/mbbs", title: "Subject Goals & Syllabus", group: "MBBS Hub", keywords: "subjects pathology pharmacology anatomy goals progress syllabus" },
+  { to: "/mbbs", title: "Monthly Goals", group: "MBBS Hub", keywords: "monthly goals target study progress mcqs hours" },
+  { to: "/mbbs", title: "Exam Countdown Planner", group: "MBBS Hub", keywords: "exams viva internal assessment countdown status" },
+  { to: "/mbbs", title: "Personal Study Notes", group: "MBBS Hub", keywords: "notes study notes subject topic search pearls mnemonics" },
+  { to: "/mbbs", title: "Progress Analytics", group: "MBBS Hub", keywords: "analytics streak charts progress tasks topics" },
   { to: "/travel", title: "Forts of Maharashtra", group: "Travel Journal", keywords: "raigad sinhagad trek map" },
   { to: "/travel", title: "Waterfalls", group: "Travel Journal", keywords: "monsoon thoseghar kune" },
   { to: "/travel", title: "Hill stations", group: "Travel Journal", keywords: "mahabaleshwar lonavala budget" },

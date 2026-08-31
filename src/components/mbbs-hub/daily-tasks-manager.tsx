@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { CheckSquare, Plus, Trash2, Edit3, Clock, AlertCircle, Filter, Calendar } from "lucide-react";
-import type { DailyTask, Subject, PriorityLevel } from "@/types/med-hub";
-import { getTodayDateString } from "@/lib/med-hub-service";
+import type { DailyTask, Subject, SubjectGoal, PriorityLevel } from "@/types/mbbs-hub";
+import { getTodayDateString } from "@/lib/mbbs-hub-service";
 
 interface DailyTasksManagerProps {
   userId: string;
   tasks: DailyTask[];
   subjects: Subject[];
+  subjectGoals?: SubjectGoal[];
   onAddTask: (task: Partial<DailyTask>) => Promise<void>;
   onUpdateTask: (id: string, updates: Partial<DailyTask>) => Promise<void>;
   onDeleteTask: (id: string) => Promise<void>;
@@ -17,12 +18,12 @@ export function DailyTasksManager({
   userId,
   tasks,
   subjects,
+  subjectGoals = [],
   onAddTask,
   onUpdateTask,
   onDeleteTask,
   onToggleTask,
 }: DailyTasksManagerProps) {
-  const [filterDate, setFilterDate] = useState<string>(getTodayDateString());
   const [filterPriority, setFilterPriority] = useState<string>("All");
   const [filterSubject, setFilterSubject] = useState<string>("All");
 
@@ -36,13 +37,22 @@ export function DailyTasksManager({
   const [taskDate, setTaskDate] = useState(getTodayDateString());
   const [priority, setPriority] = useState<PriorityLevel>("Medium");
   const [subjectId, setSubjectId] = useState("");
+  const [subjectName, setSubjectName] = useState("");
   const [estimatedMinutes, setEstimatedMinutes] = useState(30);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // All subject options from either subjectGoals or subjects
+  const subjectOptions = [
+    ...subjects.map((s) => ({ id: s.id, name: s.name })),
+    ...subjectGoals
+      .filter((g) => !subjects.some((s) => s.name.toLowerCase() === g.subject_name.toLowerCase()))
+      .map((g) => ({ id: g.subject_id || g.id, name: g.subject_name })),
+  ];
+
   const filteredTasks = tasks.filter((t) => {
     if (filterPriority !== "All" && t.priority !== filterPriority) return false;
-    if (filterSubject !== "All" && t.subject_id !== filterSubject) return false;
+    if (filterSubject !== "All" && t.subject_id !== filterSubject && t.subject_name !== filterSubject) return false;
     return true;
   });
 
@@ -58,6 +68,7 @@ export function DailyTasksManager({
     setTaskDate(getTodayDateString());
     setPriority("Medium");
     setSubjectId("");
+    setSubjectName("");
     setEstimatedMinutes(30);
     setErrorMsg("");
     setIsModalOpen(true);
@@ -70,6 +81,7 @@ export function DailyTasksManager({
     setTaskDate(task.task_date);
     setPriority(task.priority);
     setSubjectId(task.subject_id || "");
+    setSubjectName(task.subject_name || "");
     setEstimatedMinutes(task.estimated_minutes || 30);
     setErrorMsg("");
     setIsModalOpen(true);
@@ -85,6 +97,8 @@ export function DailyTasksManager({
     setLoading(true);
     setErrorMsg("");
 
+    const chosenSub = subjectOptions.find((s) => s.id === subjectId || s.name === subjectName);
+
     try {
       if (editingTask) {
         await onUpdateTask(editingTask.id, {
@@ -92,7 +106,8 @@ export function DailyTasksManager({
           description: description.trim() || null,
           task_date: taskDate,
           priority,
-          subject_id: subjectId || null,
+          subject_id: chosenSub?.id || null,
+          subject_name: chosenSub?.name || (subjectName.trim() || null),
           estimated_minutes: estimatedMinutes,
         });
       } else {
@@ -101,7 +116,8 @@ export function DailyTasksManager({
           description: description.trim() || null,
           task_date: taskDate,
           priority,
-          subject_id: subjectId || null,
+          subject_id: chosenSub?.id || null,
+          subject_name: chosenSub?.name || (subjectName.trim() || null),
           estimated_minutes: estimatedMinutes,
         });
       }
@@ -120,7 +136,7 @@ export function DailyTasksManager({
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Daily Study Tasks</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Manage, prioritize, and check off your daily medical study goals.
+            Manage, prioritize, and check off daily study items to keep your streak burning.
           </p>
         </div>
         <button
@@ -179,7 +195,7 @@ export function DailyTasksManager({
           className="rounded-xl border border-border/60 bg-background px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
         >
           <option value="All">All Subjects</option>
-          {subjects.map((sub) => (
+          {subjectOptions.map((sub) => (
             <option key={sub.id} value={sub.id}>
               {sub.name}
             </option>
@@ -198,7 +214,7 @@ export function DailyTasksManager({
               onClick={handleOpenCreate}
               className="mt-2 text-xs font-semibold text-primary hover:underline"
             >
-              + Create a new task
+              + Create a new study task
             </button>
           </div>
         ) : (
@@ -333,11 +349,15 @@ export function DailyTasksManager({
                 <label className="block text-xs font-semibold text-muted-foreground">Subject (Optional)</label>
                 <select
                   value={subjectId}
-                  onChange={(e) => setSubjectId(e.target.value)}
+                  onChange={(e) => {
+                    setSubjectId(e.target.value);
+                    const sel = subjectOptions.find((s) => s.id === e.target.value);
+                    if (sel) setSubjectName(sel.name);
+                  }}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">No Subject Associated</option>
-                  {subjects.map((sub) => (
+                  {subjectOptions.map((sub) => (
                     <option key={sub.id} value={sub.id}>
                       {sub.name}
                     </option>
@@ -349,7 +369,7 @@ export function DailyTasksManager({
                 <label className="block text-xs font-semibold text-muted-foreground">Description (Optional)</label>
                 <textarea
                   rows={2}
-                  placeholder="Key points or page numbers to cover..."
+                  placeholder="Key concepts, page numbers, or learning points..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"

@@ -15,7 +15,6 @@ import { Route as FitnessRouteImport } from './routes/fitness'
 import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MbbsRouteImport } from './routes/mbbs'
-import { Route as MedHubRouteImport } from './routes/med-hub'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
@@ -52,11 +51,6 @@ const LoginRoute = LoginRouteImport.update({
 const MbbsRoute = MbbsRouteImport.update({
   id: '/mbbs',
   path: '/mbbs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MedHubRoute = MedHubRouteImport.update({
-  id: '/med-hub',
-  path: '/med-hub',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PortfolioRoute = PortfolioRouteImport.update({
@@ -102,7 +96,6 @@ export interface FileRoutesByFullPath {
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
   '/mbbs': typeof MbbsRoute
-  '/med-hub': typeof MedHubRoute
   '/portfolio': typeof PortfolioRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -118,7 +111,6 @@ export interface FileRoutesByTo {
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
   '/mbbs': typeof MbbsRoute
-  '/med-hub': typeof MedHubRoute
   '/portfolio': typeof PortfolioRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -135,7 +127,6 @@ export interface FileRoutesById {
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
   '/mbbs': typeof MbbsRoute
-  '/med-hub': typeof MedHubRoute
   '/portfolio': typeof PortfolioRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -153,7 +144,6 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/login'
     | '/mbbs'
-    | '/med-hub'
     | '/portfolio'
     | '/signup'
     | '/sitemap.xml'
@@ -169,7 +159,6 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/login'
     | '/mbbs'
-    | '/med-hub'
     | '/portfolio'
     | '/signup'
     | '/sitemap.xml'
@@ -185,7 +174,6 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/login'
     | '/mbbs'
-    | '/med-hub'
     | '/portfolio'
     | '/signup'
     | '/sitemap.xml'
@@ -202,7 +190,6 @@ export interface RootRouteChildren {
   GalleryRoute: typeof GalleryRoute
   LoginRoute: typeof LoginRoute
   MbbsRoute: typeof MbbsRoute
-  MedHubRoute: typeof MedHubRoute
   PortfolioRoute: typeof PortfolioRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
@@ -254,13 +241,6 @@ declare module '@tanstack/react-router' {
       path: '/mbbs'
       fullPath: '/mbbs'
       preLoaderRoute: typeof MbbsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/med-hub': {
-      id: '/med-hub'
-      path: '/med-hub'
-      fullPath: '/med-hub'
-      preLoaderRoute: typeof MedHubRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/portfolio': {
@@ -322,7 +302,6 @@ const rootRouteChildren: RootRouteChildren = {
   GalleryRoute: GalleryRoute,
   LoginRoute: LoginRoute,
   MbbsRoute: MbbsRoute,
-  MedHubRoute: MedHubRoute,
   PortfolioRoute: PortfolioRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,

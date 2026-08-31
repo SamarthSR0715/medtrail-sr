@@ -22,7 +22,7 @@ export function SiteNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const displayName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
+  const displayName = user?.user_metadata?.["full_name"] || user?.email?.split("@")[0] || "User";
 
   async function handleSignOut() {
     setOpen(false);

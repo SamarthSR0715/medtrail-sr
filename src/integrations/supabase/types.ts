@@ -7,14 +7,338 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.15"
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          id: string
+          user_id: string
+          full_name: string | null
+          email: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          full_name?: string | null
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          full_name?: string | null
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subjects: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          target_topics: number | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          target_topics?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          target_topics?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subject_goals: {
+        Row: {
+          id: string
+          user_id: string
+          subject_id: string | null
+          subject_name: string
+          goal_title: string | null
+          target_topics: number | null
+          completed_topics: number | null
+          progress_percentage: number | null
+          status: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          subject_id?: string | null
+          subject_name: string
+          goal_title?: string | null
+          target_topics?: number | null
+          completed_topics?: number | null
+          progress_percentage?: number | null
+          status?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          subject_id?: string | null
+          subject_name?: string
+          goal_title?: string | null
+          target_topics?: number | null
+          completed_topics?: number | null
+          progress_percentage?: number | null
+          status?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subject_topics: {
+        Row: {
+          id: string
+          user_id: string
+          subject_id: string
+          title: string
+          status: string | null
+          priority: string | null
+          estimated_hours: number | null
+          target_date: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          subject_id: string
+          title: string
+          status?: string | null
+          priority?: string | null
+          estimated_hours?: number | null
+          target_date?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          subject_id?: string
+          title?: string
+          status?: string | null
+          priority?: string | null
+          estimated_hours?: number | null
+          target_date?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      daily_tasks: {
+        Row: {
+          id: string
+          user_id: string
+          subject_id: string | null
+          subject_name: string | null
+          title: string
+          description: string | null
+          task_date: string
+          priority: string | null
+          estimated_minutes: number | null
+          completed: boolean
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          subject_id?: string | null
+          subject_name?: string | null
+          title: string
+          description?: string | null
+          task_date?: string
+          priority?: string | null
+          estimated_minutes?: number | null
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          subject_id?: string | null
+          subject_name?: string | null
+          title?: string
+          description?: string | null
+          task_date?: string
+          priority?: string | null
+          estimated_minutes?: number | null
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      monthly_goals: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          description: string | null
+          month: string
+          target_value: number
+          current_value: number
+          completed: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          description?: string | null
+          month: string
+          target_value?: number
+          current_value?: number
+          completed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          description?: string | null
+          month?: string
+          target_value?: number
+          current_value?: number
+          completed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      study_streaks: {
+        Row: {
+          id: string
+          user_id: string
+          study_date: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          study_date?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          study_date?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      exams: {
+        Row: {
+          id: string
+          user_id: string
+          subject_id: string | null
+          subject_name: string | null
+          title: string
+          exam_date: string
+          exam_type: string | null
+          status: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          subject_id?: string | null
+          subject_name?: string | null
+          title: string
+          exam_date: string
+          exam_type?: string | null
+          status?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          subject_id?: string | null
+          subject_name?: string | null
+          title?: string
+          exam_date?: string
+          exam_type?: string | null
+          status?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notes: {
+        Row: {
+          id: string
+          user_id: string
+          subject_id: string | null
+          subject_name: string | null
+          topic_id: string | null
+          title: string
+          content: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          subject_id?: string | null
+          subject_name?: string | null
+          topic_id?: string | null
+          title: string
+          content?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          subject_id?: string | null
+          subject_name?: string | null
+          topic_id?: string | null
+          title?: string
+          content?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

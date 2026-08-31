@@ -1,6 +1,6 @@
-import { Flame, Trophy, Calendar, CheckCircle2 } from "lucide-react";
-import type { StreakStats } from "@/types/med-hub";
-import { getTodayDateString } from "@/lib/med-hub-service";
+import { Flame, Trophy, Calendar, CheckCircle2, Sparkles } from "lucide-react";
+import type { StreakStats } from "@/types/mbbs-hub";
+import { getTodayDateString } from "@/lib/mbbs-hub-service";
 
 interface StudyStreakTrackerProps {
   stats: StreakStats;
@@ -18,7 +18,7 @@ export function StudyStreakTracker({ stats, onRecordToday }: StudyStreakTrackerP
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
     d.setDate(todayDate.getDate() - i);
-    const dateStr = d.toISOString().split("T")[0];
+    const dateStr = d.toISOString().split("T")[0] || "";
     const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     const active = stats.studyDates.includes(dateStr);
     last30Days.push({ dateStr, label, active });
@@ -31,7 +31,7 @@ export function StudyStreakTracker({ stats, onRecordToday }: StudyStreakTrackerP
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Study Streak Tracker</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Consistency is key in medical school. Keep your daily streak alive!
+            Consistency is everything in medical school. Checking off any daily task automatically logs your streak!
           </p>
         </div>
         <button
@@ -82,7 +82,10 @@ export function StudyStreakTracker({ stats, onRecordToday }: StudyStreakTrackerP
       {/* 30-Day Activity Heatmap Grid */}
       <div className="glass rounded-3xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold sm:text-lg">Last 30 Days Study Activity</h2>
+          <h2 className="text-base font-bold sm:text-lg flex items-center gap-2">
+            <Sparkles className="size-4 text-amber-500" />
+            <span>Last 30 Days Activity Grid</span>
+          </h2>
           <span className="text-xs font-medium text-muted-foreground">
             {last30Days.filter((d) => d.active).length} of 30 days active
           </span>
@@ -92,7 +95,7 @@ export function StudyStreakTracker({ stats, onRecordToday }: StudyStreakTrackerP
           {last30Days.map((day) => (
             <div
               key={day.dateStr}
-              title={`${day.label}: ${day.active ? "Studied" : "No activity logged"}`}
+              title={`${day.label}: ${day.active ? "Studied ✓" : "No activity recorded"}`}
               className={`flex flex-col items-center justify-center rounded-2xl p-2.5 transition-all ${
                 day.active
                   ? "bg-amber-500 text-white shadow-md scale-105"

@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 function createSupabaseAdminClient() {
-  const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const SUPABASE_URL = process.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
+  const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
 
   if (!SUPABASE_URL) {
     throw new Error('[Supabase] Missing SUPABASE_URL for admin client.');
@@ -32,4 +32,3 @@ export const supabaseAdmin = new Proxy({} as ReturnType<typeof createSupabaseAdm
     return Reflect.get(_supabaseAdmin, prop, receiver);
   },
 });
-

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Target, Plus, Trash2, Edit3, CheckCircle2, AlertCircle, Calendar } from "lucide-react";
-import type { MonthlyGoal } from "@/types/med-hub";
-import { getCurrentMonthString } from "@/lib/med-hub-service";
+import type { MonthlyGoal } from "@/types/mbbs-hub";
+import { getCurrentMonthString } from "@/lib/mbbs-hub-service";
 
 interface MonthlyGoalsManagerProps {
   userId: string;
@@ -113,7 +113,7 @@ export function MonthlyGoalsManager({
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Monthly Study Goals</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Set and track high-level study milestones for each month.
+            Set and track high-level study milestones (MCQs, hours, chapters) for each month.
           </p>
         </div>
         <button
@@ -143,7 +143,7 @@ export function MonthlyGoalsManager({
 
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <span className="text-xs font-medium text-muted-foreground">Progress</span>
+            <span className="text-xs font-medium text-muted-foreground">Month Goal Progress</span>
             <p className="text-lg font-bold text-emerald-500">
               {completedCount} / {totalCount} ({progressPct}%)
             </p>
@@ -203,10 +203,10 @@ export function MonthlyGoalsManager({
                     )}
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground pt-1">
                       <span>
-                        Target: {goal.current_value} / {goal.target_value}
+                        Progress: {goal.current_value} / {goal.target_value}
                       </span>
                       <span>•</span>
-                      <span className="text-emerald-500 font-semibold">{goalPct}% Achieved</span>
+                      <span className="text-emerald-500 font-semibold">{goalPct}% Complete</span>
                     </div>
                   </div>
                 </div>
@@ -236,23 +236,23 @@ export function MonthlyGoalsManager({
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="glass-strong w-full max-w-md rounded-3xl p-6 shadow-2xl">
+          <div className="glass-strong w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-4">
             <h2 className="text-lg font-bold">{editingGoal ? "Edit Goal" : "Add Monthly Goal"}</h2>
 
             {errorMsg && (
-              <div className="mt-3 flex items-center gap-2 rounded-xl bg-destructive/10 p-3 text-xs font-medium text-destructive">
+              <div className="flex items-center gap-2 rounded-xl bg-destructive/10 p-3 text-xs font-medium text-destructive">
                 <AlertCircle className="size-4 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-muted-foreground">Goal Title *</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Complete 500 Pathology MCQs"
+                  placeholder="e.g. Solve 500 Pathology MCQs"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -289,7 +289,7 @@ export function MonthlyGoalsManager({
                   min="0"
                   value={currentValue}
                   onChange={(e) => setCurrentValue(Number(e.target.value))}
-                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
 
@@ -297,7 +297,7 @@ export function MonthlyGoalsManager({
                 <label className="block text-xs font-semibold text-muted-foreground">Description (Optional)</label>
                 <textarea
                   rows={2}
-                  placeholder="Details or strategy to achieve this goal..."
+                  placeholder="Milestone strategy, topics, or study resources..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"

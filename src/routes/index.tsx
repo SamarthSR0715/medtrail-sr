@@ -68,7 +68,7 @@ const pillars = [
     to: "/mbbs",
     icon: BookOpen,
     title: "MBBS Hub",
-    copy: "Planner, notes, flashcards and quizzes built for long study blocks.",
+    copy: "Daily tasks, subject goals, monthly milestones, exam planner and study streaks.",
   },
   {
     to: "/travel",

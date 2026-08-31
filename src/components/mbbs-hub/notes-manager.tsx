@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { BookOpen, Plus, Trash2, Edit3, Search, Filter, AlertCircle, FileText } from "lucide-react";
-import type { Note, Subject } from "@/types/med-hub";
+import type { Note, Subject, SubjectGoal } from "@/types/mbbs-hub";
 
 interface NotesManagerProps {
   userId: string;
   notes: Note[];
   subjects: Subject[];
+  subjectGoals?: SubjectGoal[];
   onAddNote: (note: Partial<Note>) => Promise<void>;
   onUpdateNote: (id: string, updates: Partial<Note>) => Promise<void>;
   onDeleteNote: (id: string) => Promise<void>;
@@ -15,6 +16,7 @@ export function NotesManager({
   userId,
   notes,
   subjects,
+  subjectGoals = [],
   onAddNote,
   onUpdateNote,
   onDeleteNote,
@@ -30,16 +32,30 @@ export function NotesManager({
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [subjectId, setSubjectId] = useState("");
+  const [subjectName, setSubjectName] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // All subject options from either subjectGoals or subjects
+  const subjectOptions = [
+    ...subjects.map((s) => ({ id: s.id, name: s.name })),
+    ...subjectGoals
+      .filter((g) => !subjects.some((s) => s.name.toLowerCase() === g.subject_name.toLowerCase()))
+      .map((g) => ({ id: g.subject_id || g.id, name: g.subject_name })),
+  ];
+
   const filteredNotes = notes.filter((note) => {
-    if (selectedSubjectFilter !== "All" && note.subject_id !== selectedSubjectFilter) return false;
+    if (
+      selectedSubjectFilter !== "All" &&
+      note.subject_id !== selectedSubjectFilter &&
+      note.subject_name !== selectedSubjectFilter
+    )
+      return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchTitle = note.title.toLowerCase().includes(q);
-      const matchContent = note.content.toLowerCase().includes(q);
+      const matchContent = (note.content || "").toLowerCase().includes(q);
       if (!matchTitle && !matchContent) return false;
     }
     return true;
@@ -50,6 +66,7 @@ export function NotesManager({
     setTitle("");
     setContent("");
     setSubjectId("");
+    setSubjectName("");
     setErrorMsg("");
     setIsModalOpen(true);
   }
@@ -57,8 +74,9 @@ export function NotesManager({
   function handleOpenEdit(note: Note) {
     setEditingNote(note);
     setTitle(note.title);
-    setContent(note.content);
+    setContent(note.content || "");
     setSubjectId(note.subject_id || "");
+    setSubjectName(note.subject_name || "");
     setErrorMsg("");
     setIsModalOpen(true);
   }
@@ -72,18 +90,22 @@ export function NotesManager({
     setLoading(true);
     setErrorMsg("");
 
+    const chosenSub = subjectOptions.find((s) => s.id === subjectId || s.name === subjectName);
+
     try {
       if (editingNote) {
         await onUpdateNote(editingNote.id, {
           title: title.trim(),
           content: content.trim(),
-          subject_id: subjectId || null,
+          subject_id: chosenSub?.id || null,
+          subject_name: chosenSub?.name || (subjectName.trim() || null),
         });
       } else {
         await onAddNote({
           title: title.trim(),
           content: content.trim(),
-          subject_id: subjectId || null,
+          subject_id: chosenSub?.id || null,
+          subject_name: chosenSub?.name || (subjectName.trim() || null),
         });
       }
       setIsModalOpen(false);
@@ -99,9 +121,9 @@ export function NotesManager({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Personal Medical Notes</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Personal MBBS Study Notes</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Quick notes, clinical pearls, and high-yield study summaries.
+            Clinical pearls, high-yield summaries, mnemonics, and subject revision notes.
           </p>
         </div>
         <button
@@ -135,7 +157,7 @@ export function NotesManager({
             className="w-full sm:w-auto rounded-xl border border-border/60 bg-background px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="All">All Subjects</option>
-            {subjects.map((sub) => (
+            {subjectOptions.map((sub) => (
               <option key={sub.id} value={sub.id}>
                 {sub.name}
               </option>
@@ -152,7 +174,7 @@ export function NotesManager({
           <p className="mt-1 text-xs text-muted-foreground">
             {searchQuery || selectedSubjectFilter !== "All"
               ? "Try adjusting your search query or subject filter."
-              : "Create your first personal study note."}
+              : "Create your first personal study note to keep clinical points handy."}
           </p>
           <button
             type="button"
@@ -192,7 +214,7 @@ export function NotesManager({
                 </div>
 
                 {note.subject_name && (
-                  <span className="inline-block rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  <span className="inline-block rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold text-primary">
                     {note.subject_name}
                   </span>
                 )}
@@ -229,7 +251,7 @@ export function NotesManager({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Antibiotics Mechanism of Action"
+                  placeholder="e.g. Antibiotics Mechanism of Action & Resistance"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -240,11 +262,15 @@ export function NotesManager({
                 <label className="block text-xs font-semibold text-muted-foreground">Subject (Optional)</label>
                 <select
                   value={subjectId}
-                  onChange={(e) => setSubjectId(e.target.value)}
+                  onChange={(e) => {
+                    setSubjectId(e.target.value);
+                    const sel = subjectOptions.find((s) => s.id === e.target.value);
+                    if (sel) setSubjectName(sel.name);
+                  }}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">No Subject</option>
-                  {subjects.map((sub) => (
+                  {subjectOptions.map((sub) => (
                     <option key={sub.id} value={sub.id}>
                       {sub.name}
                     </option>
@@ -256,7 +282,7 @@ export function NotesManager({
                 <label className="block text-xs font-semibold text-muted-foreground">Note Content</label>
                 <textarea
                   rows={6}
-                  placeholder="Write your study notes, key points, or mnemonics here..."
+                  placeholder="Write your study notes, key clinical points, diagrams, or mnemonics here..."
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
