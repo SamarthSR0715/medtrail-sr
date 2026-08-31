@@ -123,6 +123,7 @@ export function DailyTasksManager({
       }
       setIsModalOpen(false);
     } catch (err: any) {
+      console.error("[DailyTasksManager] Error saving task:", err);
       setErrorMsg(err?.message || "Task could not be saved.");
     } finally {
       setLoading(false);

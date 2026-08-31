@@ -92,6 +92,7 @@ export function MonthlyGoalsManager({
       }
       setIsModalOpen(false);
     } catch (err: any) {
+      console.error("[MonthlyGoalsManager] Error saving goal:", err);
       setErrorMsg(err?.message || "Could not save goal.");
     } finally {
       setLoading(false);

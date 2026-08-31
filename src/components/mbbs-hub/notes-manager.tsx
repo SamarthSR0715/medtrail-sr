@@ -110,6 +110,7 @@ export function NotesManager({
       }
       setIsModalOpen(false);
     } catch (err: any) {
+      console.error("[NotesManager] Error saving note:", err);
       setErrorMsg(err?.message || "Could not save note.");
     } finally {
       setLoading(false);

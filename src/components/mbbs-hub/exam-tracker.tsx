@@ -110,6 +110,7 @@ export function ExamTracker({
       }
       setIsModalOpen(false);
     } catch (err: any) {
+      console.error("[ExamTracker] Error saving exam:", err);
       setErrorMsg(err?.message || "Could not save exam.");
     } finally {
       setLoading(false);

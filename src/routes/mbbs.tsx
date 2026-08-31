@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   LayoutDashboard,
@@ -15,29 +15,21 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 import {
   ensureUserProfile,
-  fetchSubjectGoals,
-  fetchSubjects,
   fetchDailyTasks,
-  fetchTopics,
   fetchMonthlyGoals,
+  fetchSubjectsAndGoals,
   fetchStreakStats,
   fetchExams,
   fetchNotes,
-  createSubjectGoal,
-  updateSubjectGoal,
-  deleteSubjectGoal,
-  createSubject,
-  updateSubject,
-  deleteSubject,
   createDailyTask,
   updateDailyTask,
   deleteDailyTask,
-  createTopic,
-  updateTopic,
-  deleteTopic,
   createMonthlyGoal,
   updateMonthlyGoal,
   deleteMonthlyGoal,
+  createSubjectGoal,
+  updateSubjectGoal,
+  deleteSubjectGoal,
   recordStudyActivity,
   createExam,
   updateExam,
@@ -49,7 +41,6 @@ import {
 import type {
   SubjectGoal,
   Subject,
-  SubjectTopic,
   DailyTask,
   MonthlyGoal,
   StreakStats,
@@ -110,7 +101,6 @@ function MbbsHubPage() {
   // Data states
   const [subjectGoals, setSubjectGoals] = useState<SubjectGoal[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [topics, setTopics] = useState<SubjectTopic[]>([]);
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [goals, setGoals] = useState<MonthlyGoal[]>([]);
   const [streakStats, setStreakStats] = useState<StreakStats>({
@@ -129,55 +119,13 @@ function MbbsHubPage() {
     }
   }, [authLoading, user, navigate]);
 
-  // Load user data & ensure profile on mount or user change
-  useEffect(() => {
-    if (!user) return;
-
-    async function loadAllData() {
-      setDataLoading(true);
-      try {
-        // Auto create profile if missing
-        await ensureUserProfile(user!);
-
-        const [subGoalsRes, subRes, topRes, taskRes, goalRes, streakRes, examRes, noteRes] =
-          await Promise.all([
-            fetchSubjectGoals(user!.id),
-            fetchSubjects(user!.id),
-            fetchTopics(user!.id),
-            fetchDailyTasks(user!.id),
-            fetchMonthlyGoals(user!.id),
-            fetchStreakStats(user!.id),
-            fetchExams(user!.id),
-            fetchNotes(user!.id),
-          ]);
-
-        setSubjectGoals(subGoalsRes.data);
-        setSubjects(subRes.data);
-        setTopics(topRes.data);
-        setTasks(taskRes.data);
-        setGoals(goalRes.data);
-        setStreakStats(streakRes.stats);
-        setExams(examRes.data);
-        setNotes(noteRes.data);
-      } catch (err) {
-        console.error("[MBBSHubPage] Error loading data:", err);
-      } finally {
-        setDataLoading(false);
-      }
-    }
-
-    loadAllData();
-  }, [user]);
-
-  // Helper to refresh all data after mutations
-  async function refreshData() {
+  // Refresh all data
+  const refreshData = useCallback(async () => {
     if (!user) return;
     try {
-      const [subGoalsRes, subRes, topRes, taskRes, goalRes, streakRes, examRes, noteRes] =
+      const [subsAndGoals, taskData, goalData, streakData, examData, noteData] =
         await Promise.all([
-          fetchSubjectGoals(user.id),
-          fetchSubjects(user.id),
-          fetchTopics(user.id),
+          fetchSubjectsAndGoals(user.id),
           fetchDailyTasks(user.id),
           fetchMonthlyGoals(user.id),
           fetchStreakStats(user.id),
@@ -185,18 +133,36 @@ function MbbsHubPage() {
           fetchNotes(user.id),
         ]);
 
-      setSubjectGoals(subGoalsRes.data);
-      setSubjects(subRes.data);
-      setTopics(topRes.data);
-      setTasks(taskRes.data);
-      setGoals(goalRes.data);
-      setStreakStats(streakRes.stats);
-      setExams(examRes.data);
-      setNotes(noteRes.data);
+      setSubjects(subsAndGoals.subjects);
+      setSubjectGoals(subsAndGoals.subjectGoals);
+      setTasks(taskData);
+      setGoals(goalData);
+      setStreakStats(streakData);
+      setExams(examData);
+      setNotes(noteData);
     } catch (err) {
-      console.error("[MBBSHubPage] Error refreshing data:", err);
+      console.error("[MBBSHubPage] Error loading data from Supabase:", err);
     }
-  }
+  }, [user]);
+
+  // Load user data & ensure profile on mount or user change
+  useEffect(() => {
+    if (!user) return;
+
+    async function loadInitial() {
+      setDataLoading(true);
+      try {
+        await ensureUserProfile(user!);
+        await refreshData();
+      } catch (err) {
+        console.error("[MBBSHubPage] Initial load error:", err);
+      } finally {
+        setDataLoading(false);
+      }
+    }
+
+    loadInitial();
+  }, [user, refreshData]);
 
   if (authLoading || (user && dataLoading)) {
     return (
@@ -225,7 +191,7 @@ function MbbsHubPage() {
 
   const displayName = user.user_metadata?.["full_name"] || user.email?.split("@")[0] || "Doctor";
 
-  // Tab Nav Data
+  // Tab Navigation Data
   const tabs: { id: TabType; label: string; icon: any }[] = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "tasks", label: "Daily Tasks", icon: CheckSquare },
@@ -237,110 +203,143 @@ function MbbsHubPage() {
     { id: "analytics", label: "Analytics", icon: TrendingUp },
   ];
 
+  // ==========================================
   // Handlers for Tasks
+  // ==========================================
   async function handleAddTask(task: Partial<DailyTask>) {
-    await createDailyTask(user!.id, task);
+    const newTask = await createDailyTask(user!.id, task);
+    setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
     await refreshData();
   }
 
   async function handleUpdateTask(id: string, updates: Partial<DailyTask>) {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
+    );
     await updateDailyTask(id, user!.id, updates);
     await refreshData();
   }
 
   async function handleDeleteTask(id: string) {
-    await deleteDailyTask(id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    await deleteDailyTask(id, user!.id);
     await refreshData();
   }
 
   async function handleToggleTask(id: string, completed: boolean) {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, completed } : t))
+    );
     await updateDailyTask(id, user!.id, { completed });
     await refreshData();
   }
 
+  // ==========================================
   // Handlers for Subject Goals
+  // ==========================================
   async function handleAddSubjectGoal(goal: Partial<SubjectGoal>) {
-    await createSubjectGoal(user!.id, goal);
+    const newGoal = await createSubjectGoal(user!.id, {
+      subject_name: goal.subject_name || "",
+      target_topics: goal.target_topics ?? 10,
+      goal_title: goal.goal_title || null,
+      notes: goal.notes || null,
+    });
+    setSubjectGoals((prev) => [...prev.filter((g) => g.id !== newGoal.id), newGoal]);
     await refreshData();
   }
 
   async function handleUpdateSubjectGoal(id: string, updates: Partial<SubjectGoal>) {
-    await updateSubjectGoal(id, updates);
+    setSubjectGoals((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...updates } : g))
+    );
+    await updateSubjectGoal(id, user!.id, {
+      subject_name: updates.subject_name || null,
+      target_topics: updates.target_topics ?? null,
+      completed_topics: updates.completed_topics ?? null,
+    });
     await refreshData();
   }
 
   async function handleDeleteSubjectGoal(id: string) {
-    await deleteSubjectGoal(id);
+    setSubjectGoals((prev) => prev.filter((g) => g.id !== id));
+    await deleteSubjectGoal(id, user!.id);
     await refreshData();
   }
 
-  // Handlers for Topics (optional subtasks)
-  async function handleAddTopic(topic: Omit<SubjectTopic, "id" | "user_id" | "created_at" | "updated_at">) {
-    await createTopic(user!.id, topic);
-    await refreshData();
-  }
-
-  async function handleUpdateTopic(id: string, updates: Partial<SubjectTopic>) {
-    await updateTopic(id, user!.id, updates);
-    await refreshData();
-  }
-
-  async function handleDeleteTopic(id: string) {
-    await deleteTopic(id);
-    await refreshData();
-  }
-
+  // ==========================================
   // Handlers for Monthly Goals
+  // ==========================================
   async function handleAddMonthlyGoal(goal: Partial<MonthlyGoal>) {
-    await createMonthlyGoal(user!.id, goal);
+    const newGoal = await createMonthlyGoal(user!.id, goal);
+    setGoals((prev) => [newGoal, ...prev.filter((g) => g.id !== newGoal.id)]);
     await refreshData();
   }
 
   async function handleUpdateMonthlyGoal(id: string, updates: Partial<MonthlyGoal>) {
-    await updateMonthlyGoal(id, updates);
+    setGoals((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...updates } : g))
+    );
+    await updateMonthlyGoal(id, user!.id, updates);
     await refreshData();
   }
 
   async function handleDeleteMonthlyGoal(id: string) {
-    await deleteMonthlyGoal(id);
+    setGoals((prev) => prev.filter((g) => g.id !== id));
+    await deleteMonthlyGoal(id, user!.id);
     await refreshData();
   }
 
+  // ==========================================
   // Handlers for Streak
+  // ==========================================
   async function handleRecordTodayStreak() {
     await recordStudyActivity(user!.id);
     await refreshData();
   }
 
+  // ==========================================
   // Handlers for Exams
+  // ==========================================
   async function handleAddExam(exam: Partial<Exam>) {
-    await createExam(user!.id, exam);
+    const newExam = await createExam(user!.id, exam);
+    setExams((prev) => [...prev.filter((e) => e.id !== newExam.id), newExam]);
     await refreshData();
   }
 
   async function handleUpdateExam(id: string, updates: Partial<Exam>) {
-    await updateExam(id, updates);
+    setExams((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, ...updates } : e))
+    );
+    await updateExam(id, user!.id, updates);
     await refreshData();
   }
 
   async function handleDeleteExam(id: string) {
-    await deleteExam(id);
+    setExams((prev) => prev.filter((e) => e.id !== id));
+    await deleteExam(id, user!.id);
     await refreshData();
   }
 
+  // ==========================================
   // Handlers for Notes
+  // ==========================================
   async function handleAddNote(note: Partial<Note>) {
-    await createNote(user!.id, note);
+    const newNote = await createNote(user!.id, note);
+    setNotes((prev) => [newNote, ...prev.filter((n) => n.id !== newNote.id)]);
     await refreshData();
   }
 
   async function handleUpdateNote(id: string, updates: Partial<Note>) {
-    await updateNote(id, updates);
+    setNotes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, ...updates } : n))
+    );
+    await updateNote(id, user!.id, updates);
     await refreshData();
   }
 
   async function handleDeleteNote(id: string) {
-    await deleteNote(id);
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+    await deleteNote(id, user!.id);
     await refreshData();
   }
 
@@ -378,7 +377,7 @@ function MbbsHubPage() {
           tasks={tasks}
           subjects={subjects}
           subjectGoals={subjectGoals}
-          topics={topics}
+          topics={[]}
           goals={goals}
           streakStats={streakStats}
           exams={exams}
@@ -409,13 +408,13 @@ function MbbsHubPage() {
           userId={user.id}
           subjectGoals={subjectGoals}
           subjects={subjects}
-          topics={topics}
+          topics={[]}
           onAddSubjectGoal={handleAddSubjectGoal}
           onUpdateSubjectGoal={handleUpdateSubjectGoal}
           onDeleteSubjectGoal={handleDeleteSubjectGoal}
-          onAddTopic={handleAddTopic}
-          onUpdateTopic={handleUpdateTopic}
-          onDeleteTopic={handleDeleteTopic}
+          onAddTopic={async () => {}}
+          onUpdateTopic={async () => {}}
+          onDeleteTopic={async () => {}}
         />
       )}
 
@@ -462,7 +461,7 @@ function MbbsHubPage() {
           tasks={tasks}
           subjects={subjects}
           subjectGoals={subjectGoals}
-          topics={topics}
+          topics={[]}
           goals={goals}
           streakStats={streakStats}
           exams={exams}

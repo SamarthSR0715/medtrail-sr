@@ -131,6 +131,7 @@ export function SubjectGoalsManager({
       }
       setIsModalOpen(false);
     } catch (err: any) {
+      console.error("[SubjectGoalsManager] Error saving subject goal:", err);
       setErrorMsg(err?.message || "Could not save subject goal.");
     } finally {
       setLoading(false);
