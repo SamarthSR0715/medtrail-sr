@@ -254,8 +254,12 @@ function MbbsHubPage() {
     );
     await updateSubjectGoal(id, user!.id, {
       subject_name: updates.subject_name || null,
+      goal_title: updates.goal_title || null,
       target_topics: updates.target_topics ?? null,
       completed_topics: updates.completed_topics ?? null,
+      progress_percentage: updates.progress_percentage ?? null,
+      status: updates.status,
+      notes: updates.notes || null,
     });
     await refreshData();
   }

@@ -31,6 +31,143 @@ export function getCurrentMonthString(): string {
   return `${year}-${month}`;
 }
 
+// Priority mapping helpers for PostgreSQL daily_tasks_priority_check constraint ('low', 'medium', 'high')
+function toDbPriority(priority?: string | null): "low" | "medium" | "high" {
+  if (!priority) return "medium";
+  const lower = priority.toLowerCase();
+  if (lower === "high") return "high";
+  if (lower === "low") return "low";
+  return "medium";
+}
+
+function toUiPriority(priority?: string | null): PriorityLevel {
+  if (!priority) return "Medium";
+  const lower = priority.toLowerCase();
+  if (lower === "high") return "High";
+  if (lower === "low") return "Low";
+  return "Medium";
+}
+
+// Monthly Goal metadata helpers (storing target/current progress in description)
+function encodeMonthlyGoalDesc(target: number, current: number, userDesc?: string | null): string {
+  const meta = { target_value: target, current_value: current, notes: userDesc || "" };
+  return JSON.stringify(meta);
+}
+
+function parseMonthlyGoalDesc(desc?: string | null, completed = false): { target_value: number; current_value: number; description: string | null } {
+  if (!desc) {
+    return {
+      target_value: 100,
+      current_value: completed ? 100 : 0,
+      description: null,
+    };
+  }
+  try {
+    if (desc.trim().startsWith("{") && desc.trim().endsWith("}")) {
+      const parsed = JSON.parse(desc.trim());
+      const target = Number(parsed.target_value) || 100;
+      const current = parsed.current_value !== undefined ? Number(parsed.current_value) : completed ? target : 0;
+      return {
+        target_value: target,
+        current_value: current,
+        description: parsed.notes || null,
+      };
+    }
+  } catch (_) {}
+  return {
+    target_value: 100,
+    current_value: completed ? 100 : 0,
+    description: desc,
+  };
+}
+
+// Exam metadata helpers (storing exam_type, status, subject_id, subject_name, notes in description)
+function encodeExamDesc(meta: {
+  exam_type?: string;
+  status?: string;
+  subject_id?: string | null;
+  subject_name?: string | null;
+  notes?: string | null;
+}): string {
+  const payload = {
+    exam_type: meta.exam_type || "University Exam",
+    status: meta.status || "Upcoming",
+    subject_id: meta.subject_id || null,
+    subject_name: meta.subject_name || null,
+    notes: meta.notes || "",
+  };
+  return JSON.stringify(payload);
+}
+
+function parseExamDesc(desc?: string | null): {
+  exam_type: ExamType;
+  status: ExamStatus;
+  subject_id: string | null;
+  subject_name: string | null;
+  notes: string | null;
+} {
+  const fallback = {
+    exam_type: "University Exam" as ExamType,
+    status: "Upcoming" as ExamStatus,
+    subject_id: null,
+    subject_name: null,
+    notes: desc || null,
+  };
+  if (!desc) return fallback;
+  try {
+    if (desc.trim().startsWith("{") && desc.trim().endsWith("}")) {
+      const parsed = JSON.parse(desc.trim());
+      return {
+        exam_type: (parsed.exam_type as ExamType) || fallback.exam_type,
+        status: (parsed.status as ExamStatus) || fallback.status,
+        subject_id: parsed.subject_id || null,
+        subject_name: parsed.subject_name || null,
+        notes: parsed.notes || null,
+      };
+    }
+  } catch (_) {}
+  return fallback;
+}
+
+// Subject Goal topic metadata helpers
+const GOAL_META_PREFIX = "__SG_META__:";
+function encodeGoalMetaTopic(meta: {
+  goal_title?: string | null;
+  target_topics?: number;
+  completed_topics?: number;
+  status?: string;
+  notes?: string | null;
+}): string {
+  return `${GOAL_META_PREFIX}${JSON.stringify(meta)}`;
+}
+
+function parseGoalMetaTopic(title: string): {
+  isGoalMeta: boolean;
+  goal_title?: string;
+  target_topics?: number;
+  completed_topics?: number;
+  status?: GoalStatus;
+  notes?: string | null;
+} {
+  if (!title.startsWith(GOAL_META_PREFIX)) {
+    return { isGoalMeta: false };
+  }
+  try {
+    const raw = title.slice(GOAL_META_PREFIX.length);
+    const parsed = JSON.parse(raw);
+    return {
+      isGoalMeta: true,
+      goal_title: parsed.goal_title,
+      target_topics: parsed.target_topics,
+      completed_topics: parsed.completed_topics,
+      status: parsed.status as GoalStatus,
+      notes: parsed.notes || null,
+    };
+  } catch (_) {
+    return { isGoalMeta: false };
+  }
+}
+
 /* =========================================================================
    0. USER PROFILE
    ========================================================================= */
@@ -40,7 +177,7 @@ export async function ensureUserProfile(user: { id: string; email?: string | nul
     const { data: existing, error: fetchErr } = await supabase
       .from("profiles")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("id", user.id)
       .maybeSingle();
 
     if (fetchErr) {
@@ -55,9 +192,9 @@ export async function ensureUserProfile(user: { id: string; email?: string | nul
     const fullName = user.user_metadata?.["full_name"] || user.email?.split("@")[0] || "Medical Student";
     const { data: created, error: insertErr } = await supabase
       .from("profiles")
-      .insert([
+      .upsert([
         {
-          user_id: user.id,
+          id: user.id,
           full_name: fullName,
           email: user.email || null,
         },
@@ -65,7 +202,7 @@ export async function ensureUserProfile(user: { id: string; email?: string | nul
       .select()
       .maybeSingle();
 
-    if (insertErr && insertErr.code !== "23505") {
+    if (insertErr) {
       console.warn("[MBBSService] Notice creating profile:", insertErr.message);
       return null;
     }
@@ -78,32 +215,18 @@ export async function ensureUserProfile(user: { id: string; email?: string | nul
 }
 
 /* =========================================================================
-   1. DAILY TASKS (CRUD + Checkbox completion with auto-streak update)
+   1. DAILY TASKS (CRUD + Checkbox completion + auto streak)
    ========================================================================= */
 
 export async function fetchDailyTasks(userId: string, dateStr?: string): Promise<DailyTask[]> {
   try {
     const targetDate = dateStr || getTodayDateString();
-    
-    // Select all available columns
-    let { data: tasksData, error: taskErr } = await supabase
+
+    const { data: tasksData, error: taskErr } = await supabase
       .from("daily_tasks")
       .select("*")
       .eq("user_id", userId)
-      .eq("task_date", targetDate)
       .order("created_at", { ascending: false });
-
-    // Fallback if task_date filter fails due to schema
-    if (taskErr) {
-      const fallback = await supabase
-        .from("daily_tasks")
-        .select("*")
-        .eq("user_id", userId);
-      if (!fallback.error) {
-        tasksData = fallback.data;
-        taskErr = null;
-      }
-    }
 
     if (taskErr) {
       console.error("[MBBSService] fetchDailyTasks error:", taskErr);
@@ -116,16 +239,16 @@ export async function fetchDailyTasks(userId: string, dateStr?: string): Promise
       .select("id, name")
       .eq("user_id", userId);
 
-    const tasks: DailyTask[] = (tasksData || []).map((task: any) => {
+    const tasks: DailyTask[] = (tasksData || []).map((task) => {
       const sub = (subjectsData || []).find((s) => s.id === task.subject_id);
       return {
         id: task.id,
         user_id: task.user_id,
         title: task.title,
-        description: task.description || null,
+        description: task.description || task.notes || null,
         task_date: task.task_date || targetDate,
-        priority: (task.priority as PriorityLevel) || "Medium",
-        estimated_minutes: task.estimated_minutes ?? 30,
+        priority: toUiPriority(task.priority),
+        estimated_minutes: task.estimated_minutes ?? task.estimated_time ?? 30,
         completed: Boolean(task.completed),
         completed_at: task.completed_at || null,
         subject_id: task.subject_id || null,
@@ -144,79 +267,48 @@ export async function fetchDailyTasks(userId: string, dateStr?: string): Promise
 
 export async function createDailyTask(userId: string, task: Partial<DailyTask>): Promise<DailyTask> {
   try {
-    const fullPayload: any = {
+    const minutes = task.estimated_minutes || 30;
+    const dbPriority = toDbPriority(task.priority);
+    const taskDate = task.task_date || getTodayDateString();
+
+    const payload = {
       user_id: userId,
       title: task.title!.trim(),
       description: task.description ? task.description.trim() : null,
-      subject_id: task.subject_id || null,
-      task_date: task.task_date || getTodayDateString(),
-      priority: task.priority || "Medium",
-      estimated_minutes: task.estimated_minutes || 30,
-      estimated_time: task.estimated_minutes || 30,
+      notes: task.description ? task.description.trim() : null,
+      subject_id: task.subject_id && task.subject_id.trim() ? task.subject_id.trim() : null,
+      task_date: taskDate,
+      priority: dbPriority,
+      estimated_minutes: minutes,
+      estimated_time: minutes,
       completed: false,
     };
 
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("daily_tasks")
-      .insert([fullPayload])
+      .insert([payload])
       .select()
       .maybeSingle();
-
-    // If a column is missing in remote DB (e.g. description/priority/estimated_minutes), gracefully retry with minimal core fields
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      console.warn("[MBBSService] Retrying daily task insert with core columns:", error.message);
-      const minimalPayload: any = {
-        user_id: userId,
-        title: task.title!.trim(),
-        completed: false,
-      };
-      if (task.task_date) minimalPayload.task_date = task.task_date;
-      if (task.subject_id) minimalPayload.subject_id = task.subject_id;
-
-      const retryRes = await supabase
-        .from("daily_tasks")
-        .insert([minimalPayload])
-        .select()
-        .maybeSingle();
-
-      if (!retryRes.error && retryRes.data) {
-        data = retryRes.data;
-        error = null;
-      }
-    }
 
     if (error) {
       console.error("[MBBSService] createDailyTask Supabase error:", error);
       throw new Error(error.message);
     }
 
-    const row = data || {
-      id: `task_${Date.now()}`,
-      user_id: userId,
-      title: task.title!,
-      description: task.description ?? null,
-      task_date: task.task_date || getTodayDateString(),
-      priority: task.priority || "Medium",
-      estimated_minutes: task.estimated_minutes ?? 30,
-      completed: false,
-      subject_id: task.subject_id || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
+    const row = data!;
     return {
       id: row.id,
-      user_id: row.user_id || userId,
-      title: row.title || task.title!,
-      description: row.description ?? task.description ?? null,
-      task_date: row.task_date || task.task_date || getTodayDateString(),
-      priority: (row.priority as PriorityLevel) || task.priority || "Medium",
-      estimated_minutes: row.estimated_minutes ?? task.estimated_minutes ?? 30,
+      user_id: row.user_id,
+      title: row.title,
+      description: row.description || row.notes || null,
+      task_date: row.task_date || taskDate,
+      priority: toUiPriority(row.priority),
+      estimated_minutes: row.estimated_minutes ?? minutes,
       completed: Boolean(row.completed),
-      subject_id: row.subject_id || task.subject_id || null,
+      subject_id: row.subject_id || null,
       subject_name: task.subject_name || null,
-      created_at: row.created_at || new Date().toISOString(),
-      updated_at: row.updated_at || new Date().toISOString(),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   } catch (err: any) {
     console.error("[MBBSService] createDailyTask exception:", err);
@@ -235,36 +327,29 @@ export async function updateDailyTask(
     };
 
     if (updates.title !== undefined) payload.title = updates.title.trim();
-    if (updates.description !== undefined) payload.description = updates.description ? updates.description.trim() : null;
-    if (updates.subject_id !== undefined) payload.subject_id = updates.subject_id || null;
+    if (updates.description !== undefined) {
+      payload.description = updates.description ? updates.description.trim() : null;
+      payload.notes = updates.description ? updates.description.trim() : null;
+    }
+    if (updates.subject_id !== undefined) {
+      payload.subject_id = updates.subject_id && updates.subject_id.trim() ? updates.subject_id.trim() : null;
+    }
     if (updates.task_date !== undefined) payload.task_date = updates.task_date;
-    if (updates.priority !== undefined) payload.priority = updates.priority;
-    if (updates.estimated_minutes !== undefined) payload.estimated_minutes = updates.estimated_minutes;
+    if (updates.priority !== undefined) payload.priority = toDbPriority(updates.priority);
+    if (updates.estimated_minutes !== undefined) {
+      payload.estimated_minutes = updates.estimated_minutes;
+      payload.estimated_time = updates.estimated_minutes;
+    }
     if (updates.completed !== undefined) {
       payload.completed = updates.completed;
       payload.completed_at = updates.completed ? new Date().toISOString() : null;
     }
 
-    let { error } = await supabase
+    const { error } = await supabase
       .from("daily_tasks")
       .update(payload)
       .eq("id", id)
       .eq("user_id", userId);
-
-    // If update failed due to optional column mismatch, retry with base fields
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      const minimalUpdate: any = {};
-      if (updates.title !== undefined) minimalUpdate.title = updates.title.trim();
-      if (updates.completed !== undefined) minimalUpdate.completed = updates.completed;
-      
-      const retry = await supabase
-        .from("daily_tasks")
-        .update(minimalUpdate)
-        .eq("id", id)
-        .eq("user_id", userId);
-      
-      error = retry.error;
-    }
 
     if (error) {
       console.error("[MBBSService] updateDailyTask error:", error);
@@ -306,39 +391,33 @@ export async function deleteDailyTask(id: string, userId: string): Promise<void>
 export async function fetchMonthlyGoals(userId: string, monthStr?: string): Promise<MonthlyGoal[]> {
   try {
     const targetMonth = monthStr || getCurrentMonthString();
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("monthly_goals")
       .select("*")
       .eq("user_id", userId)
-      .eq("month", targetMonth)
       .order("created_at", { ascending: false });
-
-    // Fallback without month filter if month column is missing
-    if (error) {
-      const fallback = await supabase.from("monthly_goals").select("*").eq("user_id", userId);
-      if (!fallback.error) {
-        data = fallback.data;
-        error = null;
-      }
-    }
 
     if (error) {
       console.error("[MBBSService] fetchMonthlyGoals error:", error);
       throw new Error(error.message);
     }
 
-    return (data || []).map((g: any) => ({
-      id: g.id,
-      user_id: g.user_id,
-      title: g.title,
-      description: g.description || null,
-      month: g.month || targetMonth,
-      target_value: g.target_value ?? 100,
-      current_value: g.current_value ?? 0,
-      completed: Boolean(g.completed),
-      created_at: g.created_at || new Date().toISOString(),
-      updated_at: g.updated_at || new Date().toISOString(),
-    }));
+    return (data || []).map((g) => {
+      const parsed = parseMonthlyGoalDesc(g.description, g.completed);
+      const goalMonth = g.goal_month ? g.goal_month.slice(0, 7) : targetMonth;
+      return {
+        id: g.id,
+        user_id: g.user_id,
+        title: g.title,
+        description: parsed.description,
+        month: goalMonth,
+        target_value: parsed.target_value,
+        current_value: parsed.current_value,
+        completed: Boolean(g.completed),
+        created_at: g.created_at || new Date().toISOString(),
+        updated_at: g.updated_at || new Date().toISOString(),
+      };
+    });
   } catch (err: any) {
     console.error("[MBBSService] fetchMonthlyGoals exception:", err);
     throw err;
@@ -349,65 +428,43 @@ export async function createMonthlyGoal(userId: string, goal: Partial<MonthlyGoa
   try {
     const targetVal = goal.target_value || 100;
     const currentVal = goal.current_value || 0;
+    const rawMonth = goal.month || getCurrentMonthString();
+    const goalMonthDate = `${rawMonth.slice(0, 7)}-01`;
+    const isDone = Boolean(goal.completed || currentVal >= targetVal);
+    const encodedDesc = encodeMonthlyGoalDesc(targetVal, currentVal, goal.description);
+
     const payload = {
       user_id: userId,
       title: goal.title!.trim(),
-      description: goal.description ? goal.description.trim() : null,
-      month: goal.month || getCurrentMonthString(),
-      target_value: targetVal,
-      current_value: currentVal,
-      completed: currentVal >= targetVal,
+      goal_month: goalMonthDate,
+      description: encodedDesc,
+      completed: isDone,
+      completed_at: isDone ? new Date().toISOString() : null,
     };
 
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("monthly_goals")
       .insert([payload])
       .select()
       .maybeSingle();
-
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      console.warn("[MBBSService] Retrying monthly goal insert with core fields:", error.message);
-      const minimalPayload: any = {
-        user_id: userId,
-        title: goal.title!.trim(),
-        completed: false,
-      };
-      const retry = await supabase.from("monthly_goals").insert([minimalPayload]).select().maybeSingle();
-      if (!retry.error && retry.data) {
-        data = retry.data;
-        error = null;
-      }
-    }
 
     if (error) {
       console.error("[MBBSService] createMonthlyGoal error:", error);
       throw new Error(error.message);
     }
 
-    const row = data || {
-      id: `goal_${Date.now()}`,
-      user_id: userId,
-      title: goal.title!,
-      description: goal.description ?? null,
-      month: goal.month || getCurrentMonthString(),
-      target_value: targetVal,
-      current_value: currentVal,
-      completed: currentVal >= targetVal,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
+    const row = data!;
     return {
       id: row.id,
-      user_id: row.user_id || userId,
-      title: row.title || goal.title!,
-      description: row.description ?? goal.description ?? null,
-      month: row.month || goal.month || getCurrentMonthString(),
-      target_value: row.target_value ?? targetVal,
-      current_value: row.current_value ?? currentVal,
-      completed: Boolean(row.completed),
-      created_at: row.created_at || new Date().toISOString(),
-      updated_at: row.updated_at || new Date().toISOString(),
+      user_id: row.user_id,
+      title: row.title,
+      description: goal.description ? goal.description.trim() : null,
+      month: rawMonth.slice(0, 7),
+      target_value: targetVal,
+      current_value: currentVal,
+      completed: row.completed,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   } catch (err: any) {
     console.error("[MBBSService] createMonthlyGoal exception:", err);
@@ -421,28 +478,40 @@ export async function updateMonthlyGoal(
   updates: Partial<MonthlyGoal>
 ): Promise<void> {
   try {
-    const payload: any = { ...updates, updated_at: new Date().toISOString() };
-    if (updates.target_value !== undefined || updates.current_value !== undefined) {
-      const cur = updates.current_value ?? 0;
-      const tar = updates.target_value ?? 100;
-      if (updates.completed === undefined) {
-        payload.completed = cur >= tar;
-      }
-    }
+    // Fetch existing goal to preserve units if not provided
+    const { data: existing } = await supabase
+      .from("monthly_goals")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    let { error } = await supabase
+    const existingParsed = parseMonthlyGoalDesc(existing?.description, existing?.completed);
+
+    const targetVal = updates.target_value !== undefined ? updates.target_value : existingParsed.target_value;
+    const currentVal = updates.current_value !== undefined ? updates.current_value : existingParsed.current_value;
+    const descText = updates.description !== undefined ? updates.description : existingParsed.description;
+
+    const isCompleted =
+      updates.completed !== undefined
+        ? updates.completed
+        : currentVal >= targetVal;
+
+    const payload: any = {
+      updated_at: new Date().toISOString(),
+      completed: isCompleted,
+      completed_at: isCompleted ? new Date().toISOString() : null,
+      description: encodeMonthlyGoalDesc(targetVal, currentVal, descText),
+    };
+
+    if (updates.title !== undefined) payload.title = updates.title.trim();
+    if (updates.month !== undefined) payload.goal_month = `${updates.month.slice(0, 7)}-01`;
+
+    const { error } = await supabase
       .from("monthly_goals")
       .update(payload)
       .eq("id", id)
       .eq("user_id", userId);
-
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      const minUpdate: any = {};
-      if (updates.title !== undefined) minUpdate.title = updates.title.trim();
-      if (updates.completed !== undefined) minUpdate.completed = updates.completed;
-      const retry = await supabase.from("monthly_goals").update(minUpdate).eq("id", id).eq("user_id", userId);
-      error = retry.error;
-    }
 
     if (error) {
       console.error("[MBBSService] updateMonthlyGoal error:", error);
@@ -473,91 +542,94 @@ export async function deleteMonthlyGoal(id: string, userId: string): Promise<voi
 }
 
 /* =========================================================================
-   3. SUBJECT GOALS & SUBJECTS (One goal per subject + progress %)
+   3. SUBJECT GOALS & SUBJECTS (Using subjects and topics tables)
    ========================================================================= */
 
 export async function fetchSubjectsAndGoals(userId: string): Promise<{ subjects: Subject[]; subjectGoals: SubjectGoal[] }> {
   try {
-    // 1. Try reading from subject_goals table first
-    const { data: subGoalsData, error: subGoalErr } = await supabase
-      .from("subject_goals")
-      .select("*")
-      .eq("user_id", userId)
-      .order("subject_name", { ascending: true });
-
-    // 2. Read subjects
-    const { data: subjectsData } = await supabase
+    // 1. Fetch subjects
+    const { data: subjectsData, error: subErr } = await supabase
       .from("subjects")
       .select("*")
       .eq("user_id", userId)
       .order("name", { ascending: true });
 
-    // 3. Read daily tasks to compute subject completions
+    if (subErr) {
+      console.error("[MBBSService] fetch subjects error:", subErr);
+      throw new Error(subErr.message);
+    }
+
+    // 2. Fetch topics
+    const { data: topicsData } = await supabase
+      .from("topics")
+      .select("*")
+      .eq("user_id", userId);
+
+    // 3. Fetch daily tasks to factor in task completions
     const { data: tasksData } = await supabase
       .from("daily_tasks")
       .select("subject_id, completed")
       .eq("user_id", userId);
 
-    const subjects: Subject[] = (subjectsData || []).map((sub: any) => {
-      const subTasks = (tasksData || []).filter((t: any) => t.subject_id === sub.id);
-      const completed = subTasks.filter((t: any) => t.completed).length;
+    const subjects: Subject[] = (subjectsData || []).map((sub) => {
+      const subTopics = (topicsData || []).filter((t) => t.subject_id === sub.id && !t.title.startsWith(GOAL_META_PREFIX));
+      const subTasks = (tasksData || []).filter((t) => t.subject_id === sub.id);
+      const completedTopics = subTopics.filter((t) => t.completed).length + subTasks.filter((t) => t.completed).length;
+      const totalTopics = Math.max(subTopics.length + subTasks.length, 1);
+
       return {
         id: sub.id,
         user_id: sub.user_id,
         name: sub.name,
-        target_topics: sub.target_topics ?? 10,
-        total_topics: subTasks.length,
-        completed_topics: completed,
-        created_at: sub.created_at || new Date().toISOString(),
-        updated_at: sub.updated_at || new Date().toISOString(),
+        target_topics: totalTopics,
+        total_topics: totalTopics,
+        completed_topics: completedTopics,
+        created_at: sub.created_at,
+        updated_at: sub.created_at,
       };
     });
 
-    let subjectGoals: SubjectGoal[] = [];
+    const subjectGoals: SubjectGoal[] = (subjectsData || []).map((sub) => {
+      const sTopics = (topicsData || []).filter((t) => t.subject_id === sub.id);
+      const metaTopic = sTopics.find((t) => t.title.startsWith(GOAL_META_PREFIX));
 
-    if (!subGoalErr && subGoalsData && subGoalsData.length > 0) {
-      subjectGoals = subGoalsData.map((g: any) => {
-        const target = Math.max(1, g.target_topics || 10);
-        const completed = g.completed_topics || 0;
-        const pct = g.progress_percentage ?? Math.min(100, Math.round((completed / target) * 100));
-        return {
-          id: g.id,
-          user_id: g.user_id,
-          subject_id: g.subject_id || null,
-          subject_name: g.subject_name,
-          goal_title: g.goal_title || `Master ${g.subject_name}`,
-          target_topics: target,
-          completed_topics: completed,
-          progress_percentage: pct,
-          status: (g.status as GoalStatus) || (pct >= 100 ? "Completed" : completed > 0 ? "In Progress" : "Not Started"),
-          notes: g.notes || null,
-          created_at: g.created_at || new Date().toISOString(),
-          updated_at: g.updated_at || new Date().toISOString(),
-        };
-      });
-    } else {
-      // Fallback: derive subject goals from subjects table
-      subjectGoals = subjects.map((sub) => {
-        const target = Math.max(1, sub.target_topics || 10);
-        const completed = sub.completed_topics || 0;
-        const pct = Math.min(100, Math.round((completed / target) * 100));
-        const status: GoalStatus = pct >= 100 ? "Completed" : completed > 0 ? "In Progress" : "Not Started";
+      let goalTitle = `Master ${sub.name}`;
+      let target = 15;
+      let completed = 0;
+      let status: GoalStatus = "Not Started";
+      let notes: string | null = null;
 
-        return {
-          id: sub.id,
-          user_id: sub.user_id,
-          subject_id: sub.id,
-          subject_name: sub.name,
-          goal_title: `Master ${sub.name}`,
-          target_topics: target,
-          completed_topics: completed,
-          progress_percentage: pct,
-          status,
-          created_at: sub.created_at || new Date().toISOString(),
-          updated_at: sub.updated_at || new Date().toISOString(),
-        };
-      });
-    }
+      if (metaTopic) {
+        const parsed = parseGoalMetaTopic(metaTopic.title);
+        goalTitle = parsed.goal_title || goalTitle;
+        target = parsed.target_topics || target;
+        completed = parsed.completed_topics || 0;
+        status = parsed.status || "Not Started";
+        notes = parsed.notes || null;
+      } else {
+        const regularTopics = sTopics.filter((t) => !t.title.startsWith(GOAL_META_PREFIX));
+        completed = regularTopics.filter((t) => t.completed).length;
+        target = regularTopics.length > 0 ? regularTopics.length : 15;
+      }
+
+      const pct = target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0;
+      const resolvedStatus: GoalStatus = pct >= 100 ? "Completed" : completed > 0 ? "In Progress" : status;
+
+      return {
+        id: sub.id,
+        user_id: sub.user_id,
+        subject_id: sub.id,
+        subject_name: sub.name,
+        goal_title: goalTitle,
+        target_topics: target,
+        completed_topics: completed,
+        progress_percentage: pct,
+        status: resolvedStatus,
+        notes,
+        created_at: sub.created_at,
+        updated_at: sub.created_at,
+      };
+    });
 
     return { subjects, subjectGoals };
   } catch (err: any) {
@@ -571,67 +643,73 @@ export async function createSubjectGoal(
   goal: { subject_name: string; target_topics?: number | null; goal_title?: string | null; notes?: string | null }
 ): Promise<SubjectGoal> {
   try {
-    const target = goal.target_topics || 10;
+    const target = goal.target_topics || 15;
     const name = goal.subject_name.trim();
+    const title = goal.goal_title ? goal.goal_title.trim() : `Master ${name}`;
 
-    // Also sync with subjects table
-    const { data: subData } = await supabase
+    // 1. Upsert / insert subject
+    let { data: subData } = await supabase
       .from("subjects")
-      .insert([{ user_id: userId, name, target_topics: target }])
-      .select()
+      .select("*")
+      .eq("user_id", userId)
+      .ilike("name", name)
       .maybeSingle();
 
-    // Try inserting into subject_goals
-    const payload = {
+    if (!subData) {
+      const insRes = await supabase
+        .from("subjects")
+        .insert([{ user_id: userId, name }])
+        .select()
+        .maybeSingle();
+      if (insRes.error) {
+        throw new Error(insRes.error.message);
+      }
+      subData = insRes.data!;
+    }
+
+    // 2. Insert goal meta in topics table
+    const metaTitle = encodeGoalMetaTopic({
+      goal_title: title,
+      target_topics: target,
+      completed_topics: 0,
+      status: "Not Started",
+      notes: goal.notes || null,
+    });
+
+    // Remove any existing goal meta topic for this subject
+    const { data: existingTopics } = await supabase
+      .from("topics")
+      .select("id, title")
+      .eq("subject_id", subData.id)
+      .eq("user_id", userId);
+
+    const oldMeta = (existingTopics || []).find((t) => t.title.startsWith(GOAL_META_PREFIX));
+    if (oldMeta) {
+      await supabase.from("topics").update({ title: metaTitle }).eq("id", oldMeta.id);
+    } else {
+      await supabase.from("topics").insert([
+        {
+          user_id: userId,
+          subject_id: subData.id,
+          title: metaTitle,
+          completed: false,
+        },
+      ]);
+    }
+
+    return {
+      id: subData.id,
       user_id: userId,
+      subject_id: subData.id,
       subject_name: name,
-      goal_title: goal.goal_title || `Master ${name}`,
+      goal_title: title,
       target_topics: target,
       completed_topics: 0,
       progress_percentage: 0,
       status: "Not Started",
       notes: goal.notes || null,
-      subject_id: subData?.id || null,
-    };
-
-    let { data, error } = await supabase
-      .from("subject_goals")
-      .insert([payload])
-      .select()
-      .maybeSingle();
-
-    // If subject_goals table does not exist, use subjects record
-    if (error || !data) {
-      console.warn("[MBBSService] Using subjects table as fallback for subject goal:", error?.message);
-      return {
-        id: subData?.id || `sub_${Date.now()}`,
-        user_id: userId,
-        subject_id: subData?.id || null,
-        subject_name: name,
-        goal_title: goal.goal_title || `Master ${name}`,
-        target_topics: target,
-        completed_topics: 0,
-        progress_percentage: 0,
-        status: "Not Started",
-        notes: goal.notes || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-    }
-
-    return {
-      id: data.id,
-      user_id: data.user_id,
-      subject_id: data.subject_id || subData?.id || null,
-      subject_name: data.subject_name,
-      goal_title: data.goal_title || `Master ${data.subject_name}`,
-      target_topics: data.target_topics ?? target,
-      completed_topics: data.completed_topics ?? 0,
-      progress_percentage: data.progress_percentage ?? 0,
-      status: "Not Started",
-      notes: data.notes || null,
-      created_at: data.created_at || new Date().toISOString(),
-      updated_at: data.updated_at || new Date().toISOString(),
+      created_at: subData.created_at,
+      updated_at: subData.created_at,
     };
   } catch (err: any) {
     console.error("[MBBSService] createSubjectGoal exception:", err);
@@ -642,27 +720,72 @@ export async function createSubjectGoal(
 export async function updateSubjectGoal(
   id: string,
   userId: string,
-  updates: { subject_name?: string | null; target_topics?: number | null; completed_topics?: number | null }
+  updates: {
+    subject_name?: string | null;
+    goal_title?: string | null;
+    target_topics?: number | null;
+    completed_topics?: number | null;
+    progress_percentage?: number | null;
+    status?: GoalStatus;
+    notes?: string | null;
+  }
 ): Promise<void> {
   try {
-    const payload: any = { updated_at: new Date().toISOString() };
-    if (updates.subject_name) payload.subject_name = updates.subject_name.trim();
-    if (updates.target_topics !== undefined && updates.target_topics !== null) payload.target_topics = Number(updates.target_topics) || 10;
-    if (updates.completed_topics !== undefined && updates.completed_topics !== null) payload.completed_topics = Number(updates.completed_topics) || 0;
+    // 1. Update subject name if changed
+    if (updates.subject_name) {
+      await supabase
+        .from("subjects")
+        .update({ name: updates.subject_name.trim() })
+        .eq("id", id)
+        .eq("user_id", userId);
+    }
 
-    // Try updating subject_goals
-    await supabase
-      .from("subject_goals")
-      .update(payload)
-      .eq("id", id)
+    // 2. Fetch existing topics for this subject
+    const { data: existingTopics } = await supabase
+      .from("topics")
+      .select("*")
+      .eq("subject_id", id)
       .eq("user_id", userId);
 
-    // Also update subjects table
-    const subPayload: any = { updated_at: new Date().toISOString() };
-    if (updates.subject_name) subPayload.name = updates.subject_name.trim();
-    if (updates.target_topics !== undefined && updates.target_topics !== null) subPayload.target_topics = Number(updates.target_topics) || 10;
+    const oldMeta = (existingTopics || []).find((t) => t.title.startsWith(GOAL_META_PREFIX));
+    const parsedOld = oldMeta ? parseGoalMetaTopic(oldMeta.title) : { isGoalMeta: false };
 
-    await supabase.from("subjects").update(subPayload).eq("id", id).eq("user_id", userId);
+    const target = updates.target_topics !== undefined && updates.target_topics !== null ? Number(updates.target_topics) : parsedOld.target_topics || 15;
+    const completed = updates.completed_topics !== undefined && updates.completed_topics !== null ? Number(updates.completed_topics) : parsedOld.completed_topics || 0;
+    const pct = target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0;
+    const status = updates.status || (pct >= 100 ? "Completed" : completed > 0 ? "In Progress" : "Not Started");
+    const goalTitle = updates.goal_title !== undefined ? updates.goal_title : parsedOld.goal_title || `Master Subject`;
+    const notes = updates.notes !== undefined ? updates.notes : parsedOld.notes || null;
+
+    const metaTitle = encodeGoalMetaTopic({
+      goal_title: goalTitle,
+      target_topics: target,
+      completed_topics: completed,
+      status,
+      notes,
+    });
+
+    if (oldMeta) {
+      await supabase
+        .from("topics")
+        .update({
+          title: metaTitle,
+          completed: pct >= 100,
+          completed_at: pct >= 100 ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", oldMeta.id);
+    } else {
+      await supabase.from("topics").insert([
+        {
+          user_id: userId,
+          subject_id: id,
+          title: metaTitle,
+          completed: pct >= 100,
+          completed_at: pct >= 100 ? new Date().toISOString() : null,
+        },
+      ]);
+    }
   } catch (err: any) {
     console.error("[MBBSService] updateSubjectGoal exception:", err);
     throw err;
@@ -671,7 +794,9 @@ export async function updateSubjectGoal(
 
 export async function deleteSubjectGoal(id: string, userId: string): Promise<void> {
   try {
-    await supabase.from("subject_goals").delete().eq("id", id).eq("user_id", userId);
+    // Delete topics belonging to this subject
+    await supabase.from("topics").delete().eq("subject_id", id).eq("user_id", userId);
+    // Delete subject
     await supabase.from("subjects").delete().eq("id", id).eq("user_id", userId);
   } catch (err: any) {
     console.error("[MBBSService] deleteSubjectGoal exception:", err);
@@ -680,42 +805,126 @@ export async function deleteSubjectGoal(id: string, userId: string): Promise<voi
 }
 
 /* =========================================================================
-   4. STUDY STREAKS (Automatic calculation & logging)
+   4. STUDY STREAKS (Using study_days and study_streaks)
    ========================================================================= */
 
 export async function recordStudyActivity(userId: string, dateStr?: string): Promise<void> {
   try {
     const studyDate = dateStr || getTodayDateString();
-    const { error } = await supabase
-      .from("study_streaks")
-      .upsert([{ user_id: userId, study_date: studyDate }], { onConflict: "user_id,study_date" });
 
-    if (error && error.code !== "23505") {
-      console.warn("[MBBSService] recordStudyActivity notice:", error.message);
+    // 1. Insert into study_days
+    const { data: existingDay } = await supabase
+      .from("study_days")
+      .select("id, tasks_completed")
+      .eq("user_id", userId)
+      .eq("study_date", studyDate)
+      .maybeSingle();
+
+    if (existingDay) {
+      await supabase
+        .from("study_days")
+        .update({ tasks_completed: (existingDay.tasks_completed || 0) + 1 })
+        .eq("id", existingDay.id);
+    } else {
+      await supabase
+        .from("study_days")
+        .insert([{ user_id: userId, study_date: studyDate, tasks_completed: 1 }]);
     }
+
+    // 2. Fetch all study dates to calculate streaks
+    const { data: allDays } = await supabase
+      .from("study_days")
+      .select("study_date")
+      .eq("user_id", userId);
+
+    const dates = (allDays || []).map((d) => d.study_date).filter(Boolean);
+    const uniqueDates = Array.from(new Set(dates)).sort().reverse();
+
+    let currentStreak = 0;
+    const today = getTodayDateString();
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = yesterdayDate.toISOString().split("T")[0] || "";
+
+    let checkDate = new Date();
+    if (!uniqueDates.includes(today) && uniqueDates.includes(yesterday)) {
+      checkDate = yesterdayDate;
+    }
+
+    while (true) {
+      const formatted = checkDate.toISOString().split("T")[0] || "";
+      if (uniqueDates.includes(formatted)) {
+        currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+
+    // Calculate longest streak
+    let longestStreak = currentStreak;
+    let tempStreak = 0;
+    let prevDateMs: number | null = null;
+    const sortedAsc = [...uniqueDates].sort();
+    for (const dStr of sortedAsc) {
+      const curMs = new Date(dStr).getTime();
+      if (prevDateMs === null) {
+        tempStreak = 1;
+      } else {
+        const diffDays = Math.round((curMs - prevDateMs) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          tempStreak++;
+        } else {
+          tempStreak = 1;
+        }
+      }
+      prevDateMs = curMs;
+      if (tempStreak > longestStreak) longestStreak = tempStreak;
+    }
+
+    // 3. Upsert study_streaks table
+    await supabase
+      .from("study_streaks")
+      .upsert([
+        {
+          user_id: userId,
+          current_streak: currentStreak,
+          longest_streak: longestStreak,
+          last_study_date: studyDate,
+          updated_at: new Date().toISOString(),
+        },
+      ]);
   } catch (err: any) {
-    console.warn("[MBBSService] recordStudyActivity exception:", err);
+    console.warn("[MBBSService] recordStudyActivity notice:", err);
   }
 }
 
 export async function fetchStreakStats(userId: string): Promise<StreakStats> {
   try {
-    const { data, error } = await supabase
-      .from("study_streaks")
+    // 1. Fetch study dates from study_days
+    const { data: daysData, error: daysErr } = await supabase
+      .from("study_days")
       .select("study_date")
       .eq("user_id", userId)
       .order("study_date", { ascending: false });
 
-    if (error) {
-      console.warn("[MBBSService] fetchStreakStats notice:", error.message);
-      return { currentStreak: 0, longestStreak: 0, totalStudyDays: 0, studyDates: [] };
-    }
+    // 2. Fetch streak summary from study_streaks
+    const { data: streakSummary } = await supabase
+      .from("study_streaks")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    const dates = (data || []).map((d: any) => d.study_date).filter(Boolean) as string[];
+    const dates = (daysData || []).map((d) => d.study_date).filter(Boolean) as string[];
     const uniqueDates = Array.from(new Set(dates)).sort().reverse();
 
     if (uniqueDates.length === 0) {
-      return { currentStreak: 0, longestStreak: 0, totalStudyDays: 0, studyDates: [] };
+      return {
+        currentStreak: streakSummary?.current_streak || 0,
+        longestStreak: streakSummary?.longest_streak || 0,
+        totalStudyDays: 0,
+        studyDates: [],
+      };
     }
 
     const today = getTodayDateString();
@@ -723,7 +932,6 @@ export async function fetchStreakStats(userId: string): Promise<StreakStats> {
     yesterdayDate.setDate(yesterdayDate.getDate() - 1);
     const yesterday = yesterdayDate.toISOString().split("T")[0] || "";
 
-    // Compute current streak
     let currentStreak = 0;
     let checkDate = new Date();
     if (!uniqueDates.includes(today) && uniqueDates.includes(yesterday)) {
@@ -740,11 +948,9 @@ export async function fetchStreakStats(userId: string): Promise<StreakStats> {
       }
     }
 
-    // Compute longest streak
-    let longestStreak = 0;
+    let longestStreak = streakSummary?.longest_streak || currentStreak;
     let tempStreak = 0;
     let prevDateMs: number | null = null;
-
     const sortedAsc = [...uniqueDates].sort();
     for (const dStr of sortedAsc) {
       const curMs = new Date(dStr).getTime();
@@ -759,25 +965,23 @@ export async function fetchStreakStats(userId: string): Promise<StreakStats> {
         }
       }
       prevDateMs = curMs;
-      if (tempStreak > longestStreak) {
-        longestStreak = tempStreak;
-      }
+      if (tempStreak > longestStreak) longestStreak = tempStreak;
     }
 
     return {
-      currentStreak,
+      currentStreak: streakSummary?.current_streak !== undefined ? Math.max(streakSummary.current_streak, currentStreak) : currentStreak,
       longestStreak: Math.max(longestStreak, currentStreak),
       totalStudyDays: uniqueDates.length,
       studyDates: uniqueDates,
     };
   } catch (err: any) {
-    console.warn("[MBBSService] fetchStreakStats exception:", err);
+    console.warn("[MBBSService] fetchStreakStats notice:", err);
     return { currentStreak: 0, longestStreak: 0, totalStudyDays: 0, studyDates: [] };
   }
 }
 
 /* =========================================================================
-   5. EXAMS (Title, subject, date, status, notes)
+   5. EXAMS (Using name, exam_date, description)
    ========================================================================= */
 
 export async function fetchExams(userId: string): Promise<Exam[]> {
@@ -800,24 +1004,25 @@ export async function fetchExams(userId: string): Promise<Exam[]> {
 
     const todayMs = new Date(getTodayDateString()).getTime();
 
-    const exams: Exam[] = (examsData || []).map((ex: any) => {
-      const sub = (subjectsData || []).find((s) => s.id === ex.subject_id);
+    const exams: Exam[] = (examsData || []).map((ex) => {
+      const parsed = parseExamDesc(ex.description);
+      const sub = (subjectsData || []).find((s) => s.id === parsed.subject_id || s.name === parsed.subject_name);
       const exMs = new Date(ex.exam_date).getTime();
       const daysRemaining = Math.ceil((exMs - todayMs) / (1000 * 60 * 60 * 24));
 
       return {
         id: ex.id,
         user_id: ex.user_id,
-        title: ex.title,
+        title: ex.name,
         exam_date: ex.exam_date,
-        subject_id: ex.subject_id || null,
-        subject_name: sub ? sub.name : null,
-        exam_type: (ex.exam_type as ExamType) || "University Exam",
-        status: (ex.status as ExamStatus) || (daysRemaining < 0 ? "Completed" : "Upcoming"),
-        notes: ex.notes || null,
+        subject_id: parsed.subject_id || (sub ? sub.id : null),
+        subject_name: sub ? sub.name : parsed.subject_name || null,
+        exam_type: parsed.exam_type,
+        status: parsed.status || (daysRemaining < 0 ? "Completed" : "Upcoming"),
+        notes: parsed.notes,
         days_remaining: daysRemaining,
-        created_at: ex.created_at || new Date().toISOString(),
-        updated_at: ex.updated_at || new Date().toISOString(),
+        created_at: ex.created_at,
+        updated_at: ex.updated_at,
       };
     });
 
@@ -830,70 +1035,51 @@ export async function fetchExams(userId: string): Promise<Exam[]> {
 
 export async function createExam(userId: string, exam: Partial<Exam>): Promise<Exam> {
   try {
+    const examDate = exam.exam_date || getTodayDateString();
+    const encodedDesc = encodeExamDesc({
+      exam_type: exam.exam_type || "University Exam",
+      status: exam.status || "Upcoming",
+      subject_id: exam.subject_id || null,
+      subject_name: exam.subject_name || null,
+      notes: exam.notes || null,
+    });
+
     const payload = {
       user_id: userId,
-      subject_id: exam.subject_id || null,
-      title: exam.title!.trim(),
-      exam_date: exam.exam_date || getTodayDateString(),
-      exam_type: exam.exam_type || "University Exam",
-      notes: exam.notes ? exam.notes.trim() : null,
+      name: exam.title!.trim(),
+      exam_date: examDate,
+      description: encodedDesc,
     };
 
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("exams")
       .insert([payload])
       .select()
       .maybeSingle();
-
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      console.warn("[MBBSService] Retrying exam insert with core fields:", error.message);
-      const minPayload: any = {
-        user_id: userId,
-        title: exam.title!.trim(),
-        exam_date: exam.exam_date || getTodayDateString(),
-      };
-      const retry = await supabase.from("exams").insert([minPayload]).select().maybeSingle();
-      if (!retry.error && retry.data) {
-        data = retry.data;
-        error = null;
-      }
-    }
 
     if (error) {
       console.error("[MBBSService] createExam error:", error);
       throw new Error(error.message);
     }
 
-    const row = data || {
-      id: `exam_${Date.now()}`,
-      user_id: userId,
-      title: exam.title!,
-      exam_date: exam.exam_date || getTodayDateString(),
-      subject_id: exam.subject_id || null,
-      exam_type: exam.exam_type || "University Exam",
-      status: "Upcoming",
-      notes: exam.notes || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
+    const row = data!;
     const todayMs = new Date(getTodayDateString()).getTime();
-    const exMs = new Date(row.exam_date || getTodayDateString()).getTime();
+    const exMs = new Date(row.exam_date).getTime();
     const daysRemaining = Math.ceil((exMs - todayMs) / (1000 * 60 * 60 * 24));
 
     return {
       id: row.id,
-      user_id: row.user_id || userId,
-      title: row.title || exam.title!,
-      exam_date: row.exam_date || exam.exam_date || getTodayDateString(),
-      subject_id: row.subject_id || exam.subject_id || null,
+      user_id: row.user_id,
+      title: row.name,
+      exam_date: row.exam_date,
+      subject_id: exam.subject_id || null,
       subject_name: exam.subject_name || null,
-      exam_type: (row.exam_type as ExamType) || exam.exam_type || "University Exam",
-      status: (row.status as ExamStatus) || (daysRemaining < 0 ? "Completed" : "Upcoming"),
-      notes: row.notes ?? exam.notes ?? null,
+      exam_type: exam.exam_type || "University Exam",
+      status: exam.status || (daysRemaining < 0 ? "Completed" : "Upcoming"),
+      notes: exam.notes || null,
       days_remaining: daysRemaining,
-      created_at: row.created_at || new Date().toISOString(),
-      updated_at: row.updated_at || new Date().toISOString(),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   } catch (err: any) {
     console.error("[MBBSService] createExam exception:", err);
@@ -907,26 +1093,41 @@ export async function updateExam(
   updates: Partial<Exam>
 ): Promise<void> {
   try {
-    const payload: any = { updated_at: new Date().toISOString() };
-    if (updates.title !== undefined) payload.title = updates.title.trim();
-    if (updates.exam_date !== undefined) payload.exam_date = updates.exam_date;
-    if (updates.exam_type !== undefined) payload.exam_type = updates.exam_type;
-    if (updates.subject_id !== undefined) payload.subject_id = updates.subject_id || null;
-    if (updates.notes !== undefined) payload.notes = updates.notes ? updates.notes.trim() : null;
+    // Fetch existing exam to preserve existing metadata
+    const { data: existing } = await supabase
+      .from("exams")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    let { error } = await supabase
+    const existingParsed = parseExamDesc(existing?.description);
+
+    const examType = updates.exam_type !== undefined ? updates.exam_type : existingParsed.exam_type;
+    const status = updates.status !== undefined ? updates.status : existingParsed.status;
+    const subjectId = updates.subject_id !== undefined ? updates.subject_id : existingParsed.subject_id;
+    const subjectName = updates.subject_name !== undefined ? updates.subject_name : existingParsed.subject_name;
+    const notes = updates.notes !== undefined ? updates.notes : existingParsed.notes;
+
+    const payload: any = {
+      updated_at: new Date().toISOString(),
+      description: encodeExamDesc({
+        exam_type: examType,
+        status,
+        subject_id: subjectId,
+        subject_name: subjectName,
+        notes,
+      }),
+    };
+
+    if (updates.title !== undefined) payload.name = updates.title.trim();
+    if (updates.exam_date !== undefined) payload.exam_date = updates.exam_date;
+
+    const { error } = await supabase
       .from("exams")
       .update(payload)
       .eq("id", id)
       .eq("user_id", userId);
-
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      const minUpdate: any = {};
-      if (updates.title !== undefined) minUpdate.title = updates.title.trim();
-      if (updates.exam_date !== undefined) minUpdate.exam_date = updates.exam_date;
-      const retry = await supabase.from("exams").update(minUpdate).eq("id", id).eq("user_id", userId);
-      error = retry.error;
-    }
 
     if (error) {
       console.error("[MBBSService] updateExam error:", error);
@@ -957,14 +1158,14 @@ export async function deleteExam(id: string, userId: string): Promise<void> {
 }
 
 /* =========================================================================
-   6. STUDY NOTES (Title, content, subject)
+   6. STUDY NOTES (Title, content, subject_id)
    ========================================================================= */
 
 export async function fetchNotes(userId: string, subjectId?: string): Promise<Note[]> {
   try {
     let query = supabase.from("notes").select("*").eq("user_id", userId);
-    if (subjectId) {
-      query = query.eq("subject_id", subjectId);
+    if (subjectId && subjectId.trim()) {
+      query = query.eq("subject_id", subjectId.trim());
     }
     const { data: notesData, error: notesErr } = await query.order("updated_at", { ascending: false });
     if (notesErr) {
@@ -977,7 +1178,7 @@ export async function fetchNotes(userId: string, subjectId?: string): Promise<No
       .select("id, name")
       .eq("user_id", userId);
 
-    const notes: Note[] = (notesData || []).map((n: any) => {
+    const notes: Note[] = (notesData || []).map((n) => {
       const sub = (subjectsData || []).find((s) => s.id === n.subject_id);
       return {
         id: n.id,
@@ -985,10 +1186,9 @@ export async function fetchNotes(userId: string, subjectId?: string): Promise<No
         title: n.title,
         content: n.content || "",
         subject_id: n.subject_id || null,
-        topic_id: n.topic_id || null,
         subject_name: sub ? sub.name : null,
-        created_at: n.created_at || new Date().toISOString(),
-        updated_at: n.updated_at || new Date().toISOString(),
+        created_at: n.created_at,
+        updated_at: n.updated_at,
       };
     });
 
@@ -1003,57 +1203,32 @@ export async function createNote(userId: string, note: Partial<Note>): Promise<N
   try {
     const payload = {
       user_id: userId,
-      subject_id: note.subject_id || null,
-      topic_id: note.topic_id || null,
+      subject_id: note.subject_id && note.subject_id.trim() ? note.subject_id.trim() : null,
       title: note.title!.trim(),
       content: note.content ? note.content.trim() : "",
     };
 
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("notes")
       .insert([payload])
       .select()
       .maybeSingle();
-
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      console.warn("[MBBSService] Retrying note insert with core fields:", error.message);
-      const minPayload: any = {
-        user_id: userId,
-        title: note.title!.trim(),
-      };
-      const retry = await supabase.from("notes").insert([minPayload]).select().maybeSingle();
-      if (!retry.error && retry.data) {
-        data = retry.data;
-        error = null;
-      }
-    }
 
     if (error) {
       console.error("[MBBSService] createNote error:", error);
       throw new Error(error.message);
     }
 
-    const row = data || {
-      id: `note_${Date.now()}`,
-      user_id: userId,
-      title: note.title!,
-      content: note.content || "",
-      subject_id: note.subject_id || null,
-      topic_id: note.topic_id || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
+    const row = data!;
     return {
       id: row.id,
-      user_id: row.user_id || userId,
-      title: row.title || note.title!,
-      content: row.content ?? note.content ?? "",
-      subject_id: row.subject_id || note.subject_id || null,
-      topic_id: row.topic_id || note.topic_id || null,
+      user_id: row.user_id,
+      title: row.title,
+      content: row.content || "",
+      subject_id: row.subject_id || null,
       subject_name: note.subject_name || null,
-      created_at: row.created_at || new Date().toISOString(),
-      updated_at: row.updated_at || new Date().toISOString(),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   } catch (err: any) {
     console.error("[MBBSService] createNote exception:", err);
@@ -1070,20 +1245,15 @@ export async function updateNote(
     const payload: any = { updated_at: new Date().toISOString() };
     if (updates.title !== undefined) payload.title = updates.title.trim();
     if (updates.content !== undefined) payload.content = updates.content ? updates.content.trim() : "";
-    if (updates.subject_id !== undefined) payload.subject_id = updates.subject_id || null;
+    if (updates.subject_id !== undefined) {
+      payload.subject_id = updates.subject_id && updates.subject_id.trim() ? updates.subject_id.trim() : null;
+    }
 
-    let { error } = await supabase
+    const { error } = await supabase
       .from("notes")
       .update(payload)
       .eq("id", id)
       .eq("user_id", userId);
-
-    if (error && (error.message.includes("column") || error.code === "PGRST204")) {
-      const minUpdate: any = {};
-      if (updates.title !== undefined) minUpdate.title = updates.title.trim();
-      const retry = await supabase.from("notes").update(minUpdate).eq("id", id).eq("user_id", userId);
-      error = retry.error;
-    }
 
     if (error) {
       console.error("[MBBSService] updateNote error:", error);

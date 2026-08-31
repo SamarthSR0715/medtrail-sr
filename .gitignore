@@ -34,3 +34,8 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+
+# Temporary / scratch files
+scratch/
+supabase/.temp/
+
