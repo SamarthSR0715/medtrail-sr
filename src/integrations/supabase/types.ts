@@ -164,6 +164,7 @@ export type Database = {
           task_date: string
           priority: string | null
           estimated_minutes: number | null
+          estimated_time: number | null
           completed: boolean
           completed_at: string | null
           created_at: string
@@ -179,6 +180,7 @@ export type Database = {
           task_date?: string
           priority?: string | null
           estimated_minutes?: number | null
+          estimated_time?: number | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -194,6 +196,7 @@ export type Database = {
           task_date?: string
           priority?: string | null
           estimated_minutes?: number | null
+          estimated_time?: number | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string

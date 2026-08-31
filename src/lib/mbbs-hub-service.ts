@@ -152,6 +152,7 @@ export async function createDailyTask(userId: string, task: Partial<DailyTask>):
       task_date: task.task_date || getTodayDateString(),
       priority: task.priority || "Medium",
       estimated_minutes: task.estimated_minutes || 30,
+      estimated_time: task.estimated_minutes || 30,
       completed: false,
     };
 
