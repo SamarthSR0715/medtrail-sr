@@ -3,6 +3,7 @@ import {
   ArrowRight,
   BookOpen,
   Dumbbell,
+  FileText,
   HeartPulse,
   Mountain,
   Sparkles,
@@ -71,6 +72,12 @@ const pillars = [
     copy: "Daily tasks, subject goals, monthly milestones, exam planner and study streaks.",
   },
   {
+    to: "/notes",
+    icon: FileText,
+    title: "Study Notes",
+    copy: "High-yield MBBS revision summaries, clinical pearls, and PDF lecture guides.",
+  },
+  {
     to: "/travel",
     icon: Mountain,
     title: "Travel Journal",
@@ -135,6 +142,12 @@ function Index() {
                 className="bg-gradient-brand inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-brand-foreground shadow-lg transition-transform hover:scale-[1.03]"
               >
                 Open MBBS Hub <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+              <Link
+                to="/notes"
+                className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-transform hover:scale-[1.03]"
+              >
+                Study Notes
               </Link>
               <Link
                 to="/travel"

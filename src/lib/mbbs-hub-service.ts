@@ -1158,58 +1158,22 @@ export async function deleteExam(id: string, userId: string): Promise<void> {
 }
 
 /* =========================================================================
-   6. STUDY NOTES (Title, content, subject_id)
+   6. STUDY NOTES (Title, content, subject_id, pdf_url)
    ========================================================================= */
 
-export async function fetchNotes(userId: string, subjectId?: string): Promise<Note[]> {
-  try {
-    let query = supabase.from("notes").select("*").eq("user_id", userId);
-    if (subjectId && subjectId.trim()) {
-      query = query.eq("subject_id", subjectId.trim());
-    }
-    const { data: notesData, error: notesErr } = await query.order("updated_at", { ascending: false });
-    if (notesErr) {
-      console.error("[MBBSService] fetchNotes error:", notesErr);
-      throw new Error(notesErr.message);
-    }
-
-    const { data: subjectsData } = await supabase
-      .from("subjects")
-      .select("id, name")
-      .eq("user_id", userId);
-
-    const notes: Note[] = (notesData || []).map((n) => {
-      const sub = (subjectsData || []).find((s) => s.id === n.subject_id);
-      return {
-        id: n.id,
-        user_id: n.user_id,
-        title: n.title,
-        content: n.content || "",
-        subject_id: n.subject_id || null,
-        subject_name: sub ? sub.name : null,
-        created_at: n.created_at,
-        updated_at: n.updated_at,
-      };
-    });
-
-    return notes;
-  } catch (err: any) {
-    console.error("[MBBSService] fetchNotes exception:", err);
-    throw err;
-  }
-}
+export { fetchNotes, resolvePdfUrl } from "@/lib/notes-service";
 
 export async function createNote(userId: string, note: Partial<Note>): Promise<Note> {
   try {
-    const payload = {
+    const payload: any = {
       user_id: userId,
       subject_id: note.subject_id && note.subject_id.trim() ? note.subject_id.trim() : null,
       title: note.title!.trim(),
-      content: note.content ? note.content.trim() : "",
+      content: note.content ? note.content.trim() : null,
+      pdf_url: note.pdf_url ? note.pdf_url.trim() : null,
     };
 
-    const { data, error } = await supabase
-      .from("notes")
+    const { data, error } = await (supabase.from("notes") as any)
       .insert([payload])
       .select()
       .maybeSingle();
@@ -1225,8 +1189,11 @@ export async function createNote(userId: string, note: Partial<Note>): Promise<N
       user_id: row.user_id,
       title: row.title,
       content: row.content || "",
+      description: row.description || row.content || null,
       subject_id: row.subject_id || null,
       subject_name: note.subject_name || null,
+      subject: note.subject || note.subject_name || null,
+      pdf_url: row.pdf_url || null,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -1244,13 +1211,13 @@ export async function updateNote(
   try {
     const payload: any = { updated_at: new Date().toISOString() };
     if (updates.title !== undefined) payload.title = updates.title.trim();
-    if (updates.content !== undefined) payload.content = updates.content ? updates.content.trim() : "";
+    if (updates.content !== undefined) payload.content = updates.content ? updates.content.trim() : null;
+    if (updates.pdf_url !== undefined) payload.pdf_url = updates.pdf_url ? updates.pdf_url.trim() : null;
     if (updates.subject_id !== undefined) {
       payload.subject_id = updates.subject_id && updates.subject_id.trim() ? updates.subject_id.trim() : null;
     }
 
-    const { error } = await supabase
-      .from("notes")
+    const { error } = await (supabase.from("notes") as any)
       .update(payload)
       .eq("id", id)
       .eq("user_id", userId);

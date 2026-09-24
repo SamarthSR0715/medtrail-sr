@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { BookOpen, Plus, Trash2, Edit3, Search, Filter, AlertCircle, FileText } from "lucide-react";
+import { Plus, Trash2, Edit3, Search, Filter, AlertCircle, FileText, ExternalLink, Calendar } from "lucide-react";
 import type { Note, Subject, SubjectGoal } from "@/types/mbbs-hub";
+import { resolvePdfUrl } from "@/lib/notes-service";
 
 interface NotesManagerProps {
   userId: string;
@@ -31,13 +32,13 @@ export function NotesManager({
   // Form State
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [pdfUrl, setPdfUrl] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [subjectName, setSubjectName] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // All subject options from either subjectGoals or subjects
   const subjectOptions = [
     ...subjects.map((s) => ({ id: s.id, name: s.name })),
     ...subjectGoals
@@ -49,14 +50,17 @@ export function NotesManager({
     if (
       selectedSubjectFilter !== "All" &&
       note.subject_id !== selectedSubjectFilter &&
-      note.subject_name !== selectedSubjectFilter
+      note.subject_name !== selectedSubjectFilter &&
+      note.subject !== selectedSubjectFilter
     )
       return false;
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchTitle = note.title.toLowerCase().includes(q);
-      const matchContent = (note.content || "").toLowerCase().includes(q);
-      if (!matchTitle && !matchContent) return false;
+      const matchContent = (note.content || note.description || "").toLowerCase().includes(q);
+      const matchSub = (note.subject || note.subject_name || "").toLowerCase().includes(q);
+      if (!matchTitle && !matchContent && !matchSub) return false;
     }
     return true;
   });
@@ -65,6 +69,7 @@ export function NotesManager({
     setEditingNote(null);
     setTitle("");
     setContent("");
+    setPdfUrl("");
     setSubjectId("");
     setSubjectName("");
     setErrorMsg("");
@@ -74,9 +79,10 @@ export function NotesManager({
   function handleOpenEdit(note: Note) {
     setEditingNote(note);
     setTitle(note.title);
-    setContent(note.content || "");
+    setContent(note.content || note.description || "");
+    setPdfUrl(note.pdf_url || "");
     setSubjectId(note.subject_id || "");
-    setSubjectName(note.subject_name || "");
+    setSubjectName(note.subject_name || note.subject || "");
     setErrorMsg("");
     setIsModalOpen(true);
   }
@@ -97,6 +103,7 @@ export function NotesManager({
         await onUpdateNote(editingNote.id, {
           title: title.trim(),
           content: content.trim(),
+          pdf_url: pdfUrl.trim() || null,
           subject_id: chosenSub?.id || null,
           subject_name: chosenSub?.name || (subjectName.trim() || null),
         });
@@ -104,6 +111,7 @@ export function NotesManager({
         await onAddNote({
           title: title.trim(),
           content: content.trim(),
+          pdf_url: pdfUrl.trim() || null,
           subject_id: chosenSub?.id || null,
           subject_name: chosenSub?.name || (subjectName.trim() || null),
         });
@@ -124,7 +132,7 @@ export function NotesManager({
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Personal MBBS Study Notes</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Clinical pearls, high-yield summaries, mnemonics, and subject revision notes.
+            Clinical pearls, high-yield summaries, mnemonics, and subject revision notes directly synced with Supabase.
           </p>
         </div>
         <button
@@ -175,7 +183,7 @@ export function NotesManager({
           <p className="mt-1 text-xs text-muted-foreground">
             {searchQuery || selectedSubjectFilter !== "All"
               ? "Try adjusting your search query or subject filter."
-              : "Create your first personal study note to keep clinical points handy."}
+              : "Create your first personal study note or upload one to Supabase."}
           </p>
           <button
             type="button"
@@ -188,52 +196,91 @@ export function NotesManager({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredNotes.map((note) => (
-            <div
-              key={note.id}
-              className="glass flex flex-col justify-between rounded-3xl p-5 border border-border/40 space-y-3 transition-all hover:border-primary/40 hover:shadow-md"
-            >
-              <div className="space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-base font-bold line-clamp-1">{note.title}</h3>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(note)}
-                      className="glass flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                    >
-                      <Edit3 className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteNote(note.id)}
-                      className="glass flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
+          {filteredNotes.map((note) => {
+            const resolvedPdf = resolvePdfUrl(note.pdf_url);
+            return (
+              <div
+                key={note.id}
+                className="glass flex flex-col justify-between rounded-3xl p-5 border border-border/40 space-y-3 transition-all hover:border-primary/40 hover:shadow-md"
+              >
+                <div className="space-y-2.5">
+                  {/* Card Header & Controls */}
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-base font-bold line-clamp-1">{note.title}</h3>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(note)}
+                        className="glass flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                      >
+                        <Edit3 className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteNote(note.id)}
+                        className="glass flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Badges */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(note.subject || note.subject_name) && (
+                      <span className="inline-block rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold text-primary">
+                        {note.subject || note.subject_name}
+                      </span>
+                    )}
+                    {note.semester && (
+                      <span className="inline-block rounded-md bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {note.semester}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Description / Content */}
+                  {(note.description || note.content) && (
+                    <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">
+                      {note.description || note.content}
+                    </p>
+                  )}
+
+                  {/* PDF Document Preview / Action */}
+                  {resolvedPdf && (
+                    <a
+                      href={resolvedPdf}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/20 transition-colors"
+                    >
+                      <FileText className="size-3.5" />
+                      <span>Open PDF in Storage</span>
+                      <ExternalLink className="size-3" />
+                    </a>
+                  )}
                 </div>
 
-                {note.subject_name && (
-                  <span className="inline-block rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold text-primary">
-                    {note.subject_name}
+                <div className="border-t border-border/40 pt-2 flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="size-3 text-muted-foreground/60" />
+                    <span>
+                      {new Date(note.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
                   </span>
-                )}
-
-                <p className="text-xs text-muted-foreground line-clamp-4 whitespace-pre-wrap">{note.content}</p>
+                  <span>{note.updated_at ? "Updated" : "Created"}</span>
+                </div>
               </div>
-
-              <div className="border-t border-border/40 pt-2 text-[10px] text-muted-foreground text-right">
-                {note.updated_at
-                  ? `Updated ${new Date(note.updated_at).toLocaleDateString()}`
-                  : `Created ${new Date(note.created_at || "").toLocaleDateString()}`}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      {/* Modal */}
+      {/* Modal for Add / Edit */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="glass-strong w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-4">
@@ -248,45 +295,56 @@ export function NotesManager({
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-muted-foreground">Note Title *</label>
+                <label className="block text-xs font-semibold text-muted-foreground">Title *</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Antibiotics Mechanism of Action & Resistance"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="e.g., CNS Microbiology - Lab diagnosis"
+                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-muted-foreground">Subject (Optional)</label>
+                <label className="block text-xs font-semibold text-muted-foreground">Subject</label>
                 <select
                   value={subjectId}
                   onChange={(e) => {
                     setSubjectId(e.target.value);
-                    const sel = subjectOptions.find((s) => s.id === e.target.value);
-                    if (sel) setSubjectName(sel.name);
+                    const found = subjectOptions.find((s) => s.id === e.target.value);
+                    if (found) setSubjectName(found.name);
                   }}
-                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  <option value="">No Subject</option>
-                  {subjectOptions.map((sub) => (
-                    <option key={sub.id} value={sub.id}>
-                      {sub.name}
+                  <option value="">Select a subject...</option>
+                  {subjectOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-muted-foreground">Note Content</label>
+                <label className="block text-xs font-semibold text-muted-foreground">PDF Storage URL / Path</label>
+                <input
+                  type="text"
+                  value={pdfUrl}
+                  onChange={(e) => setPdfUrl(e.target.value)}
+                  placeholder="e.g. Supabase dashboard link or storage path"
+                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground">Description / Summary</label>
                 <textarea
-                  rows={6}
-                  placeholder="Write your study notes, key clinical points, diagrams, or mnemonics here..."
+                  rows={4}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Write summary notes or clinical pearls..."
+                  className="mt-1 w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
 
@@ -294,16 +352,16 @@ export function NotesManager({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-full px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary"
+                  className="glass rounded-xl px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-gradient-brand rounded-full px-5 py-2 text-xs font-semibold text-brand-foreground shadow-md transition-transform hover:scale-105 disabled:opacity-50"
+                  className="bg-gradient-brand rounded-xl px-4 py-2 text-xs font-semibold text-brand-foreground shadow-md hover:scale-105 disabled:opacity-50"
                 >
-                  {loading ? "Saving..." : editingNote ? "Save Note" : "Create Note"}
+                  {loading ? "Saving..." : editingNote ? "Save Changes" : "Create Note"}
                 </button>
               </div>
             </form>

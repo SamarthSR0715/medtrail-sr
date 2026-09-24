@@ -108,13 +108,19 @@ export interface Exam {
 
 export interface Note {
   id: string;
-  user_id: string;
+  user_id?: string;
   subject_id?: string | null;
   subject_name?: string | null;
+  subject?: string | null;
   topic_id?: string | null;
   title: string;
-  content: string;
-  created_at?: string;
+  content?: string | null;
+  description?: string | null;
+  semester?: string | null;
+  year?: string | null;
+  pdf_url?: string | null;
+  file_url?: string | null;
+  created_at: string;
   updated_at?: string;
 }
 

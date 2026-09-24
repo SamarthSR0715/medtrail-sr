@@ -130,7 +130,7 @@ function MbbsHubPage() {
           fetchMonthlyGoals(user.id),
           fetchStreakStats(user.id),
           fetchExams(user.id),
-          fetchNotes(user.id),
+          fetchNotes(),
         ]);
 
       setSubjects(subsAndGoals.subjects);

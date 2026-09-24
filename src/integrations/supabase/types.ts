@@ -128,28 +128,31 @@ export interface Database {
           id: string;
           user_id: string;
           title: string;
-          content: string;
+          content: string | null;
           subject_id: string | null;
           created_at: string;
           updated_at: string;
+          pdf_url: string | null;
         };
         Insert: {
           id?: string;
           user_id: string;
           title: string;
-          content?: string;
+          content?: string | null;
           subject_id?: string | null;
           created_at?: string;
           updated_at?: string;
+          pdf_url?: string | null;
         };
         Update: {
           id?: string;
           user_id?: string;
           title?: string;
-          content?: string;
+          content?: string | null;
           subject_id?: string | null;
           created_at?: string;
           updated_at?: string;
+          pdf_url?: string | null;
         };
       };
       profiles: {
@@ -299,6 +302,18 @@ export interface Database {
           updated_at?: string;
         };
       };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
     };
   };
 }
