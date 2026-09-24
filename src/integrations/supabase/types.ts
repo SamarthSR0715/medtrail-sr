@@ -302,6 +302,41 @@ export interface Database {
           updated_at?: string;
         };
       };
+      trip_registrations: {
+        Row: {
+          id: string;
+          created_at: string;
+          full_name: string;
+          whatsapp: string;
+          mbbs_year: string;
+          gender: string;
+          emergency_contact: string;
+          trip_id: string;
+          status: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          full_name: string;
+          whatsapp: string;
+          mbbs_year: string;
+          gender: string;
+          emergency_contact: string;
+          trip_id?: string;
+          status?: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          full_name?: string;
+          whatsapp?: string;
+          mbbs_year?: string;
+          gender?: string;
+          emergency_contact?: string;
+          trip_id?: string;
+          status?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;

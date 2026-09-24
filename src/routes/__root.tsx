@@ -15,6 +15,7 @@ import { ThemeProvider } from "../lib/theme";
 import { SiteNav } from "../components/site/nav";
 import { SiteFooter } from "../components/site/footer";
 import { AuthProvider } from "../contexts/auth-context";
+import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -154,6 +155,7 @@ function RootComponent() {
               <Outlet />
             </main>
             <SiteFooter />
+            <Toaster position="top-right" richColors closeButton />
           </div>
         </ThemeProvider>
       </AuthProvider>

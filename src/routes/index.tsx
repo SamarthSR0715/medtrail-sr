@@ -80,8 +80,8 @@ const pillars = [
   {
     to: "/travel",
     icon: Mountain,
-    title: "Travel Journal",
-    copy: "Forts, waterfalls and hill stations across Maharashtra on one map.",
+    title: "MedTrail Trips",
+    copy: "One-day Sahyadri treks, fort heritage, and adventures curated for medical students.",
   },
   {
     to: "/fitness",
@@ -153,7 +153,7 @@ function Index() {
                 to="/travel"
                 className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-transform hover:scale-[1.03]"
               >
-                Explore the map
+                MedTrail Trips
               </Link>
             </div>
           </Reveal>
