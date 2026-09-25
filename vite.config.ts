@@ -15,7 +15,16 @@ export default defineConfig(({ command }) => ({
     tanstackStart({
       server: { entry: "server" },
     }),
-    command === "build" ? nitro({ preset: "cloudflare-module" }) : undefined,
+    command === "build"
+      ? nitro({
+          preset: "cloudflare-pages",
+          output: {
+            dir: path.resolve(__dirname, ".output/public"),
+            publicDir: path.resolve(__dirname, ".output/public"),
+            serverDir: path.resolve(__dirname, ".output/public/_worker.js"),
+          },
+        })
+      : undefined,
     viteReact(),
     tailwindcss(),
     tsconfigPaths(),
