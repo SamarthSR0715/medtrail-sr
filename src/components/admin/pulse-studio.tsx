@@ -72,8 +72,9 @@ export function PulseStudio() {
   const [loading, setLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
-  const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<boolean>(false);
+  const [simulatedOption, setSimulatedOption] = useState<"A" | "B" | "C" | "D" | null>(null);
+  const [simulatedSubmitted, setSimulatedSubmitted] = useState<boolean>(false);
 
   // Sub-tabs in Pulse Studio
   const [studioTab, setStudioTab] = useState<"editor" | "live_ops" | "analytics" | "notifications" | "export">("editor");
@@ -600,10 +601,14 @@ export function PulseStudio() {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setPreviewMode(!previewMode)}
+                  onClick={() => {
+                    setPreviewMode(!previewMode);
+                    setSimulatedOption(null);
+                    setSimulatedSubmitted(false);
+                  }}
                   className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                     previewMode
-                      ? "bg-blue-600 text-white border-blue-500"
+                      ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-500/20"
                       : "bg-slate-800 text-slate-300 border-slate-700 hover:text-white"
                   }`}
                 >
@@ -663,7 +668,11 @@ export function PulseStudio() {
                 return (
                   <button
                     key={slotNum}
-                    onClick={() => setActiveSlot(slotNum)}
+                    onClick={() => {
+                      setActiveSlot(slotNum);
+                      setSimulatedOption(null);
+                      setSimulatedSubmitted(false);
+                    }}
                     className={`p-3 sm:p-4 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
                       isActive
                         ? "bg-blue-600/20 border-blue-500 shadow-md shadow-blue-500/20"
@@ -694,6 +703,175 @@ export function PulseStudio() {
                 );
               })}
             </div>
+
+            {/* ── STUDENT VIEW LIVE SIMULATION PREVIEW (Active when previewMode is true) ── */}
+            {previewMode && (
+              <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-indigo-950/40 via-slate-900/80 to-slate-950/90 border-2 border-indigo-500/50 space-y-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-500/30 pb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                      STUDENT VIEW SIMULATION &bull; SLOT #{activeSlot}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Verified Key: Option {currentQ.correct_answer || "A"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-mono">
+                    <span className="text-slate-400">{currentQ.subject} &bull; {currentQ.difficulty}</span>
+                    <span className="px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold">
+                      +{currentQ.xp_value} XP
+                    </span>
+                  </div>
+                </div>
+
+                {/* Simulated Question Prompt */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-mono uppercase tracking-wider text-slate-400">Clinical Vignette / Question Prompt:</h4>
+                  <p className="text-base sm:text-lg font-medium text-white leading-relaxed bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+                    {currentQ.question.trim() || <span className="text-slate-500 italic">No question statement entered yet.</span>}
+                  </p>
+                </div>
+
+                {/* Simulated Options */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Test student option selection & verify answer key evaluation:</span>
+                    <span className="font-mono text-[11px] text-indigo-300">Click any option to test answer comparison</span>
+                  </div>
+
+                  {[
+                    { key: "option_a" as const, letter: "A" as const, text: currentQ.option_a },
+                    { key: "option_b" as const, letter: "B" as const, text: currentQ.option_b },
+                    { key: "option_c" as const, letter: "C" as const, text: currentQ.option_c },
+                    { key: "option_d" as const, letter: "D" as const, text: currentQ.option_d },
+                  ].map((opt) => {
+                    const isSelected = simulatedOption === opt.letter;
+                    const isTheCorrectKey = currentQ.correct_answer === opt.letter;
+
+                    let cardStyle = "bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700";
+                    if (simulatedSubmitted) {
+                      if (isTheCorrectKey) {
+                        cardStyle = "bg-emerald-950/40 border-emerald-500/80 text-emerald-200 ring-1 ring-emerald-500/50 shadow-md shadow-emerald-500/20";
+                      } else if (isSelected && !isTheCorrectKey) {
+                        cardStyle = "bg-rose-950/40 border-rose-500/80 text-rose-300 line-through ring-1 ring-rose-500/40";
+                      }
+                    } else if (isSelected) {
+                      cardStyle = "bg-blue-950/40 border-blue-500 text-blue-200 ring-1 ring-blue-500/50";
+                    }
+
+                    return (
+                      <div
+                        key={opt.letter}
+                        onClick={() => {
+                          if (!simulatedSubmitted) setSimulatedOption(opt.letter);
+                        }}
+                        className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${cardStyle}`}
+                      >
+                        <div className="flex items-center gap-3.5">
+                          {/* Radio visual indicator */}
+                          <span className={`font-mono text-sm font-bold ${
+                            simulatedSubmitted && isTheCorrectKey
+                              ? "text-emerald-400"
+                              : isSelected
+                              ? "text-blue-400"
+                              : "text-slate-400"
+                          }`}>
+                            {isSelected || (simulatedSubmitted && isTheCorrectKey) ? "(●)" : "( )"}
+                          </span>
+
+                          <span className={`px-2.5 py-1 rounded-xl font-mono text-xs font-bold ${
+                            simulatedSubmitted && isTheCorrectKey
+                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                              : isSelected
+                              ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                              : "bg-slate-800 text-slate-400"
+                          }`}>
+                            Option {opt.letter}
+                          </span>
+
+                          <span className="text-sm">
+                            {opt.text.trim() || <span className="text-slate-600 italic">Empty choice</span>}
+                          </span>
+                        </div>
+
+                        <div className="shrink-0 font-mono text-xs">
+                          {simulatedSubmitted && isTheCorrectKey && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              Correct Answer
+                            </span>
+                          )}
+                          {simulatedSubmitted && isSelected && !isTheCorrectKey && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                              Student's Wrong Choice
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Simulation Action Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-indigo-500/20">
+                  <div className="flex items-center gap-2">
+                    {!simulatedSubmitted ? (
+                      <button
+                        type="button"
+                        disabled={!simulatedOption}
+                        onClick={() => setSimulatedSubmitted(true)}
+                        className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-blue-600/30 disabled:opacity-40"
+                      >
+                        Submit Student Answer
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSimulatedSubmitted(false);
+                          setSimulatedOption(null);
+                        }}
+                        className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Reset Student Simulation</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {simulatedSubmitted && (
+                    <div className="flex items-center gap-2">
+                      {simulatedOption === currentQ.correct_answer ? (
+                        <div className="p-2.5 px-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs font-bold flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>Simulation: CORRECT! Awarded +{currentQ.xp_value} XP & Points</span>
+                        </div>
+                      ) : (
+                        <div className="p-2.5 px-4 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono text-xs font-bold flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-rose-400" />
+                          <span>Simulation: INCORRECT (0 XP). Verified Correct Answer: Option {currentQ.correct_answer}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Simulated Explanation Card */}
+                {simulatedSubmitted && currentQ.explanation && (
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-blue-500/30 space-y-2 animate-in fade-in">
+                    <div className="flex items-center gap-1.5 text-blue-300 font-bold text-xs uppercase tracking-wider">
+                      <BookOpen className="w-4 h-4 text-amber-400" />
+                      <span>Faculty Clinical Explanation (Shown to Students)</span>
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans">
+                      {currentQ.explanation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Editor Workspace */}
             <div className="p-6 sm:p-8 rounded-3xl bg-slate-950/70 border border-slate-800/80 space-y-6">
@@ -769,14 +947,30 @@ export function PulseStudio() {
                 />
               </div>
 
-              {/* 4 Options & Correct Answer Radio */}
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-slate-200 flex items-center justify-between">
-                  <span>Answer Options & Correct Answer Indicator <span className="text-red-400">*</span></span>
-                  <span className="text-[11px] text-blue-400 font-mono">Select radio next to correct answer</span>
-                </label>
+              {/* 4 Options & Dynamic Correct Answer Radio Selector */}
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <span>Answer Choices & Dynamic Correct Answer</span>
+                      <span className="text-red-400">*</span>
+                    </label>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Select the radio button beside the correct answer. Only one option (A, B, C, or D) can be selected per question.
+                    </p>
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Active Correct Answer Pill */}
+                  <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3.5 py-1.5 rounded-xl shrink-0">
+                    <span className="text-[11px] font-mono text-slate-400">Current Key:</span>
+                    <span className="px-3 py-1 rounded-full font-mono text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 flex items-center gap-1.5 shadow-sm">
+                      <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                      (●) Option {currentQ.correct_answer || "A"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
                   {[
                     { key: "option_a" as const, letter: "A" as const },
                     { key: "option_b" as const, letter: "B" as const },
@@ -784,38 +978,83 @@ export function PulseStudio() {
                     { key: "option_d" as const, letter: "D" as const },
                   ].map((opt) => {
                     const isCorrect = currentQ.correct_answer === opt.letter;
+                    const radioId = `correct_choice_radio_slot_${activeSlot}_${opt.letter}`;
+
                     return (
                       <div
                         key={opt.key}
-                        className={`p-3 rounded-2xl border transition-all flex items-center gap-3 ${
+                        className={`p-3.5 sm:p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 ${
                           isCorrect
-                            ? "bg-emerald-950/30 border-emerald-500/60 shadow-sm shadow-emerald-500/10"
-                            : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
+                            ? "bg-emerald-950/35 border-emerald-500/90 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/40"
+                            : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
                         }`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateCurrentQuestion({ correct_answer: opt.letter })}
-                          className={`w-8 h-8 rounded-xl font-mono text-xs font-black shrink-0 flex items-center justify-center transition cursor-pointer ${
-                            isCorrect
-                              ? "bg-emerald-500 text-slate-950 font-bold"
-                              : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
-                          }`}
-                        >
-                          {opt.letter}
-                        </button>
-                        <input
-                          type="text"
-                          value={currentQ[opt.key]}
-                          onChange={(e) => handleUpdateCurrentQuestion({ [opt.key]: e.target.value })}
-                          placeholder={`Option ${opt.letter} description...`}
-                          className="w-full bg-transparent text-white text-xs sm:text-sm focus:outline-none placeholder:text-slate-600"
-                        />
-                        {isCorrect && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
-                            Correct
-                          </span>
-                        )}
+                        {/* Radio selection area: ( ) Option A vs (●) Option B */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <label
+                            htmlFor={radioId}
+                            className="flex items-center gap-3 cursor-pointer select-none group"
+                          >
+                            <input
+                              type="radio"
+                              id={radioId}
+                              name={`pulse_correct_answer_slot_${activeSlot}`}
+                              value={opt.letter}
+                              checked={isCorrect}
+                              onChange={() => handleUpdateCurrentQuestion({ correct_answer: opt.letter })}
+                              className="w-4 h-4 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500 focus:ring-offset-slate-950 cursor-pointer accent-emerald-500"
+                            />
+
+                            {/* Literal ( ) or (●) indicator from user prompt */}
+                            <span
+                              className={`font-mono text-sm font-black transition-colors ${
+                                isCorrect ? "text-emerald-400 font-bold" : "text-slate-500 group-hover:text-slate-400"
+                              }`}
+                            >
+                              {isCorrect ? "(●)" : "( )"}
+                            </span>
+
+                            {/* Option Letter Badge */}
+                            <span
+                              className={`px-3 py-1 rounded-xl font-mono text-xs font-black tracking-wider transition ${
+                                isCorrect
+                                  ? "bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20"
+                                  : "bg-slate-800 text-slate-300 group-hover:text-white"
+                              }`}
+                            >
+                              Option {opt.letter}
+                            </span>
+                          </label>
+                        </div>
+
+                        {/* Option Text Input */}
+                        <div className="flex-1 w-full">
+                          <input
+                            type="text"
+                            value={currentQ[opt.key]}
+                            onChange={(e) => handleUpdateCurrentQuestion({ [opt.key]: e.target.value })}
+                            placeholder={`Enter text description for Option ${opt.letter}...`}
+                            className="w-full bg-slate-950/80 border border-slate-800 focus:border-blue-500 rounded-xl px-3.5 py-2.5 text-white text-xs sm:text-sm focus:outline-none placeholder:text-slate-600 transition"
+                          />
+                        </div>
+
+                        {/* Status Label or Click to Set */}
+                        <div className="shrink-0 flex items-center justify-end">
+                          {isCorrect ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              <CheckCircle2 className="size-3.5 text-emerald-400" />
+                              <span>(●) Correct Answer</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCurrentQuestion({ correct_answer: opt.letter })}
+                              className="px-3.5 py-1.5 rounded-full text-[11px] font-mono text-slate-400 hover:text-white border border-slate-800 hover:border-slate-600 bg-slate-950/60 transition cursor-pointer hover:bg-slate-900"
+                            >
+                              ( ) Set as (●) Correct
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

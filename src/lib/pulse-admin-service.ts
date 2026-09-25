@@ -234,6 +234,32 @@ export async function savePulseDraft(
       created_at: now,
     };
 
+    // Also sync individual rows into championship_pulse_questions table if table exists
+    if (data?.id) {
+      try {
+        const qRows = cleanQuestions.map((q) => ({
+          pulse_set_id: data.id,
+          pulse_date: pulseDate,
+          slot: q.slot,
+          question: q.question,
+          option_a: q.option_a,
+          option_b: q.option_b,
+          option_c: q.option_c,
+          option_d: q.option_d,
+          correct_answer: q.correct_answer,
+          explanation: q.explanation,
+          subject: q.subject,
+          difficulty: q.difficulty,
+          xp_value: q.xp_value,
+        }));
+        await supabase
+          .from("championship_pulse_questions")
+          .upsert(qRows as any, { onConflict: "pulse_set_id,slot" });
+      } catch (syncErr) {
+        console.warn("Notice syncing championship_pulse_questions:", syncErr);
+      }
+    }
+
     // Backup to localStorage
     try {
       const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
@@ -322,6 +348,32 @@ export async function publishTodayPulse(
       updated_at: now,
       created_at: now,
     };
+
+    // Also sync individual rows into championship_pulse_questions table if table exists
+    if (data?.id) {
+      try {
+        const qRows = cleanQuestions.map((q) => ({
+          pulse_set_id: data.id,
+          pulse_date: pulseDate,
+          slot: q.slot,
+          question: q.question,
+          option_a: q.option_a,
+          option_b: q.option_b,
+          option_c: q.option_c,
+          option_d: q.option_d,
+          correct_answer: q.correct_answer,
+          explanation: q.explanation,
+          subject: q.subject,
+          difficulty: q.difficulty,
+          xp_value: q.xp_value,
+        }));
+        await supabase
+          .from("championship_pulse_questions")
+          .upsert(qRows as any, { onConflict: "pulse_set_id,slot" });
+      } catch (syncErr) {
+        console.warn("Notice syncing championship_pulse_questions:", syncErr);
+      }
+    }
 
     // Save to local cache
     try {

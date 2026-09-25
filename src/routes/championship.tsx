@@ -2044,7 +2044,7 @@ function RouteComponent() {
                                 : "bg-red-500/20 text-red-300 border border-red-500/30"
                             }`}
                           >
-                            {isCorrect ? "Correct (+20 Pts)" : "Incorrect"}
+                            {isCorrect ? `Correct (+${q.points || 50} Pts)` : "Incorrect"}
                           </span>
                         )}
                       </div>
