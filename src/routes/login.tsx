@@ -74,10 +74,24 @@ function LoginPage() {
         return;
       }
 
-      setMessage("Logged in successfully! Redirecting...");
+      setMessage("Logged in successfully! Requesting notification sync...");
+
+      // Requirement 1 & 2: Request notification permission after login and register FCM device token
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user) {
+          const { requestAndRegisterNotificationPermission } = await import("@/lib/fcm-client");
+          requestAndRegisterNotificationPermission(authData.user).catch((e) =>
+            console.warn("[Login FCM] Registration notice:", e)
+          );
+        }
+      } catch (fcmErr) {
+        console.warn("[Login FCM] Token error:", fcmErr);
+      }
+
       setTimeout(() => {
         navigate({ to: "/" });
-      }, 1000);
+      }, 900);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.");
     } finally {

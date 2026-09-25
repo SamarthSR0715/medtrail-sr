@@ -39,11 +39,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
 
     // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       if (mounted) {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
+
+        // Requirement 1 & 2: Request notification permission after user login & store device token
+        if ((event === "SIGNED_IN" || event === "USER_UPDATED") && currentSession?.user) {
+          try {
+            const { requestAndRegisterNotificationPermission } = await import("@/lib/fcm-client");
+            requestAndRegisterNotificationPermission(currentSession.user).catch((err) => {
+              console.warn("[Auth FCM] Token registration notice:", err);
+            });
+          } catch (impErr) {
+            console.warn("[Auth FCM] Module import note:", impErr);
+          }
+        }
       }
     });
 

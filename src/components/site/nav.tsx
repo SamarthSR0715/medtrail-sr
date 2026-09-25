@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
+  Bell,
   ChevronDown,
   Crown,
   GraduationCap,
@@ -10,17 +11,20 @@ import {
   Menu,
   Moon,
   Shield,
+  Smartphone,
   Sun,
   Trophy,
   User,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { navItems } from "@/lib/site-data";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/contexts/auth-context";
 import { SearchCommand } from "./search-command";
 import { isSuperAdminEmail } from "@/lib/super-admin-service";
+import { requestAndRegisterNotificationPermission } from "@/lib/fcm-client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,12 +42,13 @@ export function SiteNav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
+
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 12);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifPermission(Notification.permission);
+    }
+  }, [user]);
 
   const displayName = user?.user_metadata?.["full_name"] || user?.email?.split("@")[0] || "User";
   const isSuperAdmin = Boolean(user && isSuperAdminEmail(user.email));
@@ -181,6 +186,32 @@ export function SiteNav() {
                       </Link>
                     </DropdownMenuItem>
 
+                    {/* Push Notifications Toggle */}
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        const res = await requestAndRegisterNotificationPermission(user);
+                        if (res.success) {
+                          setNotifPermission("granted");
+                          toast.success("📱 Push notifications enabled! This device is registered for Pulse & Badge alerts.");
+                        } else {
+                          toast.error(res.error || "Please allow notifications in browser/phone settings.");
+                        }
+                      }}
+                      className="flex items-center justify-between rounded-xl px-2.5 py-2 text-xs text-foreground hover:bg-secondary transition cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Bell className="size-4 text-amber-400" />
+                        <span>Push Notifications</span>
+                      </span>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                        notifPermission === "granted"
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      }`}>
+                        {notifPermission === "granted" ? "ACTIVE" : "ENABLE"}
+                      </span>
+                    </DropdownMenuItem>
+
                     <DropdownMenuSeparator className="bg-border/60" />
 
                     <DropdownMenuItem
@@ -263,26 +294,55 @@ export function SiteNav() {
 
           <div className="border-t border-border/40 pt-2.5 mt-1">
             {user ? (
-              <div className="flex items-center justify-between px-4 py-2">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  {isSuperAdmin ? (
-                    <Crown className="size-4 text-amber-400" />
-                  ) : (
-                    <User className="size-4 text-primary" />
-                  )}
-                  <div>
-                    <div className="truncate font-semibold text-foreground">{displayName}</div>
-                    <div className="text-[11px] text-muted-foreground font-mono truncate">{user.email}</div>
-                  </div>
-                </div>
+              <div className="space-y-2 px-2">
+                {/* Mobile Phone Push Notification Registration */}
                 <button
                   type="button"
-                  onClick={handleSignOut}
-                  className="flex items-center gap-1.5 text-xs font-medium text-destructive hover:underline"
+                  onClick={async () => {
+                    const res = await requestAndRegisterNotificationPermission(user);
+                    if (res.success) {
+                      setNotifPermission("granted");
+                      toast.success("📱 Push notifications enabled on your phone!");
+                    } else {
+                      toast.error(res.error || "Please allow notifications in phone settings.");
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs font-bold text-amber-300 transition hover:bg-amber-500/20"
                 >
-                  <LogOut className="size-3.5" />
-                  Log out
+                  <span className="flex items-center gap-2">
+                    <Smartphone className="size-4 text-amber-400" />
+                    <span>Mobile Push Alerts</span>
+                  </span>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                    notifPermission === "granted"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  }`}>
+                    {notifPermission === "granted" ? "ACTIVE ✓" : "ENABLE NOW"}
+                  </span>
                 </button>
+
+                <div className="flex items-center justify-between px-2 py-1">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {isSuperAdmin ? (
+                      <Crown className="size-4 text-amber-400" />
+                    ) : (
+                      <User className="size-4 text-primary" />
+                    )}
+                    <div>
+                      <div className="truncate font-semibold text-foreground">{displayName}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono truncate">{user.email}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="flex items-center gap-1.5 text-xs font-medium text-destructive hover:underline"
+                  >
+                    <LogOut className="size-3.5" />
+                    Log out
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-2 p-1">

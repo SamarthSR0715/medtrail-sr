@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { SEED_LEADERBOARD } from "@/lib/championship-service";
 import { fetchLiveOpsState, updateLiveOpsState } from "@/lib/pulse-admin-service";
+import { sendRealFCMPush } from "@/lib/fcm-client";
 
 export const SUPER_ADMIN_EMAIL = "samarthrautrao715@gmail.com";
 
@@ -582,22 +583,42 @@ export async function createPushNotification(params: {
     console.warn("[SuperAdmin] Push notif Supabase insert warning:", err);
   }
 
-  // Also broadcast via Supabase Realtime channel if "sent"
+  // Requirement 4, 5, 6: Deliver real FCM push notification to all targeted devices (Android & iOS)
   if (newNotif.status === "sent") {
+    // Deep link routing:
+    // - Pulse → /championship
+    // - Badge → /passport
+    // - Event → relevant page
+    let deepLink = "/championship";
+    let notifType: "pulse" | "badge" | "event" | "general" = "general";
+    const lowerTitle = newNotif.title.toLowerCase();
+    const lowerMsg = newNotif.message.toLowerCase();
+
+    if (lowerTitle.includes("badge") || lowerMsg.includes("badge") || lowerTitle.includes("passport")) {
+      deepLink = "/passport";
+      notifType = "badge";
+    } else if (lowerTitle.includes("pulse") || lowerMsg.includes("pulse")) {
+      deepLink = "/championship";
+      notifType = "pulse";
+    } else if (lowerTitle.includes("register") || lowerTitle.includes("registration")) {
+      deepLink = "/championship#registration";
+      notifType = "event";
+    } else if (lowerTitle.includes("result") || lowerTitle.includes("hall of fame")) {
+      deepLink = "/championship#hall-of-fame";
+      notifType = "event";
+    }
+
     try {
-      const channel = supabase.channel("championship_live_ops_channel");
-      await channel.send({
-        type: "broadcast",
-        event: "admin_notification",
-        payload: {
-          title: `${newNotif.emoji} ${newNotif.title}`,
-          body: newNotif.message,
-          audience: newNotif.audience_type,
-          sentAt: newNotif.sent_at,
-        },
+      await sendRealFCMPush({
+        title: `${newNotif.emoji} ${newNotif.title}`,
+        body: newNotif.message,
+        type: notifType,
+        deepLink,
+        audience_type: newNotif.audience_type,
+        audience_target: newNotif.audience_target,
       });
-    } catch (err) {
-      console.warn("[SuperAdmin] Broadcast channel warning:", err);
+    } catch (fcmErr) {
+      console.warn("[SuperAdmin] FCM delivery dispatch notice:", fcmErr);
     }
   }
 

@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getISTDateString, type PulseQuestion } from "@/lib/championship-service";
+import { sendRealFCMPush } from "@/lib/fcm-client";
 
 export type PulseSubject =
   | "Anatomy"
@@ -808,6 +809,34 @@ export async function sendPushNotification(params: {
       localStorage.setItem("medtrail_latest_broadcast_notification", JSON.stringify(newNotif));
     } catch {
       // Ignore
+    }
+
+    // Requirement 4, 5, 6: Deliver real FCM push notification with deep links
+    if (!params.scheduledAt) {
+      let deepLink = "/championship";
+      let notifType: "pulse" | "badge" | "event" | "general" = "pulse";
+
+      if (params.templateKey.includes("pulse")) {
+        deepLink = "/championship";
+        notifType = "pulse";
+      } else if (params.templateKey.includes("badge") || params.templateKey.includes("founder")) {
+        deepLink = "/passport";
+        notifType = "badge";
+      } else if (params.templateKey === "reg_open") {
+        deepLink = "/championship#registration";
+        notifType = "event";
+      } else if (params.templateKey === "results_declared") {
+        deepLink = "/championship#hall-of-fame";
+        notifType = "event";
+      }
+
+      sendRealFCMPush({
+        title: params.title,
+        body: params.body,
+        type: notifType,
+        deepLink,
+        audience_type: "all",
+      }).catch((e) => console.warn("[Pulse Studio] FCM push warning:", e));
     }
 
     return { success: true };

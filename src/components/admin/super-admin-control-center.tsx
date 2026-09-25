@@ -33,10 +33,12 @@ import {
   Check,
   Eye,
   LogOut,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { PulseStudio } from "@/components/admin/pulse-studio";
 import { AdminPanel } from "@/components/trips/admin-panel";
+import { sendRealFCMPush, requestAndRegisterNotificationPermission, detectDevicePlatform } from "@/lib/fcm-client";
 import {
   SUPER_ADMIN_EMAIL,
   fetchSuperAdminDashboardStats,
@@ -266,9 +268,17 @@ export function SuperAdminControlCenter() {
   const [notifEmoji, setNotifEmoji] = useState("⚡");
   const [notifAudience, setNotifAudience] = useState<"all" | "championship" | "college" | "batch" | "individual">("all");
   const [notifAudienceTarget, setNotifAudienceTarget] = useState("");
+  const [notifDeepLink, setNotifDeepLink] = useState<string>("/championship");
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledDateTime, setScheduledDateTime] = useState("");
   const [isSendingNotif, setIsSendingNotif] = useState(false);
+  const [isTestingPush, setIsTestingPush] = useState(false);
+  const [deviceStats, setDeviceStats] = useState<{ total: number; android: number; ios: number; web: number }>({
+    total: 0,
+    android: 0,
+    ios: 0,
+    web: 0,
+  });
 
   const loadNotifications = useCallback(async () => {
     setIsLoadingNotifs(true);
@@ -280,9 +290,25 @@ export function SuperAdminControlCenter() {
     }
   }, []);
 
+  const loadDeviceStats = useCallback(async () => {
+    try {
+      const { data } = await supabase.from("device_tokens").select("platform").eq("is_active", true);
+      const list = data || [];
+      setDeviceStats({
+        total: list.length,
+        android: list.filter((d: any) => d.platform === "android").length,
+        ios: list.filter((d: any) => d.platform === "ios").length,
+        web: list.filter((d: any) => d.platform === "web").length,
+      });
+    } catch (err) {
+      console.warn("[ControlCenter] Device stats notice:", err);
+    }
+  }, []);
+
   useEffect(() => {
     loadNotifications();
-  }, [loadNotifications]);
+    loadDeviceStats();
+  }, [loadNotifications, loadDeviceStats]);
 
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -308,16 +334,63 @@ export function SuperAdminControlCenter() {
         scheduledFor: isScheduled ? scheduledDateTime : null,
       });
 
-      toast.success(isScheduled ? "Notification Scheduled Successfully" : "Push Notification Broadcasted LIVE!");
+      // Requirement 4 & 6: Deliver real FCM push notification to devices with deep link
+      if (!isScheduled) {
+        const fcmRes = await sendRealFCMPush({
+          title: `${notifEmoji} ${notifTitle}`,
+          body: notifMessage,
+          deepLink: notifDeepLink,
+          audience_type: notifAudience,
+          audience_target: notifAudienceTarget.trim() || null,
+        });
+
+        if (fcmRes.success) {
+          toast.success(fcmRes.message || "Push notification broadcasted to all users' phones!");
+        }
+      } else {
+        toast.success("Notification Scheduled for future broadcast.");
+      }
+
       setNotifTitle("");
       setNotifMessage("");
       setIsScheduled(false);
       setScheduledDateTime("");
       loadNotifications();
+      loadDeviceStats();
     } catch (err: any) {
       toast.error("Failed to send notification: " + err.message);
     } finally {
       setIsSendingNotif(false);
+    }
+  };
+
+  const handleTestPushOnDevice = async () => {
+    setIsTestingPush(true);
+    try {
+      const reg = await requestAndRegisterNotificationPermission(user || undefined);
+      if (!reg.success) {
+        toast.error(reg.error || "Notification permission denied or blocked in browser settings.");
+        return;
+      }
+
+      toast.success("📱 Device registered! Delivering instant test push...");
+      const fcmRes = await sendRealFCMPush({
+        title: "⚡ MedTrail FCM Test Notification",
+        body: "Real-time push delivery confirmed on your phone! Deep linking to /championship.",
+        type: "pulse",
+        deepLink: "/championship",
+        audience_type: "individual",
+        audience_target: user?.id,
+      });
+
+      if (fcmRes.success) {
+        toast.success("Push delivered to device!");
+      }
+      loadDeviceStats();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to trigger test notification.");
+    } finally {
+      setIsTestingPush(false);
     }
   };
 
@@ -1061,18 +1134,70 @@ export function SuperAdminControlCenter() {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-black text-white">Push Notification Center</h2>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
+                  FCM v1 Engine &bull; Android + iOS
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-mono font-bold">
+                  <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Live Delivery Ready
+                </span>
+              </div>
+              <h2 className="text-xl font-black text-white mt-1">Push Notification Center</h2>
               <p className="text-xs text-slate-400">
-                Broadcast instant push alerts or schedule future notifications targeted to specific audiences.
+                Broadcast instant push alerts to Android & iOS phones with deep link navigation via Firebase Cloud Messaging.
               </p>
             </div>
-            <button
-              onClick={loadNotifications}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 text-xs font-bold cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Refresh History</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleTestPushOnDevice}
+                disabled={isTestingPush}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-300 text-xs font-bold cursor-pointer transition disabled:opacity-50"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{isTestingPush ? "Testing Device..." : "Test Push on This Phone"}</span>
+              </button>
+              <button
+                onClick={() => {
+                  loadNotifications();
+                  loadDeviceStats();
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 text-xs font-bold cursor-pointer hover:text-white"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh Registry</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Real Device Registry Statistics Card */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-xl">
+            <div className="space-y-0.5">
+              <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Registered Phones</div>
+              <div className="text-lg font-black font-mono text-white flex items-center gap-1.5">
+                <Smartphone className="size-4 text-amber-400" />
+                <span>{deviceStats.total}</span>
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Android Devices</div>
+              <div className="text-lg font-black font-mono text-emerald-400">
+                {deviceStats.android}
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">iOS Devices</div>
+              <div className="text-lg font-black font-mono text-blue-400">
+                {deviceStats.ios}
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Web / Desktop PWA</div>
+              <div className="text-lg font-black font-mono text-purple-400">
+                {deviceStats.web}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1196,6 +1321,22 @@ export function SuperAdminControlCenter() {
                     />
                   </div>
                 )}
+
+                {/* Requirement 6: Deep Link Route Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-mono text-slate-400">Deep Link Action (When Tapped on Phone)</label>
+                  <select
+                    value={notifDeepLink}
+                    onChange={(e) => setNotifDeepLink(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="/championship">Pulse Live Page (/championship)</option>
+                    <option value="/passport">Badge & Passport Vault (/passport)</option>
+                    <option value="/championship#registration">Season 1 Registration (/championship#registration)</option>
+                    <option value="/championship#hall-of-fame">Hall of Fame Standings (/championship#hall-of-fame)</option>
+                    <option value="/notes">Clinical MBBS Notes (/notes)</option>
+                  </select>
+                </div>
 
                 {/* Schedule Option Toggle */}
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
