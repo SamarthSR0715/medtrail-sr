@@ -1,5 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Award,
   BookOpen,
@@ -110,6 +111,7 @@ const RULES = [
 
 function RouteComponent() {
   // Navigation & tabs
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"global" | "college" | "batch" | "weekly">("global");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -140,6 +142,33 @@ function RouteComponent() {
     if (user?.user_metadata?.full_name && !regName) {
       setRegName(user.user_metadata.full_name);
     }
+  }, [user]);
+
+  // Check if current user is already registered in Supabase on load
+  useEffect(() => {
+    if (!user?.email) return;
+    async function checkServerRegistration() {
+      try {
+        const { data, error } = await supabase
+          .from("championship_registrations")
+          .select("*")
+          .ilike("email", user!.email!)
+          .maybeSingle();
+
+        if (data && !error) {
+          setRegName(data.full_name);
+          setRegCollege(data.medical_college);
+          setRegBatch(data.batch);
+          setRegPassportId(data.passport_id || "");
+          setRegEmail(data.email);
+          setRegistered(true);
+          setRegSuccessMsg("Registration Confirmed. You're officially participating in MedTrail Championship Season 1.");
+        }
+      } catch {
+        // Ignore network errors on initial check
+      }
+    }
+    checkServerRegistration();
   }, [user]);
 
   // Live Leaderboard Data
@@ -271,12 +300,12 @@ function RouteComponent() {
     );
   }, [leaderboard, searchQuery]);
 
-  // Handle registration submission (Requirement 3)
+  // Handle registration submission (Connect to public.championship_registrations)
   const handleRegisterSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const effectiveEmail = (user?.email && user.email.trim()) ? user.email.trim() : regEmail.trim();
     if (!regName.trim() || !regCollege.trim() || !effectiveEmail) {
-      alert("Please fill in all required fields: Full Name, Medical College, and Email.");
+      toast.error("Please fill in all required fields: Full Name, Medical College, and Email.");
       return;
     }
 
@@ -290,14 +319,55 @@ function RouteComponent() {
         email: effectiveEmail,
       });
 
-      setRegistered(true);
-      setRegSuccessMsg(result.message);
-      setIsRegisterOpen(false);
-    } catch (err) {
-      console.error("Registration submission error:", err);
+      // Prevent duplicate registration using the same email
+      if (result.alreadyRegistered) {
+        toast.error("This email is already registered for Season 1.");
+        if (result.passportId || result.data?.passport_id) {
+          setRegPassportId(result.passportId || result.data.passport_id);
+        }
+        setRegistered(true);
+        setRegSuccessMsg("Registration Confirmed. You're officially participating in MedTrail Championship Season 1.");
+        setIsRegisterOpen(false);
+        navigate({ to: "/championship" });
+        setTimeout(() => {
+          const el = document.getElementById("registration");
+          if (el) el.scrollIntoView({ behavior: "smooth" });
+        }, 150);
+        return;
+      }
+
+      if (!result.success) {
+        if (result.requiresAuth) {
+          toast.error(result.message);
+          navigate({ to: "/login" });
+          return;
+        }
+        toast.error(result.message || "Registration failed. Please try again.");
+        return;
+      }
+
+      // After successful insert:
+      // 1. Show “Registration Confirmed”
+      // 2. Generate Passport ID if empty (assigned in result.passportId)
+      // 3. Redirect user to Championship page
+      const confirmedPassportId = result.passportId || result.data?.passport_id || regPassportId;
+      setRegPassportId(confirmedPassportId);
       setRegistered(true);
       setRegSuccessMsg("Registration Confirmed. You're officially participating in MedTrail Championship Season 1.");
       setIsRegisterOpen(false);
+      toast.success("Registration Confirmed! You're officially participating in MedTrail Championship Season 1.");
+
+      // Redirect user to the Championship page and view confirmed credential card
+      navigate({ to: "/championship" });
+      setTimeout(() => {
+        const el = document.getElementById("registration");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 150);
+    } catch (err: any) {
+      console.error("Registration submission error:", err);
+      toast.error(err?.message || "Registration failed. Please check your network and try again.");
     } finally {
       setIsSubmittingReg(false);
     }

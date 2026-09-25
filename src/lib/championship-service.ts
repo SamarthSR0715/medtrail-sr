@@ -806,36 +806,109 @@ export interface ChampionshipRegistrationResult {
   message: string;
   data?: any;
   error?: string;
+  alreadyRegistered?: boolean;
+  requiresAuth?: boolean;
+  passportId?: string;
+}
+
+/**
+ * Generate unique Passport ID if not provided (e.g. MT-2026-X8K9P)
+ */
+export function generatePassportId(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let randomCode = "";
+  for (let i = 0; i < 5; i++) {
+    randomCode += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `MT-2026-${randomCode}`;
 }
 
 export async function registerChampionshipParticipant(
   data: ChampionshipRegistrationData
 ): Promise<ChampionshipRegistrationResult> {
+  const trimmedEmail = data.email.trim();
+  const trimmedFullName = data.fullName.trim();
+  const trimmedCollege = data.medicalCollege.trim();
+
+  // 1. Generate Passport ID if empty
+  const finalPassportId = (data.passportId && data.passportId.trim())
+    ? data.passportId.trim()
+    : generatePassportId();
+
+  // 2. Prevent duplicate registration using the same email (Check Supabase first)
+  try {
+    const { data: existingRecords, error: checkError } = await supabase
+      .from("championship_registrations")
+      .select("id, full_name, email, medical_college, batch, passport_id, created_at")
+      .ilike("email", trimmedEmail);
+
+    if (!checkError && existingRecords && existingRecords.length > 0) {
+      const existing = existingRecords[0];
+      return {
+        success: false,
+        alreadyRegistered: true,
+        message: "This email is already registered for Season 1.",
+        data: existing,
+        passportId: existing.passport_id || finalPassportId,
+      };
+    }
+  } catch (err) {
+    console.warn("Error checking existing registration:", err);
+  }
+
   let insertedRecord = null;
-  let supabaseError = null;
 
   try {
-    // 1. Insert one row into public.championship_registrations table
+    // 3. Real Supabase table championship_registrations insert
     const { data: insertedData, error: regError } = await supabase
       .from("championship_registrations")
       .insert({
-        full_name: data.fullName.trim(),
-        email: data.email.trim(),
-        medical_college: data.medicalCollege.trim(),
+        full_name: trimmedFullName,
+        email: trimmedEmail,
+        medical_college: trimmedCollege,
         batch: data.batch,
-        passport_id: data.passportId?.trim() || null,
+        passport_id: finalPassportId,
       })
       .select()
       .single();
 
     if (regError) {
-      console.warn("Supabase championship_registrations insert note:", regError.message);
-      supabaseError = regError.message;
-    } else {
-      insertedRecord = insertedData;
+      console.error("Supabase championship_registrations insert error:", regError);
+
+      // Handle duplicate email constraint error from database
+      if (
+        regError.code === "23505" ||
+        regError.message?.toLowerCase().includes("duplicate") ||
+        regError.message?.toLowerCase().includes("unique")
+      ) {
+        return {
+          success: false,
+          alreadyRegistered: true,
+          message: "This email is already registered for Season 1.",
+          passportId: finalPassportId,
+        };
+      }
+
+      // Handle RLS policy error if user is unauthenticated
+      if (regError.code === "42501" || regError.message?.toLowerCase().includes("row-level security")) {
+        return {
+          success: false,
+          requiresAuth: true,
+          message: "Please sign in to your MedTrail account with this email to confirm your official Season 1 registration.",
+          error: regError.message,
+        };
+      }
+
+      return {
+        success: false,
+        message: regError.message,
+        error: regError.message,
+      };
     }
 
-    // 2. Also register in championship_participants table if session/schema permits
+    insertedRecord = insertedData;
+
+    // 4. Also register in championship_participants if session is active
     const { data: authUser } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
     const userId = authUser?.user?.id;
     if (userId) {
@@ -844,11 +917,11 @@ export async function registerChampionshipParticipant(
         .insert({
           user_id: userId,
           season_id: SEASON_ID,
-          full_name: data.fullName.trim(),
-          display_name: data.fullName.trim(),
+          full_name: trimmedFullName,
+          display_name: trimmedFullName,
           display_name_type: "full_name",
-          institution: data.medicalCollege.trim(),
-          student_id: data.passportId?.trim() || null,
+          institution: trimmedCollege,
+          student_id: finalPassportId,
           country: "India",
           status: "active",
           show_score: true,
@@ -863,26 +936,38 @@ export async function registerChampionshipParticipant(
         .catch((err: any) => console.warn("Participant insert note:", err));
     }
   } catch (err: any) {
-    console.warn("Supabase registration exception:", err);
-    supabaseError = err?.message || String(err);
+    console.error("Supabase registration exception:", err);
+    return {
+      success: false,
+      message: err?.message || "Failed to register in Supabase.",
+      error: String(err),
+    };
   }
 
   // Backup to localStorage for instant local persistence
   try {
+    const payload = {
+      fullName: trimmedFullName,
+      medicalCollege: trimmedCollege,
+      batch: data.batch,
+      passportId: finalPassportId,
+      email: trimmedEmail,
+      registeredAt: new Date().toISOString(),
+    };
     const key = "medtrail_championship_registrations";
     const existing = JSON.parse(localStorage.getItem(key) || "[]");
-    existing.push({ ...data, registeredAt: new Date().toISOString() });
+    existing.push(payload);
     localStorage.setItem(key, JSON.stringify(existing));
-    localStorage.setItem("medtrail_my_championship_reg", JSON.stringify(data));
+    localStorage.setItem("medtrail_my_championship_reg", JSON.stringify(payload));
   } catch {
     // Ignore localStorage errors in non-browser env
   }
 
   return {
     success: true,
-    message: "Registration Confirmed. You're officially participating in MedTrail Championship Season 1.",
+    message: "Registration Confirmed",
     data: insertedRecord,
-    error: supabaseError || undefined,
+    passportId: finalPassportId,
   };
 }
 

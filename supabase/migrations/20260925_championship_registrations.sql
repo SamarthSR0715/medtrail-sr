@@ -26,8 +26,8 @@ create table if not exists public.championship_registrations (
   created_at timestamp with time zone not null default now()
 );
 
--- 2. Indexes for fast lookup and sorting
-create index if not exists idx_champ_reg_email on public.championship_registrations(email);
+-- 2. Indexes for fast lookup and sorting (preventing duplicate email registrations)
+create unique index if not exists idx_champ_reg_email_unique on public.championship_registrations (lower(email));
 create index if not exists idx_champ_reg_created_at on public.championship_registrations(created_at desc);
 
 -- 3. Enable Row Level Security
