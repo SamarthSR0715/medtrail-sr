@@ -57,6 +57,8 @@ import {
   type TimeWindowState,
 } from "@/lib/championship-service";
 import { supabase } from "@/integrations/supabase/client";
+import trophyImg from "@/assets/championship-trophy.jpg";
+import hoodieImg from "@/assets/championship-hoodie.jpg";
 
 export const Route = createFileRoute("/championship")({
   component: RouteComponent,
@@ -633,9 +635,12 @@ function RouteComponent() {
               <div className="relative group w-full max-w-sm sm:max-w-md aspect-square rounded-3xl overflow-hidden border border-amber-500/30 bg-gradient-to-b from-amber-500/10 via-slate-900/60 to-slate-950 p-3 shadow-2xl shadow-amber-500/10">
                 <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 flex items-center justify-center">
                   <img
-                    src="/championship-trophy.jpg"
+                    src={trophyImg}
                     alt="MedTrail Season 1 Obsidian Trophy"
                     className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = "/championship-trophy.jpg";
+                    }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-80" />
                   <div className="absolute bottom-4 left-4 right-4 p-3 rounded-xl bg-slate-900/80 backdrop-blur-md border border-amber-500/30 flex items-center justify-between">
@@ -1267,9 +1272,12 @@ function RouteComponent() {
 
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-amber-500/20 shadow-inner flex items-center justify-center">
                 <img
-                  src="/championship-trophy.jpg"
+                  src={trophyImg}
                   alt="MedTrail Trophy"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "/championship-trophy.jpg";
+                  }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-transparent to-transparent" />
                 <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
@@ -1306,9 +1314,12 @@ function RouteComponent() {
 
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-blue-500/20 shadow-inner flex items-center justify-center">
                 <img
-                  src="/championship-hoodie.jpg"
+                  src={hoodieImg}
                   alt="MedTrail Champion Hoodie"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "/championship-hoodie.jpg";
+                  }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-transparent to-transparent" />
                 <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
