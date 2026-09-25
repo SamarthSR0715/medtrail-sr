@@ -540,6 +540,129 @@ export interface Database {
           created_at?: string;
         };
       };
+      championship_pulse_sets: {
+        Row: {
+          id: string;
+          pulse_date: string;
+          status: "draft" | "published";
+          questions: Json;
+          published_at: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          pulse_date: string;
+          status?: "draft" | "published";
+          questions: Json;
+          published_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          pulse_date?: string;
+          status?: "draft" | "published";
+          questions?: Json;
+          published_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      championship_pulse_questions: {
+        Row: {
+          id: string;
+          pulse_set_id: string;
+          pulse_date: string;
+          slot: number;
+          question: string;
+          option_a: string;
+          option_b: string;
+          option_c: string;
+          option_d: string;
+          correct_answer: string;
+          explanation: string;
+          subject: string;
+          difficulty: string;
+          xp_value: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          pulse_set_id: string;
+          pulse_date: string;
+          slot: number;
+          question: string;
+          option_a: string;
+          option_b: string;
+          option_c: string;
+          option_d: string;
+          correct_answer: string;
+          explanation: string;
+          subject: string;
+          difficulty: string;
+          xp_value?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          pulse_set_id?: string;
+          pulse_date?: string;
+          slot?: number;
+          question?: string;
+          option_a?: string;
+          option_b?: string;
+          option_c?: string;
+          option_d?: string;
+          correct_answer?: string;
+          explanation?: string;
+          subject?: string;
+          difficulty?: string;
+          xp_value?: number;
+          created_at?: string;
+        };
+      };
+      championship_pulse_attempts: {
+        Row: {
+          id: string;
+          pulse_date: string;
+          user_id: string;
+          user_email: string | null;
+          participant_id: string | null;
+          score: number;
+          xp_earned: number;
+          accuracy: number;
+          answers: Json;
+          completed_at: string;
+        };
+        Insert: {
+          id?: string;
+          pulse_date: string;
+          user_id: string;
+          user_email?: string | null;
+          participant_id?: string | null;
+          score?: number;
+          xp_earned?: number;
+          accuracy?: number;
+          answers: Json;
+          completed_at?: string;
+        };
+        Update: {
+          id?: string;
+          pulse_date?: string;
+          user_id?: string;
+          user_email?: string | null;
+          participant_id?: string | null;
+          score?: number;
+          xp_earned?: number;
+          accuracy?: number;
+          answers?: Json;
+          completed_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;

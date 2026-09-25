@@ -45,12 +45,17 @@ import {
   SEED_LEADERBOARD,
   formatIST,
   getDailyPulseTimeState,
-  getDailyPulsesForDate,
   getISTDateString,
   getLiveLeaderboard,
   getSeasonStatus,
   registerChampionshipParticipant,
   submitPulseAttempt,
+  fetchTodayPublishedPulse,
+  checkStudentAttempt,
+  recordStudentAttempt,
+  convertToQuizQuestions,
+  type PulseSetRecord,
+  type PulseAttemptRecord,
   type LeaderboardEntry,
   type PassportBadge,
   type PulseQuestion,
@@ -119,6 +124,7 @@ function RouteComponent() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isPassportOpen, setIsPassportOpen] = useState(false);
   const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
 
   // Authentication context
@@ -175,7 +181,11 @@ function RouteComponent() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(SEED_LEADERBOARD);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
-  // Dynamic Pulse & Questions State
+  // Admin-managed Daily Pulse State (Strictly from Supabase)
+  const [publishedPulseSet, setPublishedPulseSet] = useState<PulseSetRecord | null>(null);
+  const [isLoadingPulse, setIsLoadingPulse] = useState(false);
+  const [hasAttemptedToday, setHasAttemptedToday] = useState(false);
+  const [todayAttempt, setTodayAttempt] = useState<PulseAttemptRecord | null>(null);
   const [todayQuestions, setTodayQuestions] = useState<PulseQuestion[]>([]);
   const [timeWindowState, setTimeWindowState] = useState<TimeWindowState>({
     status: "before_7pm",
@@ -183,6 +193,19 @@ function RouteComponent() {
     label: "Unlocks at 7:00 PM IST",
     opensAtIST: "7:00 PM IST",
   });
+
+  // Unique identifier for the student (Auth user ID > Email > Guest Persistent Token)
+  const getEffectiveStudentId = useCallback(() => {
+    if (user?.id) return user.id;
+    if (user?.email) return `email:${user.email.toLowerCase()}`;
+    if (regEmail.trim()) return `email:${regEmail.trim().toLowerCase()}`;
+    let guestId = localStorage.getItem("medtrail_pulse_guest_id");
+    if (!guestId) {
+      guestId = "guest_" + Math.random().toString(36).substring(2, 11);
+      localStorage.setItem("medtrail_pulse_guest_id", guestId);
+    }
+    return guestId;
+  }, [user, regEmail]);
 
   // Quiz execution state
   const [currentQIndex, setCurrentQIndex] = useState(0);
@@ -225,6 +248,46 @@ function RouteComponent() {
     }
   }, []);
 
+  // Fetch today's official admin-published pulse set from Supabase and check student attempt
+  const loadTodayPulse = useCallback(async () => {
+    setIsLoadingPulse(true);
+    try {
+      const todayStr = getISTDateString();
+      const set = await fetchTodayPublishedPulse(todayStr);
+      setPublishedPulseSet(set);
+      if (set && Array.isArray(set.questions) && set.questions.length === 5) {
+        setTodayQuestions(convertToQuizQuestions(set.questions));
+      } else {
+        setTodayQuestions([]);
+      }
+
+      // Check student's single daily attempt
+      const studentId = getEffectiveStudentId();
+      if (studentId) {
+        const attempt = await checkStudentAttempt(todayStr, studentId);
+        if (attempt) {
+          setHasAttemptedToday(true);
+          setTodayAttempt(attempt);
+          if (attempt.answers && Array.isArray(attempt.answers)) {
+            setUserAnswers(attempt.answers);
+          }
+          setQuizResult({
+            score: attempt.score,
+            accuracy: attempt.accuracy,
+            xp: attempt.xp,
+          });
+        } else {
+          setHasAttemptedToday(false);
+          setTodayAttempt(null);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load today's published pulse from Supabase:", err);
+    } finally {
+      setIsLoadingPulse(false);
+    }
+  }, [getEffectiveStudentId]);
+
   // Load today's dynamic pulses and watch time-window
   useEffect(() => {
     const updateTimeState = () => {
@@ -255,11 +318,11 @@ function RouteComponent() {
       setSeasonRemaining({ days, hours, minutes, seconds, status, isLive, label });
     };
 
-    setTodayQuestions(getDailyPulsesForDate(new Date()));
+    loadTodayPulse();
     updateTimeState();
     const interval = setInterval(updateTimeState, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadTodayPulse]);
 
   // Fetch live leaderboard and subscribe to Supabase Realtime
   useEffect(() => {
@@ -373,14 +436,24 @@ function RouteComponent() {
     }
   };
 
-  // Start Pulse Quiz
+  // Start Pulse Quiz (Strict Admin-managed single attempt per day)
   const startPulseQuiz = () => {
-    if (!seasonRemaining.isLive && seasonRemaining.status === "pre") {
-      const el = document.getElementById("registration");
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth" });
-      }
-      alert("Pulse begins on 27 September 2026 at 7:00 PM IST! Registration is open — please secure your entry below.");
+    // 1. Must be published by Admin in Supabase
+    if (!publishedPulseSet || todayQuestions.length === 0) {
+      toast.info("Today's Pulse has not been published by the MedTrail Admin yet. Official questions are released every evening at 7:00 PM IST.");
+      return;
+    }
+
+    // 2. Pulse unlocks at 7:00 PM IST
+    if (timeWindowState.status === "before_7pm") {
+      toast.info(`Today's Pulse opens at 7:00 PM IST. Countdown remaining: ${formatCountdown(timeWindowState.countdownSeconds)}.`);
+      return;
+    }
+
+    // 3. Students can only attempt once per day
+    if (hasAttemptedToday) {
+      toast.info("You have already completed today's official Pulse attempt! Loading faculty explanations...");
+      setIsReviewModalOpen(true);
       return;
     }
 
@@ -424,9 +497,32 @@ function RouteComponent() {
 
         const accuracy = Math.round((correctCount / todayQuestions.length) * 100);
         const timeTaken = Math.round((Date.now() - quizStartTime) / 1000);
+        const todayStr = getISTDateString();
+        const studentId = getEffectiveStudentId();
 
         setQuizResult({ score: earnedScore, accuracy, xp: earnedXP });
         setQuizFinished(true);
+        setHasAttemptedToday(true);
+
+        try {
+          // Record single daily attempt to Supabase public.championship_pulse_attempts
+          const recorded = await recordStudentAttempt({
+            pulseDate: todayStr,
+            userId: studentId,
+            userEmail: user?.email || regEmail || undefined,
+            userName: user?.user_metadata?.full_name || regName || "MedTrail Doctor",
+            score: earnedScore,
+            accuracy,
+            xp: earnedXP,
+            answers: newAnswers,
+            timeTakenSeconds: timeTaken,
+          });
+          if (recorded) {
+            setTodayAttempt(recorded);
+          }
+        } catch (e) {
+          console.error("Failed to record student pulse attempt:", e);
+        }
 
         await submitPulseAttempt({
           slot: 1,
@@ -659,7 +755,16 @@ function RouteComponent() {
 
               {/* Action Buttons: Join Pulse becomes active at 7:00 PM */}
               <div className="flex flex-wrap items-center gap-4 pt-2">
-                {seasonRemaining.isLive ? (
+                {hasAttemptedToday ? (
+                  <button
+                    onClick={() => setIsReviewModalOpen(true)}
+                    className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-blue-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-emerald-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                  >
+                    <BookOpen className="w-5 h-5 text-emerald-100" />
+                    <span>VIEW EXPLANATIONS & RESULTS</span>
+                    <Sparkles className="w-4 h-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
+                  </button>
+                ) : seasonRemaining.isLive || timeWindowState.status === "active_pulse" ? (
                   <button
                     onClick={startPulseQuiz}
                     className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
@@ -688,7 +793,7 @@ function RouteComponent() {
                       className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-sm border border-slate-700 transition cursor-pointer"
                     >
                       <Play className="w-4 h-4 text-emerald-400" />
-                      <span>Join Pulse (Unlocks 27 Sept)</span>
+                      <span>Join Pulse (7:00 PM IST)</span>
                     </button>
                   </>
                 )}
@@ -944,19 +1049,19 @@ function RouteComponent() {
           </div>
         </section>
 
-        {/* 2. DYNAMIC DAILY PULSES (4 MBBS + 1 GENERAL) */}
+        {/* 2. DYNAMIC DAILY PULSES (STRICT MEDTRAIL ADMIN DATABASE ONLY) */}
         <section id="daily-pulses" className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs font-mono font-bold text-blue-400 uppercase tracking-widest">
                 <Flame className="w-4 h-4 text-amber-400" />
-                Server-Driven Dynamic Challenges
+                Admin-Verified Daily Pulse
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
                 Today's 5 Pulse Slots
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                Rotated daily: 4 questions from 1st & 2nd MBBS subjects + 1 General Knowledge Pulse.
+                Created strictly by MedTrail Admin &bull; 5 High-Yield Questions &bull; Unlocks at 7:00 PM IST.
               </p>
             </div>
 
@@ -976,64 +1081,122 @@ function RouteComponent() {
             </div>
           </div>
 
-          {/* Today's 5 Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            {todayQuestions.map((q, idx) => {
-              const isGeneral = q.category === "General Pulse";
-              return (
-                <div
-                  key={q.id}
-                  className={`p-4 sm:p-5 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-4 ${
-                    isGeneral
-                      ? "bg-gradient-to-b from-purple-950/40 via-slate-900/80 to-slate-950 border-purple-500/40 hover:border-purple-500/70"
-                      : "bg-slate-900/70 border-slate-800/80 hover:border-blue-500/50"
-                  }`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-bold">
-                        Pulse #{q.slot}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-md font-bold ${
-                        isGeneral ? "bg-purple-500/20 text-purple-300 border border-purple-500/40" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                      }`}>
-                        {q.category}
-                      </span>
-                    </div>
-
-                    <div className="pt-1">
-                      <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide">
-                        {q.subject}
-                      </span>
-                      <h4 className="text-sm font-semibold text-white line-clamp-3 mt-1 leading-snug">
-                        {q.question}
-                      </h4>
-                    </div>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
-                    <span>+{q.xp} XP</span>
-                    <span className="text-amber-300 font-bold">+{q.points} Pts</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30 text-xs text-blue-200 gap-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>
-                <strong>Daily Rotation Rule:</strong> Subject pools dynamically shuffle every 24 hours between Anatomy, Physiology, Biochemistry, Pathology, Pharmacology, and Microbiology.
-              </span>
+          {/* STATE A: Pulse Loading */}
+          {isLoadingPulse ? (
+            <div className="p-12 rounded-3xl bg-slate-900/50 border border-slate-800 flex flex-col items-center justify-center space-y-3">
+              <Clock className="w-8 h-8 text-blue-400 animate-spin" />
+              <div className="text-xs font-mono text-slate-300">Connecting to MedTrail Supabase database...</div>
             </div>
-            <button
-              onClick={startPulseQuiz}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition cursor-pointer"
-            >
-              Start 5-Pulse Run
-            </button>
-          </div>
+          ) : !publishedPulseSet || todayQuestions.length === 0 ? (
+            /* STATE B: No Pulse Published Yet by Admin */
+            <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-800/80 text-center space-y-4 shadow-xl">
+              <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto text-blue-400">
+                <Clock className="w-7 h-7 text-amber-400 animate-pulse" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h3 className="text-xl font-bold text-white">Today's Pulse Has Not Been Published Yet</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>7:00 PM IST</strong>. Check back soon!
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-[11px] font-mono text-slate-300">
+                <span>Date: {getISTDateString()}</span>
+                <span>&bull;</span>
+                <span className="text-amber-400 font-semibold">Status: Awaiting Admin Publication</span>
+              </div>
+            </div>
+          ) : (
+            /* STATE C: Published 5-Question Pulse */
+            <>
+              {hasAttemptedToday && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-emerald-950/30">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+                    <div>
+                      <div className="font-bold text-white text-sm">Today's Pulse Completed!</div>
+                      <div className="text-emerald-300/90 text-xs">
+                        Attempt officially recorded. Score: <strong className="text-amber-300 font-mono">+{todayAttempt?.score ?? quizResult?.score ?? 0} Pts</strong> &bull; Accuracy: <strong className="text-white font-mono">{todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%</strong> &bull; XP: <strong className="text-blue-300 font-mono">+{todayAttempt?.xp ?? quizResult?.xp ?? 0}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsReviewModalOpen(true)}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer shrink-0 inline-flex items-center gap-2 shadow-md shadow-emerald-600/30"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>View Explanations & Solutions</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Today's 5 Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                {todayQuestions.map((q) => {
+                  const isGeneral = q.category === "General Pulse" || q.subject === "General";
+                  return (
+                    <div
+                      key={q.id}
+                      className={`p-4 sm:p-5 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-4 ${
+                        isGeneral
+                          ? "bg-gradient-to-b from-purple-950/40 via-slate-900/80 to-slate-950 border-purple-500/40 hover:border-purple-500/70"
+                          : "bg-slate-900/70 border-slate-800/80 hover:border-blue-500/50"
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-bold">
+                            Slot #{q.slot}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-md font-bold ${
+                            isGeneral ? "bg-purple-500/20 text-purple-300 border border-purple-500/40" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                          }`}>
+                            {q.subject}
+                          </span>
+                        </div>
+
+                        <div className="pt-1">
+                          <h4 className="text-sm font-semibold text-white line-clamp-3 mt-1 leading-snug">
+                            {q.question}
+                          </h4>
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
+                        <span>+{q.xp} XP</span>
+                        <span className="text-amber-300 font-bold">+{q.points} Pts</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30 text-xs text-blue-200 gap-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>
+                    <strong>Admin Verified:</strong> 5 official questions curated directly in MedTrail Pulse Studio.
+                  </span>
+                </div>
+                {hasAttemptedToday ? (
+                  <button
+                    onClick={() => setIsReviewModalOpen(true)}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>View Explanations & Solutions</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={startPulseQuiz}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Play className="w-4 h-4" />
+                    <span>Start 5-Pulse Run</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </section>
 
         {/* 3. REAL-TIME LEADERBOARD TABS */}
@@ -1633,14 +1796,177 @@ function RouteComponent() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setIsQuizOpen(false)}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs tracking-wider uppercase transition cursor-pointer"
-                >
-                  Return to Championship Board
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setIsQuizOpen(false);
+                      setIsReviewModalOpen(true);
+                    }}
+                    className="flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wider uppercase transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>View Explanations</span>
+                  </button>
+                  <button
+                    onClick={() => setIsQuizOpen(false)}
+                    className="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs tracking-wider uppercase transition cursor-pointer"
+                  >
+                    Return to Board
+                  </button>
+                </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* POPUP MODAL: Pulse Explanations & Results Review */}
+      {isReviewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-2xl rounded-3xl bg-slate-900 border border-emerald-500/40 p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setIsReviewModalOpen(false)}
+              className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Today's Pulse &bull; Faculty Explanations</h3>
+                <p className="text-xs text-slate-400">
+                  Official clinical explanations authored by MedTrail Faculty &bull; Date: {publishedPulseSet?.pulse_date || getISTDateString()}
+                </p>
+              </div>
+            </div>
+
+            {/* Performance summary if student attempted */}
+            {(todayAttempt || quizResult) && (
+              <div className="grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center font-mono">
+                <div>
+                  <div className="text-[10px] text-slate-400 font-sans">Score</div>
+                  <div className="text-lg font-bold text-amber-400 mt-0.5">
+                    +{todayAttempt?.score ?? quizResult?.score ?? 0} Pts
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-sans">Accuracy</div>
+                  <div className="text-lg font-bold text-emerald-400 mt-0.5">
+                    {todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-sans">XP Earned</div>
+                  <div className="text-lg font-bold text-blue-400 mt-0.5">
+                    +{todayAttempt?.xp ?? quizResult?.xp ?? 0} XP
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5 Questions Review List */}
+            <div className="space-y-4">
+              {todayQuestions.map((q, qIdx) => {
+                const userChoice = userAnswers[qIdx] !== undefined ? userAnswers[qIdx] : null;
+                const isCorrect = userChoice === q.correctIndex;
+
+                return (
+                  <div
+                    key={q.id || qIdx}
+                    className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3.5"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          Q{qIdx + 1}
+                        </span>
+                        <span className="font-semibold text-blue-400">{q.subject}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-slate-400">+{q.xp} XP</span>
+                        {userChoice !== null && (
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              isCorrect
+                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                : "bg-red-500/20 text-red-300 border border-red-500/30"
+                            }`}
+                          >
+                            {isCorrect ? "Correct (+20 Pts)" : "Incorrect"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <h4 className="text-sm font-semibold text-white leading-relaxed">
+                      {q.question}
+                    </h4>
+
+                    {/* Options Breakdown */}
+                    <div className="space-y-1.5">
+                      {q.options.map((opt, optIdx) => {
+                        const optLetter = ["A", "B", "C", "D"][optIdx];
+                        const isThisCorrect = q.correctIndex === optIdx;
+                        const isThisUserPick = userChoice === optIdx;
+
+                        let style = "bg-slate-900/60 border-slate-800 text-slate-300";
+                        if (isThisCorrect) {
+                          style = "bg-emerald-950/40 border-emerald-500/60 text-emerald-200 font-semibold";
+                        } else if (isThisUserPick && !isThisCorrect) {
+                          style = "bg-red-950/40 border-red-500/50 text-red-300 line-through";
+                        }
+
+                        return (
+                          <div
+                            key={optIdx}
+                            className={`p-2.5 rounded-xl border text-xs flex items-center justify-between ${style}`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-slate-400">{optLetter}.</span>
+                              <span>{opt}</span>
+                            </span>
+                            <span className="text-[10px] font-mono shrink-0">
+                              {isThisCorrect && (
+                                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Correct
+                                </span>
+                              )}
+                              {isThisUserPick && !isThisCorrect && (
+                                <span className="text-red-400 font-bold">Your choice</span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Faculty Explanation */}
+                    {q.explanation && (
+                      <div className="p-3.5 rounded-xl bg-blue-950/30 border border-blue-500/30 space-y-1 text-xs text-blue-200">
+                        <div className="font-bold flex items-center gap-1.5 text-blue-300 text-[11px] uppercase tracking-wide">
+                          <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+                          Faculty Explanation
+                        </div>
+                        <p className="leading-relaxed text-slate-300">{q.explanation}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => setIsReviewModalOpen(false)}
+                className="w-full py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+              >
+                Close Explanations
+              </button>
+            </div>
           </div>
         </div>
       )}
