@@ -65,7 +65,60 @@ export const DEFAULT_PULSE_SUBJECTS: PulseSubject[] = [
 export const DEFAULT_DIFFICULTIES: PulseDifficulty[] = ["Easy", "Medium", "Hard"];
 
 /**
- * Creates an empty template for exactly 5 questions
+ * Normalizes any value into a valid PulseCorrectAnswer ("A" | "B" | "C" | "D") or empty string.
+ * Does NOT default to "A" so that unselected states are detected and preserved.
+ */
+export function normalizeCorrectAnswer(val: any): PulseCorrectAnswer | "" {
+  if (val === undefined || val === null || val === "") return "";
+  if (typeof val === "number" && val >= 0 && val <= 3) {
+    return (["A", "B", "C", "D"][val] as PulseCorrectAnswer) || "";
+  }
+  const str = String(val).trim().toUpperCase();
+  if (str === "A" || str === "B" || str === "C" || str === "D") {
+    return str as PulseCorrectAnswer;
+  }
+  if (str === "0") return "A";
+  if (str === "1") return "B";
+  if (str === "2") return "C";
+  if (str === "3") return "D";
+  if (str.startsWith("OPTION ")) {
+    const letter = str.replace("OPTION ", "").trim()[0];
+    if (letter === "A" || letter === "B" || letter === "C" || letter === "D") {
+      return letter as PulseCorrectAnswer;
+    }
+  }
+  return "";
+}
+
+/**
+ * Parses numeric option index 0..3 from a question object.
+ */
+export function parseCorrectOptionIndex(q: any): number {
+  if (typeof q?.correctIndex === "number" && q.correctIndex >= 0 && q.correctIndex <= 3) {
+    return q.correctIndex;
+  }
+  const val = q?.correct_answer ?? q?.correctAnswer ?? q?.correct_option;
+  if (typeof val === "number" && val >= 0 && val <= 3) {
+    return val;
+  }
+  const str = String(val || "").trim().toUpperCase();
+  if (str === "A" || str === "0") return 0;
+  if (str === "B" || str === "1") return 1;
+  if (str === "C" || str === "2") return 2;
+  if (str === "D" || str === "3") return 3;
+  if (str.startsWith("OPTION ")) {
+    const letter = str.replace("OPTION ", "").trim()[0];
+    if (letter === "A") return 0;
+    if (letter === "B") return 1;
+    if (letter === "C") return 2;
+    if (letter === "D") return 3;
+  }
+  return 0;
+}
+
+/**
+ * Creates an empty template for exactly 5 questions.
+ * Explicitly leaves correct_answer empty so it never defaults to Option A.
  */
 export function createEmptyPulseQuestions(): PulseQuestionInput[] {
   const subjects: PulseSubject[] = [
@@ -83,7 +136,7 @@ export function createEmptyPulseQuestions(): PulseQuestionInput[] {
     option_b: "",
     option_c: "",
     option_d: "",
-    correct_answer: "A",
+    correct_answer: "" as PulseCorrectAnswer,
     explanation: "",
     subject: subjects[slot - 1] || "General",
     difficulty: slot === 5 ? "Easy" : "Medium",
@@ -103,11 +156,55 @@ export async function fetchPulseSetForDate(pulseDate: string): Promise<PulseSetR
       .maybeSingle();
 
     if (!error && data) {
+      let questions: PulseQuestionInput[] = [];
+
+      if (Array.isArray(data.questions) && data.questions.length > 0) {
+        questions = data.questions.map((q: any, idx: number) => ({
+          slot: q.slot || idx + 1,
+          question: q.question || "",
+          option_a: q.option_a || q.optionA || "",
+          option_b: q.option_b || q.optionB || "",
+          option_c: q.option_c || q.optionC || "",
+          option_d: q.option_d || q.optionD || "",
+          correct_answer: normalizeCorrectAnswer(
+            q.correct_answer ?? q.correctAnswer ?? q.correct_option ?? q.correctIndex
+          ),
+          explanation: q.explanation || "",
+          subject: q.subject || "General",
+          difficulty: q.difficulty || "Medium",
+          xp_value: Number(q.xp_value) || 50,
+        }));
+      }
+
+      if (questions.length === 0) {
+        const { data: qRows } = await supabase
+          .from("championship_pulse_questions")
+          .select("*")
+          .eq("pulse_set_id", data.id)
+          .order("slot", { ascending: true });
+
+        if (qRows && qRows.length > 0) {
+          questions = qRows.map((q: any, idx: number) => ({
+            slot: q.slot || idx + 1,
+            question: q.question || "",
+            option_a: q.option_a || "",
+            option_b: q.option_b || "",
+            option_c: q.option_c || "",
+            option_d: q.option_d || "",
+            correct_answer: normalizeCorrectAnswer(q.correct_answer),
+            explanation: q.explanation || "",
+            subject: q.subject || "General",
+            difficulty: q.difficulty || "Medium",
+            xp_value: Number(q.xp_value) || 50,
+          }));
+        }
+      }
+
       return {
         id: data.id,
         pulse_date: data.pulse_date,
         status: data.status as "draft" | "published",
-        questions: (data.questions as any) || [],
+        questions,
         published_at: data.published_at,
         created_at: data.created_at,
         updated_at: data.updated_at,
@@ -121,7 +218,17 @@ export async function fetchPulseSetForDate(pulseDate: string): Promise<PulseSetR
   try {
     const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
     if (local[pulseDate]) {
-      return local[pulseDate];
+      const record = local[pulseDate];
+      if (record && Array.isArray(record.questions)) {
+        record.questions = record.questions.map((q: any, idx: number) => ({
+          ...q,
+          slot: q.slot || idx + 1,
+          correct_answer: normalizeCorrectAnswer(
+            q.correct_answer ?? q.correctAnswer ?? q.correct_option ?? q.correctIndex
+          ),
+        }));
+      }
+      return record;
     }
   } catch {
     // Ignore localStorage parse error
@@ -146,11 +253,55 @@ export async function fetchTodayPublishedPulse(
       .maybeSingle();
 
     if (!error && data) {
+      let questions: PulseQuestionInput[] = [];
+
+      if (Array.isArray(data.questions) && data.questions.length > 0) {
+        questions = data.questions.map((q: any, idx: number) => ({
+          slot: q.slot || idx + 1,
+          question: q.question || "",
+          option_a: q.option_a || q.optionA || "",
+          option_b: q.option_b || q.optionB || "",
+          option_c: q.option_c || q.optionC || "",
+          option_d: q.option_d || q.optionD || "",
+          correct_answer: normalizeCorrectAnswer(
+            q.correct_answer ?? q.correctAnswer ?? q.correct_option ?? q.correctIndex
+          ),
+          explanation: q.explanation || "",
+          subject: q.subject || "General",
+          difficulty: q.difficulty || "Medium",
+          xp_value: Number(q.xp_value) || 50,
+        }));
+      }
+
+      if (questions.length === 0) {
+        const { data: qRows } = await supabase
+          .from("championship_pulse_questions")
+          .select("*")
+          .eq("pulse_set_id", data.id)
+          .order("slot", { ascending: true });
+
+        if (qRows && qRows.length > 0) {
+          questions = qRows.map((q: any, idx: number) => ({
+            slot: q.slot || idx + 1,
+            question: q.question || "",
+            option_a: q.option_a || "",
+            option_b: q.option_b || "",
+            option_c: q.option_c || "",
+            option_d: q.option_d || "",
+            correct_answer: normalizeCorrectAnswer(q.correct_answer),
+            explanation: q.explanation || "",
+            subject: q.subject || "General",
+            difficulty: q.difficulty || "Medium",
+            xp_value: Number(q.xp_value) || 50,
+          }));
+        }
+      }
+
       return {
         id: data.id,
         pulse_date: data.pulse_date,
         status: "published",
-        questions: (data.questions as any) || [],
+        questions,
         published_at: data.published_at,
         created_at: data.created_at,
         updated_at: data.updated_at,
@@ -165,6 +316,15 @@ export async function fetchTodayPublishedPulse(
     const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
     const set = local[pulseDate];
     if (set && set.status === "published") {
+      if (Array.isArray(set.questions)) {
+        set.questions = set.questions.map((q: any, idx: number) => ({
+          ...q,
+          slot: q.slot || idx + 1,
+          correct_answer: normalizeCorrectAnswer(
+            q.correct_answer ?? q.correctAnswer ?? q.correct_option ?? q.correctIndex
+          ),
+        }));
+      }
       return set;
     }
   } catch {
@@ -175,23 +335,31 @@ export async function fetchTodayPublishedPulse(
 }
 
 /**
- * Convert PulseQuestionInput array into PulseQuestion array for the quiz runner
+ * Convert PulseQuestionInput array into PulseQuestion array for the quiz runner.
+ * Evaluates the actual chosen correct option index (A=0, B=1, C=2, D=3) rather than hardcoded 0.
  */
 export function convertToQuizQuestions(questions: PulseQuestionInput[]): PulseQuestion[] {
   const answerMap: Record<PulseCorrectAnswer, number> = { A: 0, B: 1, C: 2, D: 3 };
 
-  return questions.map((q, idx) => ({
-    id: `pulse-admin-${q.slot || idx + 1}`,
-    slot: q.slot || idx + 1,
-    subject: q.subject,
-    category: q.subject === "General" ? "General Pulse" : "1st MBBS",
-    question: q.question,
-    options: [q.option_a, q.option_b, q.option_c, q.option_d],
-    correctIndex: answerMap[q.correct_answer] ?? 0,
-    explanation: q.explanation,
-    xp: q.xp_value || 50,
-    points: q.xp_value || 50,
-  }));
+  return questions.map((q, idx) => {
+    const norm = normalizeCorrectAnswer(
+      q.correct_answer ?? (q as any).correctAnswer ?? (q as any).correct_option ?? (q as any).correctIndex
+    );
+    const correctIndex = norm ? answerMap[norm] : parseCorrectOptionIndex(q);
+
+    return {
+      id: `pulse-admin-${q.slot || idx + 1}`,
+      slot: q.slot || idx + 1,
+      subject: q.subject,
+      category: q.subject === "General" ? "General Pulse" : "1st MBBS",
+      question: q.question,
+      options: [q.option_a, q.option_b, q.option_c, q.option_d],
+      correctIndex,
+      explanation: q.explanation,
+      xp: q.xp_value || 50,
+      points: q.xp_value || 50,
+    };
+  });
 }
 
 /**
@@ -202,10 +370,11 @@ export async function savePulseDraft(
   questions: PulseQuestionInput[]
 ): Promise<{ success: boolean; data?: PulseSetRecord; error?: string }> {
   try {
-    // Ensure exactly 5 questions with slots 1..5
+    // Ensure exactly 5 questions with slots 1..5 and properly normalized correct_answer
     const cleanQuestions = questions.slice(0, 5).map((q, idx) => ({
       ...q,
       slot: idx + 1,
+      correct_answer: normalizeCorrectAnswer(q.correct_answer),
       xp_value: Number(q.xp_value) || 50,
     }));
 
@@ -311,14 +480,16 @@ export async function publishTodayPulse(
     if (!q.explanation.trim()) {
       return { success: false, error: `Question ${num} must have an explanation for students.` };
     }
-    if (!q.correct_answer || !["A", "B", "C", "D"].includes(q.correct_answer)) {
-      return { success: false, error: `Question ${num} must have a valid correct answer (A, B, C, or D).` };
+    const normAns = normalizeCorrectAnswer(q.correct_answer);
+    if (!normAns || !["A", "B", "C", "D"].includes(normAns)) {
+      return { success: false, error: `Question ${num} must have a valid correct answer (select radio A, B, C, or D).` };
     }
   }
 
   const cleanQuestions = questions.slice(0, 5).map((q, idx) => ({
     ...q,
     slot: idx + 1,
+    correct_answer: normalizeCorrectAnswer(q.correct_answer) as PulseCorrectAnswer,
     xp_value: Number(q.xp_value) || 50,
   }));
 

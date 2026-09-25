@@ -41,6 +41,7 @@ import {
   fetchPulseSetForDate,
   savePulseDraft,
   publishTodayPulse,
+  normalizeCorrectAnswer,
   DEFAULT_PULSE_SUBJECTS,
   DEFAULT_DIFFICULTIES,
   fetchLiveOpsState,
@@ -124,14 +125,47 @@ export function PulseStudio() {
   // ── EXPORT STATE ─────────────────────────────────────────────────────────────
   const [isExporting, setIsExporting] = useState<string | null>(null);
 
-  // Load existing pulse set for the selected date
+  // Load existing pulse set for the selected date and PRELOAD previously selected correct option
   const loadPulseSet = useCallback(async (date: string) => {
     setLoading(true);
     try {
       const record = await fetchPulseSetForDate(date);
       if (record && record.questions && record.questions.length > 0) {
-        const filled = createEmptyPulseQuestions().map((emptyQ, idx) => {
-          return record.questions[idx] || emptyQ;
+        const filled: PulseQuestionInput[] = [1, 2, 3, 4, 5].map((slotNum, idx) => {
+          const existing = record.questions.find((q: any) => q.slot === slotNum) || record.questions[idx];
+          if (existing) {
+            return {
+              slot: slotNum,
+              question: existing.question || "",
+              option_a: existing.option_a || (existing as any).optionA || "",
+              option_b: existing.option_b || (existing as any).optionB || "",
+              option_c: existing.option_c || (existing as any).optionC || "",
+              option_d: existing.option_d || (existing as any).optionD || "",
+              correct_answer: normalizeCorrectAnswer(
+                existing.correct_answer ??
+                (existing as any).correctAnswer ??
+                (existing as any).correct_option ??
+                (existing as any).correctIndex
+              ) as PulseCorrectAnswer,
+              explanation: existing.explanation || "",
+              subject: existing.subject || DEFAULT_PULSE_SUBJECTS[idx] || "General",
+              difficulty: existing.difficulty || (slotNum === 5 ? "Easy" : "Medium"),
+              xp_value: Number(existing.xp_value) || 50,
+            };
+          }
+          return {
+            slot: slotNum,
+            question: "",
+            option_a: "",
+            option_b: "",
+            option_c: "",
+            option_d: "",
+            correct_answer: "" as PulseCorrectAnswer,
+            explanation: "",
+            subject: DEFAULT_PULSE_SUBJECTS[idx] || "General",
+            difficulty: slotNum === 5 ? "Easy" : "Medium",
+            xp_value: 50,
+          };
         });
         setQuestions(filled);
         setStatus(record.status);
@@ -425,7 +459,10 @@ export function PulseStudio() {
         issues.push("Missing options");
       }
       if (!q.explanation.trim()) issues.push("Missing explanation");
-      if (!q.correct_answer) issues.push("Missing correct answer");
+      const norm = normalizeCorrectAnswer(q.correct_answer);
+      if (!norm || !["A", "B", "C", "D"].includes(norm)) {
+        issues.push("Missing correct answer (select radio A, B, C, or D)");
+      }
       if (issues.length > 0) {
         missing.push({ slot: idx + 1, issues });
       }
@@ -714,7 +751,7 @@ export function PulseStudio() {
                       STUDENT VIEW SIMULATION &bull; SLOT #{activeSlot}
                     </span>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Verified Key: Option {currentQ.correct_answer || "A"}
+                      Verified Key: {currentQ.correct_answer ? `Option ${currentQ.correct_answer}` : "None Selected"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs font-mono">
@@ -851,7 +888,7 @@ export function PulseStudio() {
                       ) : (
                         <div className="p-2.5 px-4 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono text-xs font-bold flex items-center gap-2">
                           <AlertCircle className="w-4 h-4 text-rose-400" />
-                          <span>Simulation: INCORRECT (0 XP). Verified Correct Answer: Option {currentQ.correct_answer}</span>
+                          <span>Simulation: INCORRECT (0 XP). Verified Correct Answer: Option {currentQ.correct_answer || "Unselected"}</span>
                         </div>
                       )}
                     </div>
@@ -952,21 +989,28 @@ export function PulseStudio() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
                   <div>
                     <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                      <span>Answer Choices & Dynamic Correct Answer</span>
+                      <span>Answer Choices & Correct Option Radio</span>
                       <span className="text-red-400">*</span>
                     </label>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Select the radio button beside the correct answer. Only one option (A, B, C, or D) can be selected per question.
+                      Select the radio button beside A, B, C, or D. The selected radio is saved as the verified correct answer in Supabase.
                     </p>
                   </div>
 
                   {/* Active Correct Answer Pill */}
                   <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3.5 py-1.5 rounded-xl shrink-0">
                     <span className="text-[11px] font-mono text-slate-400">Current Key:</span>
-                    <span className="px-3 py-1 rounded-full font-mono text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 flex items-center gap-1.5 shadow-sm">
-                      <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-                      (●) Option {currentQ.correct_answer || "A"}
-                    </span>
+                    {currentQ.correct_answer ? (
+                      <span className="px-3 py-1 rounded-full font-mono text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 flex items-center gap-1.5 shadow-sm">
+                        <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                        (●) Option {currentQ.correct_answer}
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 rounded-full font-mono text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1.5">
+                        <AlertCircle className="size-3 text-amber-400" />
+                        ( ) Select Correct Radio
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -998,14 +1042,14 @@ export function PulseStudio() {
                             <input
                               type="radio"
                               id={radioId}
-                              name={`pulse_correct_answer_slot_${activeSlot}`}
+                              name={`pulse_slot_${activeSlot}_correct_answer`}
                               value={opt.letter}
                               checked={isCorrect}
                               onChange={() => handleUpdateCurrentQuestion({ correct_answer: opt.letter })}
                               className="w-4 h-4 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500 focus:ring-offset-slate-950 cursor-pointer accent-emerald-500"
                             />
 
-                            {/* Literal ( ) or (●) indicator from user prompt */}
+                            {/* Literal ( ) or (●) indicator */}
                             <span
                               className={`font-mono text-sm font-black transition-colors ${
                                 isCorrect ? "text-emerald-400 font-bold" : "text-slate-500 group-hover:text-slate-400"
@@ -1041,7 +1085,7 @@ export function PulseStudio() {
                         {/* Status Label or Click to Set */}
                         <div className="shrink-0 flex items-center justify-end">
                           {isCorrect ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm">
                               <CheckCircle2 className="size-3.5 text-emerald-400" />
                               <span>(●) Correct Answer</span>
                             </span>
