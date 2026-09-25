@@ -54,6 +54,8 @@ import {
   checkStudentAttempt,
   recordStudentAttempt,
   convertToQuizQuestions,
+  fetchLiveOpsState,
+  type LiveOpsState,
   type PulseSetRecord,
   type PulseAttemptRecord,
   type LeaderboardEntry,
@@ -182,6 +184,7 @@ function RouteComponent() {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   // Admin-managed Daily Pulse State (Strictly from Supabase)
+  const [liveOps, setLiveOps] = useState<LiveOpsState | null>(null);
   const [publishedPulseSet, setPublishedPulseSet] = useState<PulseSetRecord | null>(null);
   const [isLoadingPulse, setIsLoadingPulse] = useState(false);
   const [hasAttemptedToday, setHasAttemptedToday] = useState(false);
@@ -248,13 +251,19 @@ function RouteComponent() {
     }
   }, []);
 
-  // Fetch today's official admin-published pulse set from Supabase and check student attempt
+  // Fetch today's official admin-published pulse set and live ops state from Supabase
   const loadTodayPulse = useCallback(async () => {
     setIsLoadingPulse(true);
     try {
       const todayStr = getISTDateString();
-      const set = await fetchTodayPublishedPulse(todayStr);
+      const [set, ops] = await Promise.all([
+        fetchTodayPublishedPulse(todayStr),
+        fetchLiveOpsState(),
+      ]);
+
       setPublishedPulseSet(set);
+      setLiveOps(ops);
+
       if (set && Array.isArray(set.questions) && set.questions.length === 5) {
         setTodayQuestions(convertToQuizQuestions(set.questions));
       } else {
@@ -288,15 +297,41 @@ function RouteComponent() {
     }
   }, [getEffectiveStudentId]);
 
-  // Load today's dynamic pulses and watch time-window
+  // Load today's dynamic pulses and watch synchronized countdown & live ops
   useEffect(() => {
     const updateTimeState = () => {
       const now = new Date();
-      setTimeWindowState(getDailyPulseTimeState(now));
+      const baseWindowState = getDailyPulseTimeState(now);
+
+      // If admin manually triggered Go LIVE, pulse is immediately active
+      if (liveOps?.live_status === "live") {
+        setTimeWindowState({
+          status: "active_pulse",
+          countdownSeconds: 0,
+          label: "Pulse Active & Live Now",
+          opensAtIST: "LIVE NOW",
+        });
+      } else if (liveOps?.live_status === "paused") {
+        setTimeWindowState({
+          status: "before_7pm",
+          countdownSeconds: 0,
+          label: "Pulse Paused by Admin",
+          opensAtIST: "Paused",
+        });
+      } else if (liveOps?.live_status === "ended") {
+        setTimeWindowState({
+          status: "day_ended",
+          countdownSeconds: 0,
+          label: "Today's Pulse Ended",
+          opensAtIST: "Ended",
+        });
+      } else {
+        setTimeWindowState(baseWindowState);
+      }
 
       // Season countdown & status
       const status = getSeasonStatus(now);
-      const isLive = status === "live";
+      const isLive = liveOps?.live_status === "live" || status === "live";
 
       let target = SEASON_START_UTC;
       let label = "LIVE PULSE BEGINS";
@@ -304,7 +339,7 @@ function RouteComponent() {
       if (isLive) {
         target = SEASON_END_UTC;
         label = "Season Ends In";
-      } else if (status === "ended") {
+      } else if (status === "ended" || liveOps?.results_declared) {
         setSeasonRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, status: "ended", isLive: false, label: "Season Completed" });
         return;
       }
@@ -322,9 +357,9 @@ function RouteComponent() {
     updateTimeState();
     const interval = setInterval(updateTimeState, 1000);
     return () => clearInterval(interval);
-  }, [loadTodayPulse]);
+  }, [loadTodayPulse, liveOps?.live_status, liveOps?.results_declared]);
 
-  // Fetch live leaderboard and subscribe to Supabase Realtime
+  // Fetch live leaderboard and subscribe to Supabase Realtime for participants & live ops
   useEffect(() => {
     const fetchBoard = async () => {
       setLoadingLeaderboard(true);
@@ -335,7 +370,8 @@ function RouteComponent() {
 
     fetchBoard();
 
-    const channel = supabase
+    // Channel 1: Leaderboard updates
+    const partChannel = supabase
       .channel("championship_live_updates")
       .on(
         "postgres_changes",
@@ -346,8 +382,27 @@ function RouteComponent() {
       )
       .subscribe();
 
+    // Channel 2: Live Ops real-time broadcasts (Go Live, Pauses, Final Results, Notifications)
+    const opsChannel = supabase
+      .channel("championship_live_ops_channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_live_ops" },
+        (payload: any) => {
+          if (payload.new) {
+            setLiveOps(payload.new);
+            const notifs = payload.new.notifications;
+            if (Array.isArray(notifs) && notifs.length > 0 && notifs[0]?.title) {
+              toast.info(notifs[0].title, { description: notifs[0].body });
+            }
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(partChannel);
+      supabase.removeChannel(opsChannel);
     };
   }, []);
 
@@ -366,6 +421,13 @@ function RouteComponent() {
   // Handle registration submission (Connect to public.championship_registrations)
   const handleRegisterSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+
+    // Requirement 1: Registration Lock check
+    if (liveOps && liveOps.registration_open === false) {
+      toast.error("Registration is currently closed by Administration. No new registrations are being accepted.");
+      return;
+    }
+
     const effectiveEmail = (user?.email && user.email.trim()) ? user.email.trim() : regEmail.trim();
     if (!regName.trim() || !regCollege.trim() || !effectiveEmail) {
       toast.error("Please fill in all required fields: Full Name, Medical College, and Email.");
@@ -410,9 +472,6 @@ function RouteComponent() {
       }
 
       // After successful insert:
-      // 1. Show “Registration Confirmed”
-      // 2. Generate Passport ID if empty (assigned in result.passportId)
-      // 3. Redirect user to Championship page
       const confirmedPassportId = result.passportId || result.data?.passport_id || regPassportId;
       setRegPassportId(confirmedPassportId);
       setRegistered(true);
@@ -420,7 +479,6 @@ function RouteComponent() {
       setIsRegisterOpen(false);
       toast.success("Registration Confirmed! You're officially participating in MedTrail Championship Season 1.");
 
-      // Redirect user to the Championship page and view confirmed credential card
       navigate({ to: "/championship" });
       setTimeout(() => {
         const el = document.getElementById("registration");
@@ -438,14 +496,31 @@ function RouteComponent() {
 
   // Start Pulse Quiz (Strict Admin-managed single attempt per day)
   const startPulseQuiz = () => {
+    // 0. Live Ops administrative status checks
+    if (liveOps) {
+      if (liveOps.results_declared) {
+        toast.error("Championship results have been officially declared. All submissions are locked.");
+        setIsReviewModalOpen(true);
+        return;
+      }
+      if (liveOps.live_status === "paused") {
+        toast.warning("Pulse is currently paused by Administration. Submissions on hold.");
+        return;
+      }
+      if (liveOps.live_status === "ended") {
+        toast.info("Today's Pulse session has concluded.");
+        return;
+      }
+    }
+
     // 1. Must be published by Admin in Supabase
     if (!publishedPulseSet || todayQuestions.length === 0) {
       toast.info("Today's Pulse has not been published by the MedTrail Admin yet. Official questions are released every evening at 7:00 PM IST.");
       return;
     }
 
-    // 2. Pulse unlocks at 7:00 PM IST
-    if (timeWindowState.status === "before_7pm") {
+    // 2. Pulse unlocks: if admin explicitly set live_status === 'live', bypass time restriction! Otherwise check before_7pm
+    if (liveOps?.live_status !== "live" && timeWindowState.status === "before_7pm") {
       toast.info(`Today's Pulse opens at 7:00 PM IST. Countdown remaining: ${formatCountdown(timeWindowState.countdownSeconds)}.`);
       return;
     }
@@ -1022,24 +1097,36 @@ function RouteComponent() {
                 </div>
 
                 <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={isSubmittingReg}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm tracking-wide shadow-xl shadow-blue-600/30 hover:shadow-blue-500/50 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isSubmittingReg ? (
-                      <>
-                        <Clock className="w-4 h-4 animate-spin" />
-                        <span>Registering with Supabase...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Trophy className="w-4 h-4 text-amber-300" />
-                        <span>Confirm Season 1 Registration</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
+                  {liveOps?.registration_open === false ? (
+                    <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-center space-y-2">
+                      <div className="flex items-center justify-center gap-2 text-rose-300 font-bold text-xs uppercase tracking-wider">
+                        <Lock className="w-4 h-4 text-rose-400" />
+                        <span>Registration Closed by Administration</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        New competitor registrations have been locked for this event. Verified participants can continue to compete.
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={isSubmittingReg}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm tracking-wide shadow-xl shadow-blue-600/30 hover:shadow-blue-500/50 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isSubmittingReg ? (
+                        <>
+                          <Clock className="w-4 h-4 animate-spin" />
+                          <span>Registering with Supabase...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Trophy className="w-4 h-4 text-amber-300" />
+                          <span>Confirm Season 1 Registration</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  )}
                   <p className="text-[11px] text-center text-slate-400 mt-3">
                     Stored in Supabase. By confirming, you agree to official MedTrail Season 1 competition terms and fair play rules.
                   </p>
@@ -1224,6 +1311,21 @@ function RouteComponent() {
               />
             </div>
           </div>
+
+          {/* Requirement 5: Final Results Declared & Leaderboard Freeze Notice */}
+          {(liveOps?.is_leaderboard_frozen || liveOps?.results_declared) && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs sm:text-sm font-semibold flex items-center justify-between gap-3 shadow-lg shadow-amber-500/10">
+              <div className="flex items-center gap-2.5">
+                <Trophy className="w-5 h-5 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Official Final Results Declared & Leaderboard Frozen:</strong> Season 1 standings are permanently locked. Digital accolades and badges have been awarded.
+                </span>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/40 shrink-0">
+                LOCKED & FROZEN
+              </span>
+            </div>
+          )}
 
           {/* 4 Tabs: Global, College, Batch, Weekly */}
           <div className="flex items-center gap-2 border-b border-slate-800 overflow-x-auto pb-1">
@@ -2089,13 +2191,25 @@ function RouteComponent() {
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmittingReg}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-blue-600/30 disabled:opacity-50"
-              >
-                {isSubmittingReg ? "Registering with Supabase..." : "Confirm Registration"}
-              </button>
+              {liveOps?.registration_open === false ? (
+                <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-center space-y-1">
+                  <div className="flex items-center justify-center gap-1.5 text-rose-300 font-bold text-xs uppercase tracking-wider">
+                    <Lock className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Registration Closed</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    New sign-ups have been locked by administration.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isSubmittingReg}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-blue-600/30 disabled:opacity-50"
+                >
+                  {isSubmittingReg ? "Registering with Supabase..." : "Confirm Registration"}
+                </button>
+              )}
             </form>
           </div>
         </div>

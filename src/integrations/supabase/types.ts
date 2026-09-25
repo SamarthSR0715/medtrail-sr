@@ -663,6 +663,53 @@ export interface Database {
           completed_at?: string;
         };
       };
+      championship_live_ops: {
+        Row: {
+          id: string;
+          registration_open: boolean;
+          live_status: 'draft' | 'published' | 'live' | 'paused' | 'ended';
+          target_date: string;
+          go_live_time: string;
+          end_time: string;
+          extended_minutes: number;
+          is_leaderboard_frozen: boolean;
+          results_declared: boolean;
+          results_declared_at: string | null;
+          emergency_action_log: Json;
+          notifications: Json;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_open?: boolean;
+          live_status?: 'draft' | 'published' | 'live' | 'paused' | 'ended';
+          target_date?: string;
+          go_live_time?: string;
+          end_time?: string;
+          extended_minutes?: number;
+          is_leaderboard_frozen?: boolean;
+          results_declared?: boolean;
+          results_declared_at?: string | null;
+          emergency_action_log?: Json;
+          notifications?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          registration_open?: boolean;
+          live_status?: 'draft' | 'published' | 'live' | 'paused' | 'ended';
+          target_date?: string;
+          go_live_time?: string;
+          end_time?: string;
+          extended_minutes?: number;
+          is_leaderboard_frozen?: boolean;
+          results_declared?: boolean;
+          results_declared_at?: string | null;
+          emergency_action_log?: Json;
+          notifications?: Json;
+          updated_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;
