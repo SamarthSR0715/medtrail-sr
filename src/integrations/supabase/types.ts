@@ -511,6 +511,35 @@ export interface Database {
           status?: string;
         };
       };
+      championship_registrations: {
+        Row: {
+          id: string;
+          full_name: string;
+          email: string;
+          medical_college: string;
+          batch: string;
+          passport_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          full_name: string;
+          email: string;
+          medical_college: string;
+          batch: string;
+          passport_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          full_name?: string;
+          email?: string;
+          medical_college?: string;
+          batch?: string;
+          passport_id?: string | null;
+          created_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;

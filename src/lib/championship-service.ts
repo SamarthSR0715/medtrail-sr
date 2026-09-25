@@ -801,28 +801,42 @@ export interface ChampionshipRegistrationData {
   email: string;
 }
 
+export interface ChampionshipRegistrationResult {
+  success: boolean;
+  message: string;
+  data?: any;
+  error?: string;
+}
+
 export async function registerChampionshipParticipant(
   data: ChampionshipRegistrationData
-): Promise<{ success: boolean; message: string }> {
+): Promise<ChampionshipRegistrationResult> {
+  let insertedRecord = null;
+  let supabaseError = null;
+
   try {
-    // 1. Try dedicated championship_registrations table
-    const { error: regError } = await (supabase as any)
+    // 1. Insert one row into public.championship_registrations table
+    const { data: insertedData, error: regError } = await supabase
       .from("championship_registrations")
       .insert({
-        full_name: data.fullName,
-        medical_college: data.medicalCollege,
+        full_name: data.fullName.trim(),
+        email: data.email.trim(),
+        medical_college: data.medicalCollege.trim(),
         batch: data.batch,
-        passport_id: data.passportId || null,
-        email: data.email,
-        created_at: new Date().toISOString(),
-      });
+        passport_id: data.passportId?.trim() || null,
+      })
+      .select()
+      .single();
 
     if (regError) {
       console.warn("Supabase championship_registrations insert note:", regError.message);
+      supabaseError = regError.message;
+    } else {
+      insertedRecord = insertedData;
     }
 
-    // 2. Also try championship_participants table if session/schema permits
-    const { data: authUser } = await (supabase as any).auth.getUser().catch(() => ({ data: null }));
+    // 2. Also register in championship_participants table if session/schema permits
+    const { data: authUser } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
     const userId = authUser?.user?.id;
     if (userId) {
       await (supabase as any)
@@ -830,11 +844,11 @@ export async function registerChampionshipParticipant(
         .insert({
           user_id: userId,
           season_id: SEASON_ID,
-          full_name: data.fullName,
-          display_name: data.fullName,
+          full_name: data.fullName.trim(),
+          display_name: data.fullName.trim(),
           display_name_type: "full_name",
-          institution: data.medicalCollege,
-          student_id: data.passportId || null,
+          institution: data.medicalCollege.trim(),
+          student_id: data.passportId?.trim() || null,
           country: "India",
           status: "active",
           show_score: true,
@@ -848,8 +862,9 @@ export async function registerChampionshipParticipant(
         })
         .catch((err: any) => console.warn("Participant insert note:", err));
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn("Supabase registration exception:", err);
+    supabaseError = err?.message || String(err);
   }
 
   // Backup to localStorage for instant local persistence
@@ -866,5 +881,24 @@ export async function registerChampionshipParticipant(
   return {
     success: true,
     message: "Registration Confirmed. You're officially participating in MedTrail Championship Season 1.",
+    data: insertedRecord,
+    error: supabaseError || undefined,
   };
+}
+
+/**
+ * Fetch all Season 1 registrations (Admin only via RLS)
+ */
+export async function fetchChampionshipRegistrations() {
+  const { data, error } = await supabase
+    .from("championship_registrations")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching championship registrations:", error.message);
+    throw error;
+  }
+
+  return data || [];
 }

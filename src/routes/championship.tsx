@@ -57,6 +57,7 @@ import {
   type TimeWindowState,
 } from "@/lib/championship-service";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/auth-context";
 import trophyImg from "@/assets/championship-trophy.jpg";
 import hoodieImg from "@/assets/championship-hoodie.jpg";
 
@@ -118,6 +119,9 @@ function RouteComponent() {
   const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
 
+  // Authentication context
+  const { user } = useAuth();
+
   // Registration state (Requirement 3)
   const [registered, setRegistered] = useState(false);
   const [regName, setRegName] = useState("");
@@ -127,6 +131,16 @@ function RouteComponent() {
   const [regEmail, setRegEmail] = useState("");
   const [isSubmittingReg, setIsSubmittingReg] = useState(false);
   const [regSuccessMsg, setRegSuccessMsg] = useState("");
+
+  // Pre-fill user profile if authenticated
+  useEffect(() => {
+    if (user?.email && !regEmail) {
+      setRegEmail(user.email);
+    }
+    if (user?.user_metadata?.full_name && !regName) {
+      setRegName(user.user_metadata.full_name);
+    }
+  }, [user]);
 
   // Live Leaderboard Data
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(SEED_LEADERBOARD);
@@ -260,7 +274,8 @@ function RouteComponent() {
   // Handle registration submission (Requirement 3)
   const handleRegisterSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!regName.trim() || !regCollege.trim() || !regEmail.trim()) {
+    const effectiveEmail = (user?.email && user.email.trim()) ? user.email.trim() : regEmail.trim();
+    if (!regName.trim() || !regCollege.trim() || !effectiveEmail) {
       alert("Please fill in all required fields: Full Name, Medical College, and Email.");
       return;
     }
@@ -272,7 +287,7 @@ function RouteComponent() {
         medicalCollege: regCollege.trim(),
         batch: regBatch,
         passportId: regPassportId.trim() || undefined,
-        email: regEmail.trim(),
+        email: effectiveEmail,
       });
 
       setRegistered(true);

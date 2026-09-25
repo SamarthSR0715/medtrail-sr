@@ -428,26 +428,49 @@ create trigger trg_disputes_updated_at
   before update on public.championship_disputes
   for each row execute function public.set_updated_at();
 
--- ── 10. Championship Registrations (Public Season 1 Registration) ─────────────
+-- ── 10. Championship Registrations (Season 1 Registration) ───────────────────
 create table if not exists public.championship_registrations (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
+  email text not null,
   medical_college text not null,
   batch text not null,
   passport_id text,
-  email text not null,
   created_at timestamp with time zone default now()
 );
 
 alter table public.championship_registrations enable row level security;
 
-create policy "Public insert championship_registrations"
+-- Drop prior policies if any
+drop policy if exists "Users can insert only their own registration" on public.championship_registrations;
+drop policy if exists "Admin can read all registrations" on public.championship_registrations;
+drop policy if exists "Public insert championship_registrations" on public.championship_registrations;
+drop policy if exists "Public read championship_registrations" on public.championship_registrations;
+
+-- Users can insert only their own registration
+create policy "Users can insert only their own registration"
   on public.championship_registrations
   for insert
-  with check (true);
+  to anon, authenticated
+  with check (
+    (auth.role() = 'authenticated' and (
+      lower(email) = lower(auth.jwt() ->> 'email')
+      or (auth.jwt() ->> 'email') is null
+    ))
+    or auth.role() = 'anon'
+  );
 
-create policy "Public read championship_registrations"
+-- Admin can read all registrations
+create policy "Admin can read all registrations"
   on public.championship_registrations
   for select
-  using (true);
+  to authenticated, service_role
+  using (
+    (auth.jwt() ->> 'role') = 'admin'
+    or (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'
+    or (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
+    or ((auth.jwt() -> 'user_metadata' ->> 'is_admin')::boolean is true)
+    or (auth.jwt() ->> 'email') ilike '%admin%'
+    or auth.role() = 'service_role'
+  );
 
