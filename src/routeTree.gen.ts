@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as BucketListRouteImport } from './routes/bucket-list'
+import { Route as ChampionshipRouteImport } from './routes/championship'
 import { Route as FitnessRouteImport } from './routes/fitness'
 import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as LoginRouteImport } from './routes/login'
@@ -38,6 +39,11 @@ const AdminRoute = AdminRouteImport.update({
 const BucketListRoute = BucketListRouteImport.update({
   id: '/bucket-list',
   path: '/bucket-list',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChampionshipRoute = ChampionshipRouteImport.update({
+  id: '/championship',
+  path: '/championship',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FitnessRoute = FitnessRouteImport.update({
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/bucket-list': typeof BucketListRoute
+  '/championship': typeof ChampionshipRoute
   '/fitness': typeof FitnessRoute
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/bucket-list': typeof BucketListRoute
+  '/championship': typeof ChampionshipRoute
   '/fitness': typeof FitnessRoute
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/bucket-list': typeof BucketListRoute
+  '/championship': typeof ChampionshipRoute
   '/fitness': typeof FitnessRoute
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/bucket-list'
+    | '/championship'
     | '/fitness'
     | '/gallery'
     | '/login'
@@ -176,6 +186,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/bucket-list'
+    | '/championship'
     | '/fitness'
     | '/gallery'
     | '/login'
@@ -193,6 +204,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/bucket-list'
+    | '/championship'
     | '/fitness'
     | '/gallery'
     | '/login'
@@ -211,6 +223,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   BucketListRoute: typeof BucketListRoute
+  ChampionshipRoute: typeof ChampionshipRoute
   FitnessRoute: typeof FitnessRoute
   GalleryRoute: typeof GalleryRoute
   LoginRoute: typeof LoginRoute
@@ -246,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/bucket-list'
       fullPath: '/bucket-list'
       preLoaderRoute: typeof BucketListRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/championship': {
+      id: '/championship'
+      path: '/championship'
+      fullPath: '/championship'
+      preLoaderRoute: typeof ChampionshipRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/fitness': {
@@ -339,6 +359,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   BucketListRoute: BucketListRoute,
+  ChampionshipRoute: ChampionshipRoute,
   FitnessRoute: FitnessRoute,
   GalleryRoute: GalleryRoute,
   LoginRoute: LoginRoute,
