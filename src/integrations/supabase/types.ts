@@ -519,6 +519,7 @@ export interface Database {
           medical_college: string;
           batch: string;
           passport_id: string | null;
+          approval_status: 'approved' | 'pending' | 'removed';
           created_at: string;
         };
         Insert: {
@@ -528,6 +529,7 @@ export interface Database {
           medical_college: string;
           batch: string;
           passport_id?: string | null;
+          approval_status?: 'approved' | 'pending' | 'removed';
           created_at?: string;
         };
         Update: {
@@ -537,6 +539,7 @@ export interface Database {
           medical_college?: string;
           batch?: string;
           passport_id?: string | null;
+          approval_status?: 'approved' | 'pending' | 'removed';
           created_at?: string;
         };
       };
@@ -708,6 +711,97 @@ export interface Database {
           emergency_action_log?: Json;
           notifications?: Json;
           updated_at?: string;
+        };
+      };
+      championship_hall_of_fame: {
+        Row: {
+          id: string;
+          season_id: string;
+          season_title: string;
+          champion_name: string;
+          college: string;
+          batch: string;
+          trophy_id: string;
+          winner_photo: string;
+          status: string;
+          final_score: number;
+          accuracy_pct: number;
+          streak_days: number;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          season_id?: string;
+          season_title?: string;
+          champion_name: string;
+          college: string;
+          batch?: string;
+          trophy_id?: string;
+          winner_photo?: string;
+          status?: string;
+          final_score?: number;
+          accuracy_pct?: number;
+          streak_days?: number;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          season_id?: string;
+          season_title?: string;
+          champion_name?: string;
+          college?: string;
+          batch?: string;
+          trophy_id?: string;
+          winner_photo?: string;
+          status?: string;
+          final_score?: number;
+          accuracy_pct?: number;
+          streak_days?: number;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+      };
+      championship_notifications: {
+        Row: {
+          id: string;
+          title: string;
+          message: string;
+          emoji: string;
+          audience_type: 'all' | 'championship' | 'college' | 'batch' | 'individual';
+          audience_target: string | null;
+          status: 'sent' | 'scheduled' | 'cancelled';
+          scheduled_for: string | null;
+          sent_at: string | null;
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          message: string;
+          emoji?: string;
+          audience_type: 'all' | 'championship' | 'college' | 'batch' | 'individual';
+          audience_target?: string | null;
+          status?: 'sent' | 'scheduled' | 'cancelled';
+          scheduled_for?: string | null;
+          sent_at?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          message?: string;
+          emoji?: string;
+          audience_type?: 'all' | 'championship' | 'college' | 'batch' | 'individual';
+          audience_target?: string | null;
+          status?: 'sent' | 'scheduled' | 'cancelled';
+          scheduled_for?: string | null;
+          sent_at?: string | null;
+          created_at?: string;
+          created_by?: string | null;
         };
       };
     };

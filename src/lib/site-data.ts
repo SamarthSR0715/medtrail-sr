@@ -33,7 +33,6 @@ export const searchIndex: SearchEntry[] = [
   { to: "/mbbs", title: "Progress Analytics", group: "MBBS Hub", keywords: "analytics streak charts progress tasks topics" },
   { to: "/travel", title: "MedTrail Trips — One-Day Treks", group: "MedTrail Trips", keywords: "trips medical students trek rajgad 001 mimer talegaon pickup 849 registration seats" },
   { to: "/travel", title: "Rajgad Fort — Trip #001", group: "MedTrail Trips", keywords: "rajgad 001 trek seats 17 tickets register payment student community doctor lead" },
-  { to: "/admin", title: "Trips Admin Portal", group: "Admin", keywords: "admin trips registrations payments csv export students" },
   { to: "/destinations", title: "Destinations & Guides", group: "Destinations", keywords: "destinations guides itinerary timeline budget gear forts waterfalls" },
   { to: "/travel-map", title: "Interactive travel map", group: "Destinations", keywords: "map leaflet pins routes pune clusters" },
   { to: "/gallery", title: "Photo gallery", group: "Gallery", keywords: "photos masonry lightbox zoom images tags" },

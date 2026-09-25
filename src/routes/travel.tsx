@@ -143,12 +143,12 @@ export function MedTrailTripsPage() {
                   View Trip Details <ChevronRight className="size-4" />
                 </a>
 
-                {user && (
+                {user?.email?.toLowerCase() === "samarthrautrao715@gmail.com" && (
                   <Link
                     to="/admin"
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border/80 px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-400 hover:bg-amber-500/20 transition-colors"
                   >
-                    <Lock className="size-3.5 text-amber-500" /> Admin Portal
+                    <Lock className="size-3.5 text-amber-400" /> Control Center
                   </Link>
                 )}
               </Reveal>

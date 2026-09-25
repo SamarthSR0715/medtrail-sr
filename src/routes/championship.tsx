@@ -64,6 +64,11 @@ import {
   type SeasonStatus,
   type TimeWindowState,
 } from "@/lib/championship-service";
+import {
+  fetchHallOfFameRecord,
+  DEFAULT_HALL_OF_FAME,
+  type HallOfFameData,
+} from "@/lib/super-admin-service";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import trophyImg from "@/assets/championship-trophy.jpg";
@@ -196,6 +201,35 @@ function RouteComponent() {
     label: "Unlocks at 7:00 PM IST",
     opensAtIST: "7:00 PM IST",
   });
+
+  // Dynamic Hall of Fame (Managed by Super Admin)
+  const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(DEFAULT_HALL_OF_FAME);
+
+  useEffect(() => {
+    fetchHallOfFameRecord().then((data) => {
+      if (data) setHallOfFame(data);
+    });
+
+    const channel = supabase
+      .channel("championship_hof_live_channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_hall_of_fame" },
+        () => {
+          fetchHallOfFameRecord().then((data) => {
+            if (data) setHallOfFame(data);
+          });
+        }
+      )
+      .on("broadcast", { event: "hall_of_fame_updated" }, ({ payload }) => {
+        if (payload) setHallOfFame(payload);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Unique identifier for the student (Auth user ID > Email > Guest Persistent Token)
   const getEffectiveStudentId = useCallback(() => {
@@ -1715,47 +1749,60 @@ function RouteComponent() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Requirement 1: Champion: Dr. XYZ, Trophy ID: MT-S1-001, Status: To be crowned after Season 1 */}
+            {/* Dynamic Champion Card — Connected to Super Admin Hall of Fame Manager */}
             <div className="p-6 rounded-2xl bg-slate-900/80 border border-amber-500/40 space-y-4 relative overflow-hidden shadow-xl backdrop-blur-md">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-amber-400">MedTrail Championship: Season 1</span>
+                <span className="text-xs font-mono font-bold text-amber-400">
+                  {hallOfFame.season_title || "MedTrail Championship: Season 1"}
+                </span>
                 <span className="px-2.5 py-1 rounded-full font-mono text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  Trophy ID: MT-S1-001
+                  Trophy ID: {hallOfFame.trophy_id}
                 </span>
               </div>
 
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/30">
-                  XYZ
-                </div>
+                {hallOfFame.winner_photo ? (
+                  <img
+                    src={hallOfFame.winner_photo}
+                    alt={hallOfFame.champion_name}
+                    className="w-16 h-16 rounded-2xl object-cover border-2 border-amber-500 shadow-lg shadow-amber-500/30"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/30">
+                    {hallOfFame.champion_name.slice(0, 3).toUpperCase()}
+                  </div>
+                )}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold">Reigning Crown Candidate</div>
-                  <h4 className="text-xl font-black text-white">Champion: Dr. XYZ</h4>
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold">
+                    Reigning Crown Champion
+                  </div>
+                  <h4 className="text-xl font-black text-white">{hallOfFame.champion_name}</h4>
+                  <div className="text-xs text-slate-300">{hallOfFame.college}</div>
                   <div className="flex items-center gap-2 pt-0.5">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-semibold">
                       <Clock className="w-3 h-3 text-blue-400" />
-                      Status: To be crowned after Season 1
+                      Status: {hallOfFame.status}
                     </span>
                   </div>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200/90 leading-relaxed">
-                <strong>Placeholder until Season 1 ends:</strong> Dr. XYZ serves as the reserved champion placeholder. Upon the Season 1 finale on 17 October 2026, the #1 MBBS doctor will be permanently enshrined with Trophy ID MT-S1-001.
+                <strong>Season Inscription:</strong> {hallOfFame.champion_name} ({hallOfFame.college}) is enshrined under Trophy ID {hallOfFame.trophy_id} with official accolade status: "{hallOfFame.status}".
               </div>
 
               <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-center font-mono">
                 <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
                   <div className="text-[10px] text-slate-400 font-sans">Champion</div>
-                  <div className="font-bold text-xs text-amber-300 mt-0.5 truncate">Dr. XYZ</div>
+                  <div className="font-bold text-xs text-amber-300 mt-0.5 truncate">{hallOfFame.champion_name}</div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
                   <div className="text-[10px] text-slate-400 font-sans">Trophy ID</div>
-                  <div className="font-bold text-xs text-white mt-0.5">MT-S1-001</div>
+                  <div className="font-bold text-xs text-white mt-0.5">{hallOfFame.trophy_id}</div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
                   <div className="text-[10px] text-slate-400 font-sans">Status</div>
-                  <div className="font-bold text-[11px] text-blue-300 mt-0.5 truncate">To be crowned</div>
+                  <div className="font-bold text-[11px] text-blue-300 mt-0.5 truncate">{hallOfFame.status}</div>
                 </div>
               </div>
             </div>

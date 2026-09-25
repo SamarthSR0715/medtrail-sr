@@ -1,68 +1,110 @@
-import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Lock, LogIn, ShieldAlert, Sparkles, MapPin } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Lock, LogIn, LogOut, ShieldAlert, AlertTriangle, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { AdminPanel } from "@/components/trips/admin-panel";
-import { PulseStudio } from "@/components/admin/pulse-studio";
+import { isSuperAdminEmail, SUPER_ADMIN_EMAIL } from "@/lib/super-admin-service";
+import { SuperAdminControlCenter } from "@/components/admin/super-admin-control-center";
 import { Reveal } from "@/components/site/reveal";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "MedTrail Admin Portal | Pulse Studio & Trips" },
+      { title: "MedTrail Control Center | Super Admin" },
       {
         name: "description",
-        content: "Admin portal for MedTrail Pulse Question Management, student registrations, and trips.",
+        content: "MedTrail Control Center — Headquarters for managing the Championship.",
       },
+      { name: "robots", content: "noindex, nofollow" },
     ],
   }),
   component: AdminPage,
 });
 
 function AdminPage() {
-  const { user, loading } = useAuth();
-  const [adminTab, setAdminTab] = useState<"pulse" | "trips">("pulse");
+  const { user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
 
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center px-4">
         <div className="glass flex items-center gap-3 rounded-2xl px-6 py-4 text-sm font-medium">
-          <div className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span>Verifying administrator credentials...</span>
+          <div className="size-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+          <span>Verifying Super Admin Authorization...</span>
         </div>
       </div>
     );
   }
 
-  // If user is not logged in, prompt for admin authentication
-  if (!user) {
+  // Check if current authenticated user is the designated Super Admin
+  const isAuthorized = user && isSuperAdminEmail(user.email);
+
+  // If unauthorized: Block access completely and show 403 — Access Denied
+  if (!isAuthorized) {
     return (
-      <div className="px-4 py-16">
-        <div className="mx-auto max-w-md">
-          <Reveal className="glass rounded-[2rem] border border-border/80 p-8 text-center shadow-xl">
-            <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
-              <Lock className="size-7" />
-            </span>
+      <div className="min-h-[75vh] flex items-center justify-center px-4 py-16">
+        <div className="mx-auto max-w-lg w-full">
+          <Reveal className="p-8 sm:p-10 rounded-3xl bg-slate-950/90 border border-rose-500/40 text-center shadow-2xl space-y-6 backdrop-blur-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 -mr-12 -mt-12 w-48 h-48 rounded-full bg-rose-500/10 blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 left-0 -ml-12 -mb-12 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
 
-            <h1 className="mt-5 font-display text-2xl font-bold">Admin Portal</h1>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Sign in with your MedTrail administrator account to access the Pulse Studio, curate today's
-              questions, manage student registrations, and view reports.
-            </p>
+            <div className="mx-auto flex size-20 items-center justify-center rounded-3xl bg-rose-500/15 border border-rose-500/30 text-rose-400 shadow-xl shadow-rose-500/20">
+              <ShieldAlert className="size-10" />
+            </div>
 
-            <div className="mt-8 flex flex-col gap-3">
-              <Link
-                to="/login"
-                className="bg-gradient-brand inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-brand-foreground shadow-lg transition-transform hover:scale-[1.02]"
-              >
-                <LogIn className="size-4" />
-                Sign in to Admin Dashboard
-              </Link>
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono text-xs font-bold uppercase tracking-wider">
+                <AlertTriangle className="size-3.5" />
+                HTTP 403 Forbidden
+              </div>
+              <h1 className="text-3xl font-black text-white tracking-tight">
+                403 — Access Denied
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
+                This MedTrail Control Center is strictly restricted to the Super Administrator. Access is blocked for unverified credentials.
+              </p>
+            </div>
+
+            {user ? (
+              <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs text-left space-y-2 font-mono">
+                <div className="text-slate-400">Authenticated Session:</div>
+                <div className="font-bold text-rose-300 truncate">{user.email}</div>
+                <div className="text-[11px] text-slate-500 font-sans">
+                  This email is not authorized for Super Admin clearance.
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs text-center text-slate-400">
+                You are currently not signed in. An authenticated Super Admin session is required.
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 pt-2">
+              {user ? (
+                <button
+                  onClick={async () => {
+                    await signOut();
+                    navigate({ to: "/login" });
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-6 py-3 text-xs font-bold transition cursor-pointer"
+                >
+                  <LogOut className="size-4 text-amber-400" />
+                  Sign In with Different Account
+                </button>
+              ) : (
+                <Link
+                  to="/login"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 px-6 py-3 text-xs font-black uppercase tracking-wider transition shadow-lg shadow-amber-500/20"
+                >
+                  <LogIn className="size-4" />
+                  Sign In to MedTrail
+                </Link>
+              )}
+
               <Link
                 to="/championship"
-                className="inline-flex items-center justify-center rounded-full border border-border px-5 py-2.5 text-xs font-semibold text-muted-foreground hover:bg-secondary transition-colors"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-white px-5 py-3 text-xs font-semibold transition"
               >
-                Back to Championship
+                <ArrowLeft className="size-3.5" />
+                Return to Championship
               </Link>
             </div>
           </Reveal>
@@ -71,49 +113,13 @@ function AdminPage() {
     );
   }
 
+  // Super Admin view
   return (
-    <div className="px-4 pb-20">
-      <div className="mx-auto max-w-6xl space-y-6">
-        {/* Navigation Tabs between Pulse Studio and Trips */}
-        <div className="flex flex-wrap items-center justify-between gap-4 p-2 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setAdminTab("pulse")}
-              className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
-                adminTab === "pulse"
-                  ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Pulse Studio
-            </button>
-            <button
-              onClick={() => setAdminTab("trips")}
-              className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
-                adminTab === "trips"
-                  ? "bg-primary text-primary-foreground shadow-md"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
-              }`}
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              Trips & Registrations
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 pr-2 text-xs text-slate-400">
-            <Link
-              to="/championship"
-              className="hover:text-amber-400 transition font-semibold"
-            >
-              View Championship →
-            </Link>
-          </div>
-        </div>
-
-        {/* Tab Content */}
-        {adminTab === "pulse" ? <PulseStudio /> : <AdminPanel />}
+    <div className="px-4 pb-20 pt-2">
+      <div className="mx-auto max-w-6xl">
+        <SuperAdminControlCenter />
       </div>
     </div>
   );
 }
+

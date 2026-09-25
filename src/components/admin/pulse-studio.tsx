@@ -33,6 +33,7 @@ import {
   ShieldAlert,
   Radio,
   Share2,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -848,7 +849,30 @@ export function PulseStudio() {
                   <span>Previous Slot</span>
                 </button>
 
-                <div className="text-xs font-mono text-slate-400">Slot {activeSlot} of 5</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-slate-400">Slot {activeSlot} of 5</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Delete and clear question data for Slot #${activeSlot}?`)) {
+                        handleUpdateCurrentQuestion({
+                          question: "",
+                          option_a: "",
+                          option_b: "",
+                          option_c: "",
+                          option_d: "",
+                          explanation: "",
+                        });
+                        toast.info(`Slot #${activeSlot} question cleared`);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-950/80 text-rose-300 border border-rose-500/30 text-xs font-bold transition cursor-pointer"
+                    title="Delete / Reset Slot Question"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Delete Question</span>
+                  </button>
+                </div>
 
                 <button
                   type="button"
