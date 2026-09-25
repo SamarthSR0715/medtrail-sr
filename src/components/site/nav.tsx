@@ -1,11 +1,34 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Activity, LogIn, LogOut, Menu, Moon, Sun, User, X } from "lucide-react";
+import {
+  Activity,
+  ChevronDown,
+  Crown,
+  GraduationCap,
+  LogIn,
+  LogOut,
+  Menu,
+  Moon,
+  Shield,
+  Sun,
+  Trophy,
+  User,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navItems } from "@/lib/site-data";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/contexts/auth-context";
 import { SearchCommand } from "./search-command";
+import { isSuperAdminEmail } from "@/lib/super-admin-service";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export function SiteNav() {
   const { theme, toggle } = useTheme();
@@ -23,6 +46,7 @@ export function SiteNav() {
   }, []);
 
   const displayName = user?.user_metadata?.["full_name"] || user?.email?.split("@")[0] || "User";
+  const isSuperAdmin = Boolean(user && isSuperAdminEmail(user.email));
 
   async function handleSignOut() {
     setOpen(false);
@@ -76,20 +100,98 @@ export function SiteNav() {
           {!loading && (
             user ? (
               <div className="hidden sm:flex items-center gap-2 pl-1">
-                <div className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium">
-                  <User className="size-3.5 text-primary" />
-                  <span className="max-w-[120px] truncate">{displayName}</span>
-                </div>
+                {/* 1. Quick prominent Super Admin badge button if authorized */}
+                {isSuperAdmin && (
+                  <Link
+                    to="/admin"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-400 font-bold text-xs shadow-md shadow-amber-500/15 transition-all hover:scale-105"
+                  >
+                    <Shield className="size-3.5 text-amber-400" />
+                    <span>Admin Panel</span>
+                  </Link>
+                )}
 
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  title="Log out"
-                  aria-label="Log out"
-                  className="glass flex size-10 items-center justify-center rounded-full text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  <LogOut className="size-4" />
-                </button>
+                {/* 2. Interactive Profile Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium hover:border-border transition-colors cursor-pointer"
+                    >
+                      {isSuperAdmin ? (
+                        <Crown className="size-3.5 text-amber-400" />
+                      ) : (
+                        <User className="size-3.5 text-primary" />
+                      )}
+                      <span className="max-w-[120px] truncate">{displayName}</span>
+                      <ChevronDown className="size-3 text-muted-foreground" />
+                    </button>
+                  </DropdownMenuTrigger>
+
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-60 glass-strong border border-border/80 p-2 space-y-1 rounded-2xl shadow-2xl z-50 backdrop-blur-xl"
+                  >
+                    <DropdownMenuLabel className="px-2.5 py-2 font-normal">
+                      <div className="text-xs font-bold text-foreground">{displayName}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono truncate">{user.email}</div>
+                      {isSuperAdmin && (
+                        <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-[10px] font-bold uppercase tracking-wider">
+                          <Crown className="size-2.5" /> Super Admin
+                        </div>
+                      )}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator className="bg-border/60" />
+
+                    {/* Admin Panel Link inside Profile Dropdown for Super Admin */}
+                    {isSuperAdmin && (
+                      <DropdownMenuItem asChild>
+                        <Link
+                          to="/admin"
+                          className="flex items-center justify-between rounded-xl px-2.5 py-2 text-xs font-bold text-amber-400 hover:bg-amber-500/20 transition cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2">
+                            <Shield className="size-4 text-amber-400" />
+                            Admin Panel
+                          </span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-500/30">
+                            CONTROL
+                          </span>
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+
+                    <DropdownMenuItem asChild>
+                      <Link
+                        to="/championship"
+                        className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-foreground hover:bg-secondary transition cursor-pointer"
+                      >
+                        <Trophy className="size-4 text-amber-400" />
+                        MedTrail Championship
+                      </Link>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem asChild>
+                      <Link
+                        to="/mbbs"
+                        className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-foreground hover:bg-secondary transition cursor-pointer"
+                      >
+                        <GraduationCap className="size-4 text-primary" />
+                        MBBS Study Hub
+                      </Link>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator className="bg-border/60" />
+
+                    <DropdownMenuItem
+                      onClick={handleSignOut}
+                      className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-destructive hover:bg-destructive/10 transition cursor-pointer"
+                    >
+                      <LogOut className="size-4" />
+                      Log out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ) : (
               <div className="hidden sm:flex items-center gap-2 pl-1">
@@ -121,8 +223,28 @@ export function SiteNav() {
         </div>
       </nav>
 
+      {/* Mobile Drawer / Sidebar */}
       {open ? (
         <div className="glass-strong mx-auto mt-2 max-w-6xl overflow-hidden rounded-3xl p-3 lg:hidden space-y-2">
+          {/* Prominent Super Admin button in Mobile Sidebar */}
+          {isSuperAdmin && (
+            <div className="p-1">
+              <Link
+                to="/admin"
+                onClick={() => setOpen(false)}
+                className="flex items-center justify-between rounded-2xl bg-amber-500/15 border border-amber-500/40 p-3 text-amber-300 font-bold text-sm shadow-md hover:bg-amber-500/25 transition"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Shield className="size-4 text-amber-400" />
+                  <span>Admin Panel</span>
+                </span>
+                <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                  Control Center
+                </span>
+              </Link>
+            </div>
+          )}
+
           <ul className="flex flex-col">
             {navItems.map((item) => (
               <li key={item.to}>
@@ -143,8 +265,15 @@ export function SiteNav() {
             {user ? (
               <div className="flex items-center justify-between px-4 py-2">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <User className="size-4 text-primary" />
-                  <span className="truncate">{displayName}</span>
+                  {isSuperAdmin ? (
+                    <Crown className="size-4 text-amber-400" />
+                  ) : (
+                    <User className="size-4 text-primary" />
+                  )}
+                  <div>
+                    <div className="truncate font-semibold text-foreground">{displayName}</div>
+                    <div className="text-[11px] text-muted-foreground font-mono truncate">{user.email}</div>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -178,4 +307,4 @@ export function SiteNav() {
       ) : null}
     </header>
   );
-}
+}
