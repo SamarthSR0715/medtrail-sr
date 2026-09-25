@@ -52,6 +52,24 @@ export interface PulseAttemptRecord {
 const LOCAL_STORAGE_PULSE_SETS_KEY = "medtrail_admin_pulse_sets";
 const LOCAL_STORAGE_ATTEMPTS_PREFIX = "medtrail_pulse_attempt_";
 
+function safeGetItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore
+  }
+}
+
 export const DEFAULT_PULSE_SUBJECTS: PulseSubject[] = [
   "Anatomy",
   "Physiology",
@@ -216,7 +234,8 @@ export async function fetchPulseSetForDate(pulseDate: string): Promise<PulseSetR
 
   // Local fallback
   try {
-    const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
+    const raw = safeGetItem(LOCAL_STORAGE_PULSE_SETS_KEY);
+    const local = JSON.parse(raw || "{}");
     if (local[pulseDate]) {
       const record = local[pulseDate];
       if (record && Array.isArray(record.questions)) {
@@ -313,7 +332,8 @@ export async function fetchTodayPublishedPulse(
 
   // Local storage fallback for admin published pulse
   try {
-    const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
+    const raw = safeGetItem(LOCAL_STORAGE_PULSE_SETS_KEY);
+    const local = JSON.parse(raw || "{}");
     const set = local[pulseDate];
     if (set && set.status === "published") {
       if (Array.isArray(set.questions)) {
@@ -432,9 +452,10 @@ export async function savePulseDraft(
 
     // Backup to localStorage
     try {
-      const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
+      const raw = safeGetItem(LOCAL_STORAGE_PULSE_SETS_KEY);
+      const local = JSON.parse(raw || "{}");
       local[pulseDate] = resultRecord;
-      localStorage.setItem(LOCAL_STORAGE_PULSE_SETS_KEY, JSON.stringify(local));
+      safeSetItem(LOCAL_STORAGE_PULSE_SETS_KEY, JSON.stringify(local));
     } catch {
       // Ignore
     }
@@ -549,9 +570,10 @@ export async function publishTodayPulse(
 
     // Save to local cache
     try {
-      const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PULSE_SETS_KEY) || "{}");
+      const raw = safeGetItem(LOCAL_STORAGE_PULSE_SETS_KEY);
+      const local = JSON.parse(raw || "{}");
       local[pulseDate] = record;
-      localStorage.setItem(LOCAL_STORAGE_PULSE_SETS_KEY, JSON.stringify(local));
+      safeSetItem(LOCAL_STORAGE_PULSE_SETS_KEY, JSON.stringify(local));
     } catch {
       // Ignore
     }
@@ -577,7 +599,7 @@ export async function checkStudentAttempt(
 ): Promise<PulseAttemptRecord | null> {
   // Check local storage first for instant feedback
   try {
-    const local = localStorage.getItem(`${LOCAL_STORAGE_ATTEMPTS_PREFIX}${pulseDate}`);
+    const local = safeGetItem(`${LOCAL_STORAGE_ATTEMPTS_PREFIX}${pulseDate}`);
     if (local) {
       return JSON.parse(local);
     }
@@ -640,7 +662,7 @@ export async function recordStudentAttempt(params: {
 
   // 1. Save to localStorage immediately
   try {
-    localStorage.setItem(
+    safeSetItem(
       `${LOCAL_STORAGE_ATTEMPTS_PREFIX}${params.pulseDate}`,
       JSON.stringify(attemptRecord)
     );
@@ -767,7 +789,7 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
   // Check local cache first
   let cached: LiveOpsState = DEFAULT_LIVE_OPS;
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_LIVE_OPS_KEY);
+    const raw = safeGetItem(LOCAL_STORAGE_LIVE_OPS_KEY);
     if (raw) cached = { ...DEFAULT_LIVE_OPS, ...JSON.parse(raw) };
   } catch {
     // Ignore
@@ -796,7 +818,7 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
         notifications: (data.notifications as any) || [],
         updated_at: data.updated_at || new Date().toISOString(),
       };
-      localStorage.setItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(merged));
+      safeSetItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(merged));
       return merged;
     }
   } catch (err) {
@@ -821,7 +843,7 @@ export async function updateLiveOpsState(
     };
 
     // Save to local cache immediately
-    localStorage.setItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(updated));
+    safeSetItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(updated));
 
     // Upsert to Supabase
     const { error } = await supabase
@@ -977,7 +999,7 @@ export async function sendPushNotification(params: {
 
     // Store in localStorage for active student popups
     try {
-      localStorage.setItem("medtrail_latest_broadcast_notification", JSON.stringify(newNotif));
+      safeSetItem("medtrail_latest_broadcast_notification", JSON.stringify(newNotif));
     } catch {
       // Ignore
     }

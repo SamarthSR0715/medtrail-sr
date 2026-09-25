@@ -236,6 +236,7 @@ function RouteComponent() {
     if (user?.id) return user.id;
     if (user?.email) return `email:${user.email.toLowerCase()}`;
     if (regEmail.trim()) return `email:${regEmail.trim().toLowerCase()}`;
+    if (typeof window === "undefined") return "guest_server";
     let guestId = localStorage.getItem("medtrail_pulse_guest_id");
     if (!guestId) {
       guestId = "guest_" + Math.random().toString(36).substring(2, 11);

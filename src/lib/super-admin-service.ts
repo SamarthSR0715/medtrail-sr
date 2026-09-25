@@ -10,6 +10,24 @@ export function isSuperAdminEmail(email?: string | null): boolean {
   return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 }
 
+function safeGetItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface SuperAdminDashboardStats {
   totalUsers: number;
@@ -208,7 +226,7 @@ export async function fetchAllRegistrations(): Promise<ChampionshipRegistrationR
   }
 
   // Fallback to local storage or baseline if DB has zero rows
-  const localCached = localStorage.getItem("medtrail_admin_registrations_cache");
+  const localCached = safeGetItem("medtrail_admin_registrations_cache");
   if (localCached) {
     try {
       return JSON.parse(localCached);
@@ -271,7 +289,7 @@ export async function fetchAllRegistrations(): Promise<ChampionshipRegistrationR
     },
   ];
 
-  localStorage.setItem("medtrail_admin_registrations_cache", JSON.stringify(seedRows));
+  safeSetItem("medtrail_admin_registrations_cache", JSON.stringify(seedRows));
   return seedRows;
 }
 
@@ -291,12 +309,12 @@ export async function updateRegistrationApproval(
   }
 
   // Update local cache
-  const cached = localStorage.getItem("medtrail_admin_registrations_cache");
+  const cached = safeGetItem("medtrail_admin_registrations_cache");
   if (cached) {
     try {
       const list: ChampionshipRegistrationRow[] = JSON.parse(cached);
       const updated = list.map((r) => (r.id === id ? { ...r, approval_status: newStatus } : r));
-      localStorage.setItem("medtrail_admin_registrations_cache", JSON.stringify(updated));
+      safeSetItem("medtrail_admin_registrations_cache", JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -318,12 +336,12 @@ export async function deleteRegistrationRecord(id: string): Promise<{ success: b
   }
 
   // Update local cache
-  const cached = localStorage.getItem("medtrail_admin_registrations_cache");
+  const cached = safeGetItem("medtrail_admin_registrations_cache");
   if (cached) {
     try {
       const list: ChampionshipRegistrationRow[] = JSON.parse(cached);
       const updated = list.filter((r) => r.id !== id);
-      localStorage.setItem("medtrail_admin_registrations_cache", JSON.stringify(updated));
+      safeSetItem("medtrail_admin_registrations_cache", JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -494,7 +512,7 @@ export async function fetchAllNotifications(): Promise<NotificationRecord[]> {
   }
 
   // Fallback to local storage
-  const cached = localStorage.getItem(STORAGE_NOTIFS_KEY);
+  const cached = safeGetItem(STORAGE_NOTIFS_KEY);
   if (cached) {
     try {
       return JSON.parse(cached);
@@ -532,7 +550,7 @@ export async function fetchAllNotifications(): Promise<NotificationRecord[]> {
     },
   ];
 
-  localStorage.setItem(STORAGE_NOTIFS_KEY, JSON.stringify(seedNotifs));
+  safeSetItem(STORAGE_NOTIFS_KEY, JSON.stringify(seedNotifs));
   return seedNotifs;
 }
 
@@ -623,7 +641,7 @@ export async function createPushNotification(params: {
   }
 
   // Update localStorage cache
-  const cached = localStorage.getItem(STORAGE_NOTIFS_KEY);
+  const cached = safeGetItem(STORAGE_NOTIFS_KEY);
   let notifsList: NotificationRecord[] = [];
   if (cached) {
     try {
@@ -633,7 +651,7 @@ export async function createPushNotification(params: {
     }
   }
   notifsList.unshift(newNotif);
-  localStorage.setItem(STORAGE_NOTIFS_KEY, JSON.stringify(notifsList));
+  safeSetItem(STORAGE_NOTIFS_KEY, JSON.stringify(notifsList));
 
   return newNotif;
 }
@@ -645,12 +663,12 @@ export async function cancelOrDeleteNotification(id: string): Promise<boolean> {
     console.warn("[SuperAdmin] Delete notification warning:", err);
   }
 
-  const cached = localStorage.getItem(STORAGE_NOTIFS_KEY);
+  const cached = safeGetItem(STORAGE_NOTIFS_KEY);
   if (cached) {
     try {
       const list: NotificationRecord[] = JSON.parse(cached);
       const filtered = list.filter((n) => n.id !== id);
-      localStorage.setItem(STORAGE_NOTIFS_KEY, JSON.stringify(filtered));
+      safeSetItem(STORAGE_NOTIFS_KEY, JSON.stringify(filtered));
     } catch {
       // ignore
     }
@@ -690,7 +708,7 @@ export async function fetchHallOfFameRecord(): Promise<HallOfFameData> {
     console.warn("[SuperAdmin] fetchHallOfFameRecord warning:", err);
   }
 
-  const cached = localStorage.getItem(STORAGE_HOF_KEY);
+  const cached = safeGetItem(STORAGE_HOF_KEY);
   if (cached) {
     try {
       return JSON.parse(cached);
@@ -756,7 +774,7 @@ export async function updateHallOfFameRecord(updates: {
   }
 
   // Update local storage
-  localStorage.setItem(STORAGE_HOF_KEY, JSON.stringify(merged));
+  safeSetItem(STORAGE_HOF_KEY, JSON.stringify(merged));
 
   // Broadcast realtime event so the public championship Hall of Fame updates live!
   try {

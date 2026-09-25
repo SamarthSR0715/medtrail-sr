@@ -18,10 +18,21 @@ export default defineConfig(({ command }) => ({
     command === "build"
       ? nitro({
           preset: "cloudflare-pages",
+          prerender: {
+            routes: ["/"],
+            crawlLinks: false,
+          },
           output: {
             dir: path.resolve(__dirname, ".output/public"),
             publicDir: path.resolve(__dirname, ".output/public"),
             serverDir: path.resolve(__dirname, ".output/public/_worker.js"),
+          },
+          hooks: {
+            compiled: async (nitroApp) => {
+              const fs = await import("node:fs");
+              const redirectsPath = path.resolve(nitroApp.options.output.publicDir, "_redirects");
+              fs.writeFileSync(redirectsPath, "/* /index.html 200\n", "utf-8");
+            },
           },
         })
       : undefined,
