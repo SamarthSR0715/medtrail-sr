@@ -126,72 +126,51 @@ export function getDailyPulsesForDate(_date: Date = new Date()): PulseQuestion[]
 
 
 // ── Daily Time Window State ───────────────────────────────────────────────────
-// Before 7:00 PM IST -> Locked + Countdown
-// 7:00 PM - 11:59 PM IST -> Today's Pulse Active
-// Next day -> Unlocks next pulse
+// Synchronized dynamic daily countdown and active window calculation
 
 export function getDailyPulseTimeState(
   now: Date = new Date(),
   customStartTime?: Date | null
 ): TimeWindowState {
-  // Get IST hours and minutes
-  const istFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: EVENT_TZ,
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: false,
-  });
-
-  const parts = istFormatter.formatToParts(now);
-  const hour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
-  const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
-  const second = parseInt(parts.find((p) => p.type === "second")?.value || "0", 10);
-
-  const currentSeconds = hour * 3600 + minute * 60 + second;
-
-  let targetHour = 19;
-  let targetMinute = 0;
-  let targetTimeLabel = "7:00 PM IST";
-
-  if (customStartTime) {
-    const startParts = istFormatter.formatToParts(customStartTime);
-    targetHour = parseInt(startParts.find((p) => p.type === "hour")?.value || "19", 10);
-    targetMinute = parseInt(startParts.find((p) => p.type === "minute")?.value || "0", 10);
+  if (customStartTime && !isNaN(customStartTime.getTime())) {
+    let targetTimeLabel = "Scheduled Start Time";
     try {
       targetTimeLabel =
         customStartTime.toLocaleTimeString("en-IN", {
           timeZone: EVENT_TZ,
-          hour: "2-digit",
+          hour: "numeric",
           minute: "2-digit",
           hour12: true,
         }) + " IST";
     } catch {
-      targetTimeLabel = "7:00 PM IST";
+      targetTimeLabel = "Scheduled Start Time";
+    }
+
+    if (now < customStartTime) {
+      const remainingSeconds = Math.max(0, Math.floor((customStartTime.getTime() - now.getTime()) / 1000));
+      return {
+        status: "before_7pm",
+        countdownSeconds: remainingSeconds,
+        label: `Unlocks at ${targetTimeLabel}`,
+        opensAtIST: targetTimeLabel,
+      };
+    } else {
+      return {
+        status: "active_pulse",
+        countdownSeconds: 0,
+        label: "Today's Pulse Active",
+        opensAtIST: "Open Now",
+      };
     }
   }
 
-  const targetOpeningSeconds = targetHour * 3600 + targetMinute * 60;
-
-  if (currentSeconds < targetOpeningSeconds) {
-    const remaining = targetOpeningSeconds - currentSeconds;
-    return {
-      status: "before_7pm",
-      countdownSeconds: remaining,
-      label: `Unlocks at ${targetTimeLabel}`,
-      opensAtIST: targetTimeLabel,
-    };
-  } else {
-    // Window active
-    const endOfDaySeconds = 24 * 3600;
-    const remaining = endOfDaySeconds - currentSeconds;
-    return {
-      status: "active_pulse",
-      countdownSeconds: remaining,
-      label: "Today's Pulse Active",
-      opensAtIST: "Open Now",
-    };
-  }
+  // Fallback: If no date configured, show awaiting announcement
+  return {
+    status: "before_7pm",
+    countdownSeconds: 0,
+    label: "Awaiting Schedule",
+    opensAtIST: "TBA",
+  };
 }
 
 // ── Season status helper ──────────────────────────────────────────────────────

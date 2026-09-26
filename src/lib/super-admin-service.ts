@@ -537,7 +537,7 @@ export async function fetchAllNotifications(): Promise<NotificationRecord[]> {
     },
     {
       id: "notif-02",
-      title: "Daily Pulse Going LIVE at 7:00 PM IST",
+      title: "Daily Pulse Going LIVE Soon!",
       message: "Sharpen your clinical instincts! Today's 5 Clinical Cases go live shortly. High speed submission earns bonus accuracy points.",
       emoji: "⚡",
       audience_type: "championship",

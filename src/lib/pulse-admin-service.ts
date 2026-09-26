@@ -748,7 +748,7 @@ export const NOTIFICATION_TEMPLATES = [
     key: "pulse_30m",
     name: "Pulse in 30 min",
     title: "⏳ Pulse in 30 Minutes!",
-    body: "Today's official 5 Pulse questions will be unlocked at 7:00 PM IST. Get ready!",
+    body: "Today's official 5 Pulse questions will unlock in 30 minutes. Get ready!",
   },
   {
     key: "pulse_15m",

@@ -157,21 +157,25 @@ export async function requestAndRegisterNotificationPermission(user?: { id: stri
     localStorage.setItem("medtrail_fcm_device_token", token);
 
     // 4. Requirement 2 & 3: Store device token in Supabase device_tokens table
-    if (user?.id && token) {
-      await storeDeviceTokenInSupabase({
-        userId: user.id,
-        token,
-        platform,
-        deviceInfo: {
-          userAgent: navigator.userAgent,
-          language: navigator.language,
-          platform: navigator.platform,
-          screen: `${window.innerWidth}x${window.innerHeight}`,
-          registeredAt: new Date().toISOString(),
-          email: user.email || undefined,
-        },
-      });
-    }
+    const effectiveUserId =
+      user?.id ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem("medtrail_pulse_guest_id") || `device_${Date.now()}`
+        : "system");
+
+    await storeDeviceTokenInSupabase({
+      userId: effectiveUserId,
+      token,
+      platform,
+      deviceInfo: {
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "web",
+        language: typeof navigator !== "undefined" ? navigator.language : "en",
+        platform: typeof navigator !== "undefined" ? navigator.platform : platform,
+        screen: typeof window !== "undefined" ? `${window.innerWidth}x${window.innerHeight}` : "desktop",
+        registeredAt: new Date().toISOString(),
+        email: user?.email || undefined,
+      },
+    });
 
     // 5. Setup foreground notification listener
     setupForegroundNotificationListener();
@@ -234,7 +238,7 @@ export function setupForegroundNotificationListener() {
  * Store or update device token in Supabase table "device_tokens"
  */
 export async function storeDeviceTokenInSupabase(params: {
-  userId: string;
+  userId?: string | null;
   token: string;
   platform: DevicePlatform;
   deviceInfo?: Record<string, any>;
@@ -242,7 +246,7 @@ export async function storeDeviceTokenInSupabase(params: {
   try {
     const { error } = await supabase.from("device_tokens").upsert(
       {
-        user_id: params.userId,
+        user_id: params.userId || null,
         token: params.token,
         platform: params.platform,
         device_info: params.deviceInfo || {},
@@ -263,6 +267,40 @@ export async function storeDeviceTokenInSupabase(params: {
     console.error("[FCM] Failed to store device token in Supabase:", err);
     return false;
   }
+}
+
+/**
+ * Fetch total and platform breakdown of registered devices from Supabase device_tokens
+ */
+export async function fetchRegisteredDeviceStats(): Promise<{
+  total: number;
+  android: number;
+  ios: number;
+  web: number;
+}> {
+  try {
+    const { data: devices, error } = await supabase
+      .from("device_tokens")
+      .select("platform")
+      .eq("is_active", true);
+
+    if (!error && devices && devices.length > 0) {
+      const android = devices.filter((d) => d.platform === "android").length;
+      const ios = devices.filter((d) => d.platform === "ios").length;
+      const web = devices.filter((d) => d.platform === "web").length;
+      return { total: devices.length, android, ios, web };
+    }
+  } catch (err) {
+    console.warn("[FCM] fetchRegisteredDeviceStats notice:", err);
+  }
+
+  const hasLocal = typeof window !== "undefined" && Boolean(localStorage.getItem("medtrail_fcm_device_token"));
+  return {
+    total: hasLocal ? 1 : 0,
+    android: 0,
+    ios: 0,
+    web: hasLocal ? 1 : 0,
+  };
 }
 
 /**

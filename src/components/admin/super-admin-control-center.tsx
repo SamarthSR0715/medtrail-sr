@@ -1241,7 +1241,7 @@ export function SuperAdminControlCenter() {
                     required
                     value={notifTitle}
                     onChange={(e) => setNotifTitle(e.target.value)}
-                    placeholder="e.g. Daily Pulse Goes LIVE at 7:00 PM!"
+                    placeholder="e.g. Daily Pulse Goes LIVE Now!"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-amber-500"
                   />
                 </div>

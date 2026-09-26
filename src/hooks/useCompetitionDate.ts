@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   fetchCompetitionSettings,
   subscribeToCompetitionSettings,
-  parseDateSetting,
+  combineDateAndTime,
   formatCompetitionDate,
   formatCompetitionDateTime,
   formatCompetitionTime,
@@ -28,9 +28,9 @@ export interface CompetitionDateState {
   seasonStartDisplay: string | null;
   /** e.g. "17 October 2026" */
   seasonEndDisplay: string | null;
-  /** e.g. "07:00 PM IST" */
+  /** e.g. "7:00 PM IST" */
   seasonStartTimeDisplay: string | null;
-  /** e.g. "07:00 PM IST" */
+  /** e.g. "11:59 PM IST" */
   seasonEndTimeDisplay: string | null;
   /** e.g. "27 September 2026, 07:00 PM" */
   seasonStartDisplayFull: string | null;
@@ -75,21 +75,29 @@ function buildState(
   settings: CompetitionSettings,
   now: Date = new Date()
 ): CompetitionDateState {
-  const startUTC = parseDateSetting(settings.competition_date);
-  const endUTC = parseDateSetting(settings.competition_end_date);
+  const startUTC = combineDateAndTime(settings.competition_date, settings.start_time);
+  const endUTC = combineDateAndTime(settings.competition_end_date, settings.end_time);
   const autoStatus = computeSeasonStatus(now, startUTC, endUTC);
   const adminStatus = settings.pulse_status;
 
   // isLive = either auto computed as live OR admin explicitly set it to "live"
   const isLive = autoStatus === "live" || adminStatus === "live";
 
+  const startTimeLabel = settings.start_time
+    ? formatCompetitionTime(settings.start_time)
+    : formatCompetitionTime(settings.competition_date);
+
+  const endTimeLabel = settings.end_time
+    ? formatCompetitionTime(settings.end_time)
+    : formatCompetitionTime(settings.competition_end_date);
+
   return {
     seasonStartUTC: startUTC,
     seasonEndUTC: endUTC,
     seasonStartDisplay: formatCompetitionDate(settings.competition_date),
     seasonEndDisplay: formatCompetitionDate(settings.competition_end_date),
-    seasonStartTimeDisplay: formatCompetitionTime(settings.competition_date),
-    seasonEndTimeDisplay: formatCompetitionTime(settings.competition_end_date),
+    seasonStartTimeDisplay: startTimeLabel,
+    seasonEndTimeDisplay: endTimeLabel,
     seasonStartDisplayFull: formatCompetitionDateTime(settings.competition_date),
     seasonEndDisplayFull: formatCompetitionDateTime(settings.competition_end_date),
     autoSeasonStatus: autoStatus,
@@ -105,15 +113,19 @@ function buildState(
 function getInitialState(): CompetitionDateState {
   const cachedStart = getCachedSetting("competition_date");
   const cachedEnd = getCachedSetting("competition_end_date");
+  const cachedStartTime = getCachedSetting("start_time");
+  const cachedEndTime = getCachedSetting("end_time");
   const cachedPulseStatus = (getCachedSetting("pulse_status") as PulseStatus) ?? "upcoming";
   const cachedResults = getCachedSetting("results_published") === "true";
   const cachedReset = getCachedSetting("leaderboard_reset_at");
 
-  if (!cachedStart && !cachedEnd) return LOADING_STATE;
+  if (!cachedStart && !cachedEnd && !cachedStartTime) return LOADING_STATE;
 
   const initialSettings: CompetitionSettings = {
     competition_date: cachedStart,
     competition_end_date: cachedEnd,
+    start_time: cachedStartTime,
+    end_time: cachedEndTime,
     pulse_status: cachedPulseStatus,
     results_published: cachedResults,
     leaderboard_reset_at: cachedReset,

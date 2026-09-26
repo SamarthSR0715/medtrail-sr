@@ -48,6 +48,7 @@ export interface LiveLeaderboardEntry {
   is_current_user?: boolean;
 }
 
+export const PULSE_SETTINGS_TABLE = "pulse_settings";
 export const APP_SETTINGS_TABLE = "app_settings";
 export const SETTINGS_EVENT = "medtrail_setting_updated";
 const LOCAL_STORAGE_PREFIX = "medtrail_setting_";
@@ -100,29 +101,59 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
   };
 
   try {
-    // 2. Query Supabase app_settings table first (key, value)
-    const { data: appData, error: appErr } = await (supabase as any)
-      .from("app_settings")
-      .select("key, value");
+    // 2. Query Supabase pulse_settings table first (Primary single source of truth)
+    const { data: pulseRow, error: pulseErr } = await (supabase as any)
+      .from("pulse_settings")
+      .select("*")
+      .eq("id", "singleton")
+      .maybeSingle();
 
-    if (!appErr && appData && appData.length > 0) {
-      appData.forEach((row: { key: string; value: string | null }) => {
-        map[row.key] = row.value ?? null;
-        setCachedSetting(row.key, row.value ?? null);
-      });
+    if (!pulseErr && pulseRow) {
+      if (pulseRow.competition_date) {
+        map["competition_date"] = pulseRow.competition_date;
+        setCachedSetting("competition_date", pulseRow.competition_date);
+      }
+      if (pulseRow.start_time) {
+        map["start_time"] = pulseRow.start_time;
+        setCachedSetting("start_time", pulseRow.start_time);
+      }
+      if (pulseRow.end_time) {
+        map["end_time"] = pulseRow.end_time;
+        setCachedSetting("end_time", pulseRow.end_time);
+      }
+      if (pulseRow.pulse_status) {
+        map["pulse_status"] = pulseRow.pulse_status;
+        setCachedSetting("pulse_status", pulseRow.pulse_status);
+      }
+      if (pulseRow.results_published !== undefined && pulseRow.results_published !== null) {
+        map["results_published"] = String(pulseRow.results_published);
+        setCachedSetting("results_published", String(pulseRow.results_published));
+      }
     } else {
-      // Fallback: check championship_settings
-      const { data: champData } = await (supabase as any)
-        .from("championship_settings")
+      // 3. Fallback: Query app_settings table (key, value)
+      const { data: appData, error: appErr } = await (supabase as any)
+        .from("app_settings")
         .select("key, value");
 
-      if (champData && champData.length > 0) {
-        champData.forEach((row: { key: string; value: string | null }) => {
-          if (map[row.key] === null || map[row.key] === undefined) {
-            map[row.key] = row.value ?? null;
-            setCachedSetting(row.key, row.value ?? null);
-          }
+      if (!appErr && appData && appData.length > 0) {
+        appData.forEach((row: { key: string; value: string | null }) => {
+          map[row.key] = row.value ?? null;
+          setCachedSetting(row.key, row.value ?? null);
         });
+      } else {
+        // Fallback: check championship_settings
+        const { data: champData } = await (supabase as any)
+          .from("championship_settings")
+          .select("key, value");
+
+        if (champData && champData.length > 0) {
+          champData.forEach((row: { key: string; value: string | null }) => {
+            if (map[row.key] === null || map[row.key] === undefined) {
+              map[row.key] = row.value ?? null;
+              setCachedSetting(row.key, row.value ?? null);
+            }
+          });
+        }
       }
     }
   } catch (err) {
@@ -138,6 +169,66 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
     results_published: map["results_published"] === "true",
     leaderboard_reset_at: map["leaderboard_reset_at"] ?? null,
   };
+}
+
+// ── Save whole pulse settings record ──────────────────────────────────────────
+
+export async function savePulseSettingsRecord(params: {
+  competition_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  pulse_status?: PulseStatus;
+  results_published?: boolean;
+}): Promise<{ success: boolean; error?: string }> {
+  // Update local cache
+  if (params.competition_date !== undefined) setCachedSetting("competition_date", params.competition_date);
+  if (params.start_time !== undefined) setCachedSetting("start_time", params.start_time);
+  if (params.end_time !== undefined) setCachedSetting("end_time", params.end_time);
+  if (params.pulse_status !== undefined) setCachedSetting("pulse_status", params.pulse_status);
+  if (params.results_published !== undefined) setCachedSetting("results_published", String(params.results_published));
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
+  }
+
+  // 1. Persist to pulse_settings
+  try {
+    const pulseUpsertData: Record<string, any> = {
+      id: "singleton",
+      updated_at: new Date().toISOString(),
+    };
+    if (params.competition_date !== undefined) pulseUpsertData.competition_date = params.competition_date;
+    if (params.start_time !== undefined) pulseUpsertData.start_time = params.start_time;
+    if (params.end_time !== undefined) pulseUpsertData.end_time = params.end_time;
+    if (params.pulse_status !== undefined) pulseUpsertData.pulse_status = params.pulse_status;
+    if (params.results_published !== undefined) pulseUpsertData.results_published = params.results_published;
+
+    await (supabase as any)
+      .from("pulse_settings")
+      .upsert(pulseUpsertData, { onConflict: "id" });
+  } catch (err) {
+    console.warn("[CompetitionSettings] pulse_settings upsert note:", err);
+  }
+
+  // 2. Also persist to app_settings for backwards compatibility
+  try {
+    const pairs: { key: string; value: string | null }[] = [];
+    if (params.competition_date !== undefined) pairs.push({ key: "competition_date", value: params.competition_date });
+    if (params.start_time !== undefined) pairs.push({ key: "start_time", value: params.start_time });
+    if (params.end_time !== undefined) pairs.push({ key: "end_time", value: params.end_time });
+    if (params.pulse_status !== undefined) pairs.push({ key: "pulse_status", value: params.pulse_status });
+    if (params.results_published !== undefined) pairs.push({ key: "results_published", value: String(params.results_published) });
+
+    for (const p of pairs) {
+      await (supabase as any)
+        .from("app_settings")
+        .upsert({ key: p.key, value: p.value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    }
+  } catch {
+    // Ignore app_settings write failure
+  }
+
+  return { success: true };
 }
 
 // ── Generic upsert ────────────────────────────────────────────────────────────
@@ -157,7 +248,31 @@ export async function saveCompetitionSetting(
     );
   }
 
-  // 3. Persist to Supabase app_settings
+  // 3. Persist to pulse_settings if the key belongs to pulse_settings
+  const pulseFieldMap: Record<string, string> = {
+    competition_date: "competition_date",
+    start_time: "start_time",
+    end_time: "end_time",
+    pulse_status: "pulse_status",
+    results_published: "results_published",
+  };
+
+  if (pulseFieldMap[key]) {
+    try {
+      const field = pulseFieldMap[key]!;
+      const val = key === "results_published" ? value === "true" : value;
+      await (supabase as any)
+        .from("pulse_settings")
+        .upsert(
+          { id: "singleton", [field]: val, updated_at: new Date().toISOString() },
+          { onConflict: "id" }
+        );
+    } catch (err) {
+      console.warn("[CompetitionSettings] pulse_settings write notice:", err);
+    }
+  }
+
+  // 4. Persist to Supabase app_settings
   let supabaseSuccess = false;
   let lastError: any = null;
 
@@ -187,7 +302,7 @@ export async function saveCompetitionSetting(
     lastError = err;
   }
 
-  // 4. Also mirror to championship_settings as secondary persistence
+  // 5. Also mirror to championship_settings as secondary persistence
   try {
     await (supabase as any)
       .from("championship_settings")
@@ -453,7 +568,15 @@ export function subscribeToCompetitionSettings(
   onUpdate: (settings: CompetitionSettings) => void
 ): () => void {
   const channel = supabase
-    .channel("app_settings_realtime_v3")
+    .channel("pulse_settings_realtime_v4")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "pulse_settings" },
+      async () => {
+        const settings = await fetchCompetitionSettings();
+        onUpdate(settings);
+      }
+    )
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "app_settings" },
@@ -552,17 +675,51 @@ export function formatCompetitionDateTime(dateStr: string | null): string | null
   }
 }
 
-export function formatCompetitionTime(dateStr: string | null): string | null {
-  if (!dateStr) return null;
+export function formatCompetitionTime(timeOrDateStr: string | null): string | null {
+  if (!timeOrDateStr) return null;
   try {
+    const trimmed = timeOrDateStr.trim();
+    if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+      const [hStr, mStr] = trimmed.split(":");
+      let h = parseInt(hStr!, 10);
+      const m = parseInt(mStr!, 10);
+      const ampm = h >= 12 ? "PM" : "AM";
+      h = h % 12 || 12;
+      return `${h}:${String(m).padStart(2, "0")} ${ampm} IST`;
+    }
     return (
-      new Date(dateStr).toLocaleString("en-IN", {
+      new Date(timeOrDateStr).toLocaleString("en-IN", {
         timeZone: "Asia/Kolkata",
-        hour: "2-digit",
+        hour: "numeric",
         minute: "2-digit",
         hour12: true,
       }) + " IST"
     );
+  } catch {
+    return null;
+  }
+}
+
+/** Combine a date string (YYYY-MM-DD or ISO) and a time string (HH:mm) into a UTC Date object */
+export function combineDateAndTime(
+  dateStr: string | null,
+  timeStr: string | null
+): Date | null {
+  if (!dateStr) return null;
+  try {
+    if (dateStr.includes("T")) {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) return d;
+    }
+    const ymd = dateStr.trim().slice(0, 10);
+    const time = timeStr && timeStr.trim() ? timeStr.trim() : "19:00";
+    const [hh, mm] = time.split(":").map(Number);
+    const hour = isNaN(hh!) ? 19 : hh!;
+    const minute = isNaN(mm!) ? 0 : mm!;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const istISO = `${ymd}T${pad(hour)}:${pad(minute)}:00+05:30`;
+    const d = new Date(istISO);
+    return isNaN(d.getTime()) ? null : d;
   } catch {
     return null;
   }

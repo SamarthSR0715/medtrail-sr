@@ -109,8 +109,8 @@ const RULES = [
     content: "Each 24-hour cycle automatically rotates four questions from 1st and 2nd MBBS subjects (Anatomy, Physiology, Biochemistry, Pathology, Pharmacology, Microbiology, FMT, etc.) plus one General Pulse. Never hardcoded, fully dynamic.",
   },
   {
-    title: "Window Schedule: Unlocks Daily at 7:00 PM IST",
-    content: "Pulses unlock promptly at 19:00 IST and remain active until 23:59 IST. Prior to 7:00 PM, challenge slots are locked under dynamic countdown.",
+    title: "Window Schedule: Synchronized Daily Unlocks",
+    content: "Pulses unlock promptly at the official scheduled start time configured by the MedTrail Admin. Prior to opening, challenge slots are locked under dynamic countdown.",
   },
   {
     title: "Anti-Cheating Algorithmic Telemetry",
@@ -212,8 +212,8 @@ function RouteComponent() {
   const [timeWindowState, setTimeWindowState] = useState<TimeWindowState>({
     status: "before_7pm",
     countdownSeconds: 0,
-    label: "Unlocks at 7:00 PM IST",
-    opensAtIST: "7:00 PM IST",
+    label: "Synchronizing Schedule...",
+    opensAtIST: "Synchronizing...",
   });
 
   // Dynamic Hall of Fame (Managed by Super Admin)
@@ -577,7 +577,7 @@ function RouteComponent() {
     // 1. Must be published by Admin in Supabase
     if (!publishedPulseSet || todayQuestions.length === 0) {
       toast.info(
-        `Today's Pulse has not been published by the MedTrail Admin yet. Official questions are released every evening at ${seasonStartTimeDisplay ?? "7:00 PM IST"}.`
+        `Today's Pulse has not been published by the MedTrail Admin yet. Official questions are released at ${seasonStartTimeDisplay || "scheduled start time"}.`
       );
       return;
     }
@@ -586,7 +586,7 @@ function RouteComponent() {
     const isExplicitlyLive = adminPulseStatus === "live" || liveOps?.live_status === "live";
     if (!isExplicitlyLive && timeWindowState.status === "before_7pm") {
       toast.info(
-        `Today's Pulse opens at ${seasonStartTimeDisplay ?? "7:00 PM IST"}. Countdown remaining: ${formatCountdown(timeWindowState.countdownSeconds)}.`
+        `Today's Pulse opens at ${seasonStartTimeDisplay || "scheduled start time"}. Countdown remaining: ${formatCountdown(timeWindowState.countdownSeconds)}.`
       );
       return;
     }
@@ -853,7 +853,7 @@ function RouteComponent() {
                         {seasonStartDisplay ?? "Date to be announced"}
                       </div>
                       <div className="text-xs font-semibold text-slate-300">
-                        {seasonStartUTC ? (seasonStartTimeDisplay ?? "7:00 PM IST") : ""}
+                        {seasonStartUTC ? (seasonStartTimeDisplay ?? "") : ""}
                       </div>
                     </div>
                   </div>
@@ -960,7 +960,7 @@ function RouteComponent() {
                       className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-sm border border-slate-700 transition cursor-pointer"
                     >
                       <Play className="w-4 h-4 text-emerald-400" />
-                      <span>Join Pulse ({seasonStartTimeDisplay ?? "7:00 PM IST"})</span>
+                      <span>Join Pulse ({seasonStartTimeDisplay || "Scheduled Window"})</span>
                     </button>
                   </>
                 )}
@@ -1244,7 +1244,7 @@ function RouteComponent() {
                 Today's 5 Pulse Slots
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                Created strictly by MedTrail Admin &bull; 5 High-Yield Questions &bull; Unlocks at {seasonStartTimeDisplay ?? "7:00 PM IST"}.
+                Created strictly by MedTrail Admin &bull; 5 High-Yield Questions &bull; Unlocks at {seasonStartTimeDisplay || "scheduled window"}.
               </p>
             </div>
 
@@ -1255,10 +1255,10 @@ function RouteComponent() {
               }`} />
               <div>
                 <div className="text-xs font-bold text-white">
-                  {timeWindowState.status === "active_pulse" ? "WINDOW IS LIVE" : `LOCKED UNTIL ${seasonStartTimeDisplay ?? "7:00 PM IST"}`}
+                  {timeWindowState.status === "active_pulse" ? "WINDOW IS LIVE" : `LOCKED UNTIL ${seasonStartTimeDisplay || "START TIME"}`}
                 </div>
                 <div className="text-[11px] font-mono text-slate-400">
-                  {timeWindowState.status === "active_pulse" ? "Active until 23:59 IST" : `Opens in ${formatCountdown(timeWindowState.countdownSeconds)}`}
+                  {timeWindowState.status === "active_pulse" ? "Active until session end" : `Opens in ${formatCountdown(timeWindowState.countdownSeconds)}`}
                 </div>
               </div>
             </div>
@@ -1279,7 +1279,7 @@ function RouteComponent() {
               <div className="space-y-1.5 max-w-md mx-auto">
                 <h3 className="text-xl font-bold text-white">Today's Pulse Has Not Been Published Yet</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>{seasonStartTimeDisplay ?? "7:00 PM IST"}</strong>. Check back soon!
+                  Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>{seasonStartTimeDisplay || "the scheduled start time"}</strong>. Check back soon!
                 </p>
               </div>
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-[11px] font-mono text-slate-300">

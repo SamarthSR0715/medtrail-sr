@@ -69,6 +69,7 @@ import {
   setResultsPublished,
   fetchCompetitionSettings,
 } from "@/lib/competition-settings-service";
+import { fetchRegisteredDeviceStats } from "@/lib/fcm-client";
 
 export function PulseStudio() {
   const todayIST = getISTDateString();
@@ -128,6 +129,12 @@ export function PulseStudio() {
   const [notifBody, setNotifBody] = useState<string>(NOTIFICATION_TEMPLATES[0]!.body);
   const [notifScheduleTime, setNotifScheduleTime] = useState<string>("");
   const [isSendingNotif, setIsSendingNotif] = useState<boolean>(false);
+  const [deviceStats, setDeviceStats] = useState<{ total: number; android: number; ios: number; web: number }>({
+    total: 0,
+    android: 0,
+    ios: 0,
+    web: 0,
+  });
 
   // ── EXPORT STATE ─────────────────────────────────────────────────────────────
   const [isExporting, setIsExporting] = useState<string | null>(null);
@@ -193,15 +200,18 @@ export function PulseStudio() {
   // Load live ops state and analytics
   const refreshLiveOps = useCallback(async () => {
     try {
-      const [ops, compSettings] = await Promise.all([
+      const [ops, compSettings, devStats] = await Promise.all([
         fetchLiveOpsState(),
         fetchCompetitionSettings(),
+        fetchRegisteredDeviceStats(),
       ]);
 
       const effectiveTargetDate = compSettings.competition_date || ops.target_date || todayIST;
       const effectiveStartTime = compSettings.start_time || ops.go_live_time || "19:00";
       const effectiveEndTime = compSettings.end_time || ops.end_time || "23:59";
       const effectiveStatus = (compSettings.pulse_status as any) || ops.live_status || "published";
+
+      setDeviceStats(devStats);
 
       setLiveOps({
         ...ops,
@@ -305,7 +315,7 @@ export function PulseStudio() {
         await setResultsPublished(true);
         await updateLiveOpsState({ live_status: "published", results_declared: true });
         await refreshLiveOps();
-        toast.success(`Published Pulse for ${pulseDate}! It will be live at 7:00 PM IST.`);
+        toast.success(`Published Pulse for ${pulseDate}! Ready for scheduled go-live window.`);
       } else {
         toast.error(res.error || "Validation failed: please complete all 5 questions.");
       }
@@ -1480,9 +1490,25 @@ export function PulseStudio() {
 
               {/* Compose and Dispatch */}
               <div className="md:col-span-7 p-6 rounded-3xl bg-slate-950/70 border border-slate-800 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-5 h-5 text-blue-400" />
-                  <h4 className="text-base font-bold text-white">Broadcast Transmission</h4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-blue-400" />
+                    <h4 className="text-base font-bold text-white">Broadcast Transmission</h4>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-xs font-mono font-bold text-blue-300">
+                    <Radio className="w-3 h-3 text-blue-400 animate-pulse" />
+                    <span>{deviceStats.total} Registered Devices</span>
+                  </div>
+                </div>
+
+                {/* Device Breakdown Pill */}
+                <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between text-xs font-mono">
+                  <span className="text-slate-400">Audience Device Reach:</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-emerald-400">Android: <strong>{deviceStats.android}</strong></span>
+                    <span className="text-indigo-400">iOS: <strong>{deviceStats.ios}</strong></span>
+                    <span className="text-blue-400">Web PWA: <strong>{deviceStats.web}</strong></span>
+                  </div>
                 </div>
 
                 <div className="space-y-1">
