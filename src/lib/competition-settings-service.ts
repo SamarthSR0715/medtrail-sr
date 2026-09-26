@@ -240,9 +240,24 @@ export async function savePulseSettingsRecord(params: {
       .select("id")
       .limit(1);
     const rowId = rowData && rowData.length > 0 ? rowData[0].id : null;
+    console.log("[savePulseSettingsRecord] rowId =", rowId, "payload =", updatePayload);
 
-    const q = (supabase as any).from("pulse_settings").update(updatePayload);
-    const { error } = await (rowId !== null ? q.eq("id", rowId) : q.gt("id", -1));
+    let error: any;
+    if (rowId !== null && rowId !== undefined) {
+      const result = await (supabase as any)
+        .from("pulse_settings")
+        .update(updatePayload)
+        .eq("id", rowId);
+      error = result.error;
+      console.log("[savePulseSettingsRecord] update result:", result);
+    } else {
+      // No row found — upsert to create it
+      const result = await (supabase as any)
+        .from("pulse_settings")
+        .upsert({ id: 1, ...updatePayload }, { onConflict: "id" });
+      error = result.error;
+      console.log("[savePulseSettingsRecord] upsert result:", result);
+    }
 
     if (error) {
       console.error("[CompetitionSettings] pulse_settings update error:", error);

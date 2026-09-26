@@ -92,32 +92,41 @@ export function PulseStudio() {
   }, []);
 
   /**
-   * Build a Supabase query that matches the single pulse_settings row.
-   * Uses the fetched row id if available; otherwise falls back to a catch-all
-   * filter (neq on a column guaranteed to have a value).
+   * Patches the single pulse_settings row.
+   * Fetches the real row id at call-time so this works regardless of
+   * whether the mount-time SELECT has resolved and regardless of
+   * whether id is an integer (1) or text ("singleton", "1").
    */
-  const pulseSettingsRow = () => {
-    const base = (supabase as any).from("pulse_settings");
-    if (pulseRowId.current !== null) {
-      return base.update.bind(base);
-    }
-    return base.update.bind(base);
-  };
-
   const patchPulseSettings = async (fields: Record<string, unknown>): Promise<{ error: any }> => {
-    if (pulseRowId.current !== null) {
+    // Always do a live fetch for the row id — this is the authoritative path.
+    try {
+      const { data: rows } = await (supabase as any)
+        .from("pulse_settings")
+        .select("id")
+        .limit(1);
+
+      const rowId = rows && rows.length > 0 ? rows[0].id : null;
+      console.log("[patchPulseSettings] rowId =", rowId, "fields =", fields);
+
+      if (rowId !== null && rowId !== undefined) {
+        const result = await (supabase as any)
+          .from("pulse_settings")
+          .update(fields)
+          .eq("id", rowId);
+        console.log("[patchPulseSettings] update result:", result);
+        return result;
+      }
+
+      // Fallback if no row found yet — upsert with a default id.
+      // This should never happen if the table is initialized.
+      console.warn("[patchPulseSettings] No row found — attempting upsert");
       return (supabase as any)
         .from("pulse_settings")
-        .update(fields)
-        .eq("id", pulseRowId.current);
+        .upsert({ id: 1, ...fields }, { onConflict: "id" });
+    } catch (err: any) {
+      console.error("[patchPulseSettings] exception:", err);
+      return { error: err };
     }
-    // Fallback: update without id filter (safe — table has exactly one row)
-    // PostgREST requires at least one filter; use a tautology via gt id 0
-    // which works for both integer and text columns with value > '0'
-    return (supabase as any)
-      .from("pulse_settings")
-      .update(fields)
-      .gt("id", -1);
   };
   const [questions, setQuestions] = useState<PulseQuestionInput[]>(createEmptyPulseQuestions());
   const [activeSlot, setActiveSlot] = useState<number>(1);
