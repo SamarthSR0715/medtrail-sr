@@ -33,6 +33,7 @@ import {
 import {
   fetchCompetitionSettings,
   saveCompetitionSetting,
+  savePulseSettingsRecord,
   subscribeToCompetitionSettings,
   setPulseStatus,
   setResultsPublished,
@@ -105,6 +106,14 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     setIsSavingStart(true);
     try {
       const utcISO = istLocalToUTC(startLocal);
+      const [datePart, timePart] = startLocal.split("T");
+
+      // Direct update to pulse_settings row 1 / singleton
+      await savePulseSettingsRecord({
+        competition_date: datePart,
+        start_time: timePart || "19:00",
+      });
+
       const res = await saveCompetitionSetting("competition_date", utcISO, adminEmail);
       if (res.success) {
         toast.success("Competition date updated");
@@ -122,6 +131,13 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     setIsSavingEnd(true);
     try {
       const utcISO = istLocalToUTC(endLocal);
+      const [, timePart] = endLocal.split("T");
+
+      // Direct update to pulse_settings
+      await savePulseSettingsRecord({
+        end_time: timePart || "23:59",
+      });
+
       const res = await saveCompetitionSetting("competition_end_date", utcISO, adminEmail);
       if (res.success) {
         toast.success("✅ End date saved — all student views updated instantly.");
@@ -137,6 +153,7 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     if (!window.confirm("Clear start date? Students will see 'Competition date will be announced.'")) return;
     setIsClearingStart(true);
     try {
+      await savePulseSettingsRecord({ competition_date: null });
       const res = await saveCompetitionSetting("competition_date", null, adminEmail);
       if (res.success) {
         toast.info("Start date cleared. Site shows 'TBA'.");
@@ -150,6 +167,7 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     if (!window.confirm("Clear end date?")) return;
     setIsClearingEnd(true);
     try {
+      await savePulseSettingsRecord({ end_time: "23:59" });
       const res = await saveCompetitionSetting("competition_end_date", null, adminEmail);
       if (res.success) {
         toast.info("End date cleared.");
@@ -163,6 +181,8 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   const handleSetStatus = async (status: PulseStatus) => {
     setIsSettingStatus(true);
     try {
+      // Direct update to pulse_settings
+      await savePulseSettingsRecord({ pulse_status: status });
       const res = await setPulseStatus(status, adminEmail);
       if (res.success) {
         const labels: Record<PulseStatus, string> = {
@@ -186,6 +206,8 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     if (next && !window.confirm("Publish final results? Students will immediately see the leaderboard.")) return;
     setIsTogglingResults(true);
     try {
+      // Direct update to pulse_settings
+      await savePulseSettingsRecord({ results_published: next });
       const res = await setResultsPublished(next, adminEmail);
       if (res.success) {
         toast.success(next ? "📊 Results published! Students can now see the leaderboard." : "🙈 Results hidden. Students see 'Results will be announced.'");

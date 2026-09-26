@@ -217,17 +217,21 @@ export async function savePulseSettingsRecord(params: {
     window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
   }
 
-  // 1. Persist to pulse_settings
-  try {
-    const pulseUpsertData: Record<string, any> = {
-      updated_at: new Date().toISOString(),
-    };
-    if (params.competition_date !== undefined) pulseUpsertData.competition_date = params.competition_date;
-    if (params.start_time !== undefined) pulseUpsertData.start_time = params.start_time;
-    if (params.end_time !== undefined) pulseUpsertData.end_time = params.end_time;
-    if (params.pulse_status !== undefined) pulseUpsertData.pulse_status = params.pulse_status;
-    if (params.results_published !== undefined) pulseUpsertData.results_published = params.results_published;
+  // 1. Direct Supabase update on pulse_settings
+  const updatePayload: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (params.competition_date !== undefined) {
+    const raw = params.competition_date;
+    updatePayload.competition_date = raw && raw.includes("T") ? raw.split("T")[0] : raw;
+  }
+  if (params.start_time !== undefined) updatePayload.start_time = params.start_time;
+  if (params.end_time !== undefined) updatePayload.end_time = params.end_time;
+  if (params.pulse_status !== undefined) updatePayload.pulse_status = params.pulse_status;
+  if (params.results_published !== undefined) updatePayload.results_published = params.results_published;
 
+  try {
+    // Check existing row in pulse_settings
     const { data: existingRows } = await (supabase as any)
       .from("pulse_settings")
       .select("id")
@@ -236,15 +240,22 @@ export async function savePulseSettingsRecord(params: {
     if (existingRows && existingRows.length > 0) {
       await (supabase as any)
         .from("pulse_settings")
-        .update(pulseUpsertData)
+        .update(updatePayload)
         .eq("id", existingRows[0].id);
     } else {
-      await (supabase as any)
+      const { error: update1Err } = await (supabase as any)
         .from("pulse_settings")
-        .upsert({ id: "singleton", ...pulseUpsertData }, { onConflict: "id" });
+        .update(updatePayload)
+        .eq("id", 1);
+
+      if (update1Err) {
+        await (supabase as any)
+          .from("pulse_settings")
+          .upsert({ id: 1, ...updatePayload }, { onConflict: "id" });
+      }
     }
   } catch (err) {
-    console.warn("[CompetitionSettings] pulse_settings upsert note:", err);
+    console.warn("[CompetitionSettings] pulse_settings update error:", err);
   }
 
   // 2. Also persist to app_settings for backwards compatibility
@@ -297,13 +308,41 @@ export async function saveCompetitionSetting(
   if (pulseFieldMap[key]) {
     try {
       const field = pulseFieldMap[key]!;
-      const val = key === "results_published" ? value === "true" : value;
-      await (supabase as any)
+      let val: any = value;
+      if (key === "results_published") {
+        val = value === "true";
+      } else if (key === "competition_date" && value && value.includes("T")) {
+        val = value.split("T")[0];
+      }
+
+      const updateData: Record<string, any> = {
+        [field]: val,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: rows } = await (supabase as any)
         .from("pulse_settings")
-        .upsert(
-          { id: "singleton", [field]: val, updated_at: new Date().toISOString() },
-          { onConflict: "id" }
-        );
+        .select("id")
+        .limit(1);
+
+      if (rows && rows.length > 0) {
+        await (supabase as any)
+          .from("pulse_settings")
+          .update(updateData)
+          .eq("id", rows[0].id);
+      } else {
+        const { error: err1 } = await (supabase as any)
+          .from("pulse_settings")
+          .update(updateData)
+          .eq("id", 1);
+
+        if (err1) {
+          await (supabase as any)
+            .from("pulse_settings")
+            .update(updateData)
+            .eq("id", "singleton");
+        }
+      }
     } catch (err) {
       console.warn("[CompetitionSettings] pulse_settings write notice:", err);
     }
