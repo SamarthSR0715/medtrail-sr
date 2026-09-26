@@ -109,27 +109,6 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
 
     let pulseRow = pulseRows && pulseRows.length > 0 ? pulseRows[0] : null;
 
-    if (!pulseRow && !pulseErr) {
-      // If table is completely empty, initialize default row
-      try {
-        const defaultRow = {
-          id: "singleton",
-          competition_date: getCachedSetting("competition_date") || "2026-09-27",
-          start_time: getCachedSetting("start_time") || "19:00",
-          end_time: getCachedSetting("end_time") || "23:59",
-          pulse_status: getCachedSetting("pulse_status") || "upcoming",
-          results_published: getCachedSetting("results_published") === "true",
-          updated_at: new Date().toISOString(),
-        };
-        await (supabase as any)
-          .from("pulse_settings")
-          .insert(defaultRow);
-        pulseRow = defaultRow;
-      } catch {
-        // Ignore initialization conflict if another tab inserted concurrently
-      }
-    }
-
     if (pulseRow) {
       if (pulseRow.competition_date) {
         map["competition_date"] = pulseRow.competition_date;
@@ -234,30 +213,12 @@ export async function savePulseSettingsRecord(params: {
   }
 
   try {
-    // First, fetch the actual row id (may be integer 1 or text "singleton")
-    const { data: rowData } = await (supabase as any)
-      .from("pulse_settings")
-      .select("id")
-      .limit(1);
-    const rowId = rowData && rowData.length > 0 ? rowData[0].id : null;
-    console.log("[savePulseSettingsRecord] rowId =", rowId, "payload =", updatePayload);
+    delete (updatePayload as any).id;
 
-    let error: any;
-    if (rowId !== null && rowId !== undefined) {
-      const result = await (supabase as any)
-        .from("pulse_settings")
-        .update(updatePayload)
-        .eq("id", rowId);
-      error = result.error;
-      console.log("[savePulseSettingsRecord] update result:", result);
-    } else {
-      // No row found — upsert to create it
-      const result = await (supabase as any)
-        .from("pulse_settings")
-        .upsert({ id: 1, ...updatePayload }, { onConflict: "id" });
-      error = result.error;
-      console.log("[savePulseSettingsRecord] upsert result:", result);
-    }
+    const { error } = await (supabase as any)
+      .from("pulse_settings")
+      .update(updatePayload)
+      .eq("id", 1);
 
     if (error) {
       console.error("[CompetitionSettings] pulse_settings update error:", error);
@@ -307,14 +268,10 @@ export async function saveCompetitionSetting(
         val = value.split("T")[0];
       }
 
-      const { data: psRows } = await (supabase as any)
+      await (supabase as any)
         .from("pulse_settings")
-        .select("id")
-        .limit(1);
-      const psRowId = psRows && psRows.length > 0 ? psRows[0].id : null;
-
-      const psQ = (supabase as any).from("pulse_settings").update({ [field]: val });
-      await (psRowId !== null ? psQ.eq("id", psRowId) : psQ.gt("id", -1));
+        .update({ [field]: val })
+        .eq("id", 1);
     } catch (err) {
       console.warn("[CompetitionSettings] pulse_settings write notice:", err);
     }

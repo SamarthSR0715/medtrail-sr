@@ -74,55 +74,22 @@ export function PulseStudio() {
   const todayIST = getISTDateString();
   const [pulseDate, setPulseDate] = useState<string>(todayIST);
 
-  // ── Actual pulse_settings row id (fetched on mount) ───────────────────────────
-  // All UPDATE calls must use this value, NOT the hard-coded integer 1,
-  // because the id column may be text ("singleton", "1", etc.).
-  const pulseRowId = useRef<string | number | null>(null);
-
-  useEffect(() => {
-    (supabase as any)
-      .from("pulse_settings")
-      .select("id")
-      .limit(1)
-      .then(({ data }: { data: { id: string | number }[] | null }) => {
-        if (data && data.length > 0 && data[0]?.id !== undefined) {
-          pulseRowId.current = data[0].id;
-        }
-      });
-  }, []);
-
   /**
-   * Patches the single pulse_settings row.
-   * Fetches the real row id at call-time so this works regardless of
-   * whether the mount-time SELECT has resolved and regardless of
-   * whether id is an integer (1) or text ("singleton", "1").
+   * Patches the single pulse_settings row (id = 1).
+   * Does NOT write 'id' in the update payload.
+   * Uses UPDATE without any INSERT/UPSERT to prevent identity column errors.
    */
   const patchPulseSettings = async (fields: Record<string, unknown>): Promise<{ error: any }> => {
-    // Always do a live fetch for the row id — this is the authoritative path.
     try {
-      const { data: rows } = await (supabase as any)
+      // Do not write the id field in the update payload
+      const { id, ...updateFields } = fields;
+      console.log("[patchPulseSettings] updating pulse_settings id=1 with:", updateFields);
+      const result = await (supabase as any)
         .from("pulse_settings")
-        .select("id")
-        .limit(1);
-
-      const rowId = rows && rows.length > 0 ? rows[0].id : null;
-      console.log("[patchPulseSettings] rowId =", rowId, "fields =", fields);
-
-      if (rowId !== null && rowId !== undefined) {
-        const result = await (supabase as any)
-          .from("pulse_settings")
-          .update(fields)
-          .eq("id", rowId);
-        console.log("[patchPulseSettings] update result:", result);
-        return result;
-      }
-
-      // Fallback if no row found yet — upsert with a default id.
-      // This should never happen if the table is initialized.
-      console.warn("[patchPulseSettings] No row found — attempting upsert");
-      return (supabase as any)
-        .from("pulse_settings")
-        .upsert({ id: 1, ...fields }, { onConflict: "id" });
+        .update(updateFields)
+        .eq("id", 1);
+      console.log("[patchPulseSettings] update result:", result);
+      return result;
     } catch (err: any) {
       console.error("[patchPulseSettings] exception:", err);
       return { error: err };
