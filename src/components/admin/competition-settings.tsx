@@ -200,27 +200,48 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   const handleSetStatus = async (status: PulseStatus) => {
     setIsSettingStatus(true);
     try {
-      // Direct update to pulse_settings
-      await savePulseSettingsRecord({ pulse_status: status });
-      const res = await setPulseStatus(status, adminEmail);
-      if (res.success) {
-        const labels: Record<PulseStatus, string> = {
-          upcoming: "🕒 Pulse set to Upcoming",
-          live: "🔴 Pulse is now LIVE — students can compete!",
-          paused: "⏸️ Pulse paused",
-          ended: "🏁 Pulse ended",
-        };
-        toast.success(labels[status]);
-        setLastAction(labels[status]);
-        // Use local updated state immediately
-        setSettings((prev) => ({
-          ...prev,
-          pulse_status: status,
-        }));
-      } else {
-        toast.error(`Status update failed: ${res.error}`);
+      // 1. Await the direct Supabase update on pulse_settings
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: status })
+        .eq("id", 1);
+
+      if (error) {
+        console.error("[CompetitionSettings] Error updating pulse_status:", error);
+        toast.error(`Status update failed: ${error.message}`);
+        return;
       }
-    } finally { setIsSettingStatus(false); }
+
+      // 2. Update local state immediately
+      setSettings((prev) => ({
+        ...prev,
+        pulse_status: status,
+      }));
+
+      // 3. Broadcast and cache locally
+      setCachedSetting("pulse_status", status);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(SETTINGS_EVENT, { detail: { key: "pulse_status", value: status } })
+        );
+      }
+
+      const labels: Record<PulseStatus, string> = {
+        upcoming: "🕒 Pulse set to Upcoming",
+        live: "🔴 Pulse is now LIVE — students can compete!",
+        paused: "⏸️ Pulse paused",
+        ended: "🏁 Pulse ended",
+      };
+      toast.success(labels[status]);
+      setLastAction(labels[status]);
+
+      // Secondary sync in background without blocking
+      saveCompetitionSetting("pulse_status", status, adminEmail).catch(() => {});
+    } catch (err: any) {
+      toast.error(`Status update failed: ${err?.message || err}`);
+    } finally {
+      setIsSettingStatus(false);
+    }
   };
 
   // ── Results toggle ──────────────────────────────────────────────────────────
@@ -229,21 +250,42 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     if (next && !window.confirm("Publish final results? Students will immediately see the leaderboard.")) return;
     setIsTogglingResults(true);
     try {
-      // Direct update to pulse_settings
-      await savePulseSettingsRecord({ results_published: next });
-      const res = await setResultsPublished(next, adminEmail);
-      if (res.success) {
-        toast.success(next ? "📊 Results published! Students can now see the leaderboard." : "🙈 Results hidden. Students see 'Results will be announced.'");
-        setLastAction(next ? "Results published" : "Results hidden");
-        // Use local updated state immediately
-        setSettings((prev) => ({
-          ...prev,
-          results_published: next,
-        }));
-      } else {
-        toast.error(`Toggle failed: ${res.error}`);
+      // 1. Await the direct Supabase update on pulse_settings
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ results_published: next })
+        .eq("id", 1);
+
+      if (error) {
+        console.error("[CompetitionSettings] Error updating results_published:", error);
+        toast.error(`Toggle failed: ${error.message}`);
+        return;
       }
-    } finally { setIsTogglingResults(false); }
+
+      // 2. Update local state immediately
+      setSettings((prev) => ({
+        ...prev,
+        results_published: next,
+      }));
+
+      // 3. Broadcast and cache locally
+      setCachedSetting("results_published", String(next));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(SETTINGS_EVENT, { detail: { key: "results_published", value: String(next) } })
+        );
+      }
+
+      toast.success(next ? "📊 Results published! Students can now see the leaderboard." : "🙈 Results hidden. Students see 'Results will be announced.'");
+      setLastAction(next ? "Results published" : "Results hidden");
+
+      // Secondary sync in background without blocking
+      saveCompetitionSetting("results_published", String(next), adminEmail).catch(() => {});
+    } catch (err: any) {
+      toast.error(`Toggle failed: ${err?.message || err}`);
+    } finally {
+      setIsTogglingResults(false);
+    }
   };
 
   // ── Leaderboard reset ───────────────────────────────────────────────────────

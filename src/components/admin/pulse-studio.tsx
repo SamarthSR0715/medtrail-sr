@@ -344,17 +344,37 @@ export function PulseStudio() {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      const res = await publishTodayPulse(pulseDate, questions);
-      if (res.success) {
-        setStatus("published");
-        setPublishedAt(new Date().toISOString());
-        await savePulseSettingsRecord({ results_published: true, pulse_status: "upcoming" });
-        await updateLiveOpsState({ live_status: "published", results_declared: true });
-        await refreshLiveOps();
-        toast.success(`Published Pulse for ${pulseDate}! Ready for scheduled go-live window.`);
-      } else {
-        toast.error(res.error || "Validation failed: please complete all 5 questions.");
+      // 1. Direct PATCH to pulse_settings where id=1
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ results_published: true })
+        .eq("id", 1);
+
+      if (error) {
+        console.error("[PulseStudio] Error updating results_published:", error);
+        toast.error(`Publish failed: ${error.message}`);
+        return;
       }
+
+      setStatus("published");
+      setPublishedAt(new Date().toISOString());
+      setLiveOps((prev) => ({ ...prev, live_status: "published", results_declared: true }));
+
+      // Update local storage & broadcast event
+      setCachedSetting("results_published", "true");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medtrail_setting_updated", {
+            detail: { key: "results_published", value: "true" },
+          })
+        );
+      }
+
+      toast.success(`Published Pulse for ${pulseDate}! Ready for scheduled go-live window.`);
+
+      // Background ops sync
+      publishTodayPulse(pulseDate, questions).catch(() => {});
+      updateLiveOpsState({ live_status: "published", results_declared: true }).catch(() => {});
     } catch (err: any) {
       toast.error(err?.message || "Failed to publish pulse.");
     } finally {
@@ -365,20 +385,39 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      await savePulseSettingsRecord({ pulse_status: "live" });
-      const res = await updateLiveOpsState({ live_status: "live" });
-      if (res.success && res.data) {
-        setLiveOps(res.data);
-      } else {
-        setLiveOps((prev) => ({ ...prev, live_status: "live" }));
+      // 1. Direct PATCH to pulse_settings where id=1
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: "live" })
+        .eq("id", 1);
+
+      if (error) {
+        console.error("[PulseStudio] Error going live:", error);
+        toast.error(`Go Live failed: ${error.message}`);
+        return;
       }
+
+      setLiveOps((prev) => ({ ...prev, live_status: "live" }));
+      setStatus("live");
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
-      // Send automatic broadcast
-      await sendPushNotification({
+
+      // Update local storage & broadcast event
+      setCachedSetting("pulse_status", "live");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medtrail_setting_updated", {
+            detail: { key: "pulse_status", value: "live" },
+          })
+        );
+      }
+
+      // Background ops & notification
+      updateLiveOpsState({ live_status: "live" }).catch(() => {});
+      sendPushNotification({
         templateKey: "pulse_live",
         title: "🔴 CHAMPIONSHIP PULSE IS LIVE!",
         body: "The window is now open! 5 clinical challenge slots are waiting. Rise through every pulse.",
-      });
+      }).catch(() => {});
     } catch (err: any) {
       toast.error(err?.message || "Error going live.");
     }
@@ -386,14 +425,33 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
-      await savePulseSettingsRecord({ pulse_status: "paused" });
-      const res = await updateLiveOpsState({ live_status: "paused" });
-      if (res.success && res.data) {
-        setLiveOps(res.data);
-      } else {
-        setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
+      // 1. Direct PATCH to pulse_settings where id=1
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: "paused" })
+        .eq("id", 1);
+
+      if (error) {
+        console.error("[PulseStudio] Error pausing pulse:", error);
+        toast.error(`Pause failed: ${error.message}`);
+        return;
       }
+
+      setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
       toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
+
+      // Update local storage & broadcast event
+      setCachedSetting("pulse_status", "paused");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medtrail_setting_updated", {
+            detail: { key: "pulse_status", value: "paused" },
+          })
+        );
+      }
+
+      // Background ops sync
+      updateLiveOpsState({ live_status: "paused" }).catch(() => {});
     } catch (err: any) {
       toast.error(err?.message || "Error pausing pulse.");
     }
@@ -401,14 +459,33 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
-      await savePulseSettingsRecord({ pulse_status: "ended" });
-      const res = await updateLiveOpsState({ live_status: "ended" });
-      if (res.success && res.data) {
-        setLiveOps(res.data);
-      } else {
-        setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
+      // 1. Direct PATCH to pulse_settings where id=1
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: "ended" })
+        .eq("id", 1);
+
+      if (error) {
+        console.error("[PulseStudio] Error ending pulse:", error);
+        toast.error(`End Pulse failed: ${error.message}`);
+        return;
       }
+
+      setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
       toast.info("⏹️ Pulse session officially ended.");
+
+      // Update local storage & broadcast event
+      setCachedSetting("pulse_status", "ended");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medtrail_setting_updated", {
+            detail: { key: "pulse_status", value: "ended" },
+          })
+        );
+      }
+
+      // Background ops sync
+      updateLiveOpsState({ live_status: "ended" }).catch(() => {});
     } catch (err: any) {
       toast.error(err?.message || "Error ending pulse.");
     }
@@ -450,7 +527,27 @@ export function PulseStudio() {
     }
     setShowDeclareModal(false);
     try {
-      await savePulseSettingsRecord({ results_published: true, pulse_status: "ended" });
+      // 1. Direct PATCH to pulse_settings where id=1
+      await (supabase as any)
+        .from("pulse_settings")
+        .update({ results_published: true, pulse_status: "ended" })
+        .eq("id", 1);
+
+      setCachedSetting("results_published", "true");
+      setCachedSetting("pulse_status", "ended");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medtrail_setting_updated", {
+            detail: { key: "results_published", value: "true" },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent("medtrail_setting_updated", {
+            detail: { key: "pulse_status", value: "ended" },
+          })
+        );
+      }
+
       const res = await declareFinalResults();
       if (res.success) {
         toast.success(res.message);
