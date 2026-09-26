@@ -1,9 +1,9 @@
 /**
  * useCompetitionDate — React hook for the fully dynamic competition system.
  *
- * Fetches all championship_settings from Supabase (competition dates, pulse
+ * Fetches pulse_settings from Supabase (competition date, start/end time, pulse
  * status, results_published) and subscribes to real-time changes.
- * Every component should use this hook instead of any hardcoded constant.
+ * "pulse_settings" is the ONLY source of truth.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -14,8 +14,6 @@ import {
   formatCompetitionDate,
   formatCompetitionDateTime,
   formatCompetitionTime,
-  computeSeasonStatus,
-  getCachedSetting,
   type CompetitionSettings,
   type PulseStatus,
 } from "@/lib/competition-settings-service";
@@ -39,9 +37,9 @@ export interface CompetitionDateState {
   // ── Computed status ────────────────────────────────────────────────────────
   /** Auto-computed from dates: "pre" | "live" | "ended" */
   autoSeasonStatus: "pre" | "live" | "ended";
-  /** Admin-controlled override: "upcoming" | "live" | "paused" | "ended" */
+  /** Pulse status from pulse_settings: "upcoming" | "live" | "paused" | "ended" */
   adminPulseStatus: PulseStatus;
-  /** Whether the competition is effectively live (auto OR admin override) */
+  /** Whether the competition is live strictly according to pulse_settings */
   isLive: boolean;
   /** Whether the admin has published final results */
   resultsPublished: boolean;
@@ -72,16 +70,14 @@ const LOADING_STATE: CompetitionDateState = {
 };
 
 function buildState(
-  settings: CompetitionSettings,
-  now: Date = new Date()
+  settings: CompetitionSettings
 ): CompetitionDateState {
   const startUTC = combineDateAndTime(settings.competition_date, settings.start_time);
-  const endUTC = combineDateAndTime(settings.competition_end_date, settings.end_time);
-  const autoStatus = computeSeasonStatus(now, startUTC, endUTC);
-  const adminStatus = settings.pulse_status;
+  const endUTC = combineDateAndTime(settings.competition_end_date || settings.competition_date, settings.end_time);
+  const adminStatus: PulseStatus = settings.pulse_status || "upcoming";
 
-  // isLive = either auto computed as live OR admin explicitly set it to "live"
-  const isLive = autoStatus === "live" || adminStatus === "live";
+  // In Pulse 2.0, pulse_settings is the ONLY source of truth:
+  const isLive = adminStatus === "live";
 
   const startTimeLabel = settings.start_time
     ? formatCompetitionTime(settings.start_time)
@@ -89,82 +85,47 @@ function buildState(
 
   const endTimeLabel = settings.end_time
     ? formatCompetitionTime(settings.end_time)
-    : formatCompetitionTime(settings.competition_end_date);
+    : formatCompetitionTime(settings.competition_end_date || settings.competition_date);
 
   return {
     seasonStartUTC: startUTC,
     seasonEndUTC: endUTC,
     seasonStartDisplay: formatCompetitionDate(settings.competition_date),
-    seasonEndDisplay: formatCompetitionDate(settings.competition_end_date),
+    seasonEndDisplay: formatCompetitionDate(settings.competition_end_date || settings.competition_date),
     seasonStartTimeDisplay: startTimeLabel,
     seasonEndTimeDisplay: endTimeLabel,
     seasonStartDisplayFull: formatCompetitionDateTime(settings.competition_date),
-    seasonEndDisplayFull: formatCompetitionDateTime(settings.competition_end_date),
-    autoSeasonStatus: autoStatus,
+    seasonEndDisplayFull: formatCompetitionDateTime(settings.competition_end_date || settings.competition_date),
+    autoSeasonStatus: isLive ? "live" : adminStatus === "ended" ? "ended" : "pre",
     adminPulseStatus: adminStatus,
     isLive,
-    resultsPublished: settings.results_published,
+    resultsPublished: Boolean(settings.results_published),
     leaderboardResetAt: settings.leaderboard_reset_at,
     rawSettings: settings,
     isLoading: false,
   };
 }
 
-function getInitialState(): CompetitionDateState {
-  const cachedStart = getCachedSetting("competition_date");
-  const cachedEnd = getCachedSetting("competition_end_date");
-  const cachedStartTime = getCachedSetting("start_time");
-  const cachedEndTime = getCachedSetting("end_time");
-  const cachedPulseStatus = (getCachedSetting("pulse_status") as PulseStatus) ?? "upcoming";
-  const cachedResults = getCachedSetting("results_published") === "true";
-  const cachedReset = getCachedSetting("leaderboard_reset_at");
-
-  if (!cachedStart && !cachedEnd && !cachedStartTime) return LOADING_STATE;
-
-  const initialSettings: CompetitionSettings = {
-    competition_date: cachedStart,
-    competition_end_date: cachedEnd,
-    start_time: cachedStartTime,
-    end_time: cachedEndTime,
-    pulse_status: cachedPulseStatus,
-    results_published: cachedResults,
-    leaderboard_reset_at: cachedReset,
-  };
-  return buildState(initialSettings, new Date());
-}
-
 export function useCompetitionDate(): CompetitionDateState {
-  const [state, setState] = useState<CompetitionDateState>(getInitialState);
+  const [state, setState] = useState<CompetitionDateState>(LOADING_STATE);
   const settingsRef = useRef<CompetitionSettings | null>(null);
-
-  // Rebuild state every second so autoSeasonStatus stays accurate
-  useEffect(() => {
-    const tick = () => {
-      if (settingsRef.current) {
-        setState(buildState(settingsRef.current, new Date()));
-      }
-    };
-
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    // Initial fetch
+    // Initial fetch from pulse_settings
     fetchCompetitionSettings().then((settings) => {
       if (!cancelled) {
         settingsRef.current = settings;
-        setState(buildState(settings, new Date()));
+        setState(buildState(settings));
       }
     });
 
-    // Real-time subscription
+    // Real-time subscription to pulse_settings
     const unsub = subscribeToCompetitionSettings((settings) => {
       if (!cancelled) {
         settingsRef.current = settings;
-        setState(buildState(settings, new Date()));
+        setState(buildState(settings));
       }
     });
 

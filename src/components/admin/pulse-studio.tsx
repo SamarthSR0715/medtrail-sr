@@ -218,30 +218,24 @@ export function PulseStudio() {
     }
   }, []);
 
-  // Load live ops state and analytics
+  // Load live ops state directly from pulse_settings (single source of truth)
   const refreshLiveOps = useCallback(async () => {
     try {
-      const [ops, compSettings, devStats] = await Promise.all([
-        fetchLiveOpsState(),
+      const [compSettings, devStats] = await Promise.all([
         fetchCompetitionSettings(),
         fetchRegisteredDeviceStats(),
       ]);
 
-      const effectiveTargetDate = compSettings.competition_date || ops.target_date || todayIST;
-      const effectiveStartTime = compSettings.start_time || ops.go_live_time || "19:00";
-      const effectiveEndTime = compSettings.end_time || ops.end_time || "23:59";
-      const effectiveStatus = (compSettings.pulse_status as any) || ops.live_status || "published";
-
       setDeviceStats(devStats);
 
-      setLiveOps({
-        ...ops,
-        target_date: effectiveTargetDate,
-        go_live_time: effectiveStartTime,
-        end_time: effectiveEndTime,
-        live_status: effectiveStatus,
-        results_declared: compSettings.results_published || ops.results_declared,
-      });
+      setLiveOps((prev) => ({
+        ...prev,
+        target_date: compSettings.competition_date || prev.target_date || todayIST,
+        go_live_time: compSettings.start_time || prev.go_live_time || "19:00",
+        end_time: compSettings.end_time || prev.end_time || "23:59",
+        live_status: compSettings.pulse_status || prev.live_status || "upcoming",
+        results_declared: Boolean(compSettings.results_published),
+      }));
     } catch (err) {
       console.error("Failed to fetch live ops:", err);
     }
@@ -269,7 +263,7 @@ export function PulseStudio() {
 
     // Supabase Realtime subscription for pulse_settings and attempt analytics
     const channel = supabase
-      .channel("pulse_studio_realtime_v3")
+      .channel("pulse_studio_realtime_v4")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pulse_settings" },
@@ -282,10 +276,9 @@ export function PulseStudio() {
               go_live_time: row.start_time || prev.go_live_time,
               end_time: row.end_time || prev.end_time,
               live_status: row.pulse_status || prev.live_status,
-              results_declared: row.results_published !== undefined ? row.results_published : prev.results_declared,
+              results_declared: Boolean(row.results_published),
             }));
           }
-          refreshLiveOps();
         }
       )
       .on(
@@ -302,20 +295,19 @@ export function PulseStudio() {
     };
   }, [refreshLiveOps, refreshAnalytics]);
 
-  // Periodic heartbeat timer for live dashboard
+  // Periodic heartbeat timer for live dashboard metrics only (no status changes)
   useEffect(() => {
     const timer = setInterval(() => {
       setAutoRefreshTimer((prev) => {
         if (prev <= 1) {
           refreshAnalytics();
-          refreshLiveOps();
           return 10;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [refreshAnalytics, refreshLiveOps]);
+  }, [refreshAnalytics]);
 
   const currentQ = questions[activeSlot - 1] || questions[0]!;
 
@@ -361,31 +353,16 @@ export function PulseStudio() {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      // 1. Publish the question set to Supabase (championship_pulse_sets)
+      // Publish the question set to Supabase (championship_pulse_sets)
       const pubRes = await publishTodayPulse(pulseDate, questions);
       if (!pubRes.success) {
         toast.error(pubRes.error || "Failed to publish pulse questions.");
         return;
       }
 
-      // 2. Direct Supabase PATCH: mark results_published = true on pulse_settings (DO NOT reset pulse_status)
-      const { error } = await patchPulseSettings({ results_published: true });
-
-      if (error) {
-        toast.error(`Publish failed: ${error.message}`);
-        return;
-      }
-
-      // 3. Background: sync results_published only, preserving pulse_status
-      savePulseSettingsRecord({ results_published: true }).catch(() => { });
-      updateLiveOpsState({ results_declared: true }).catch(() => { });
-
-      // 4. Update React state - preserve current live_status
       setStatus("published");
       setPublishedAt(new Date().toISOString());
-      setLiveOps((prev) => ({ ...prev, results_declared: true }));
-
-      toast.success(`Published Pulse for ${pulseDate}! Results visible to students.`);
+      toast.success(`Published official question set for ${pulseDate}!`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to publish pulse.");
     } finally {
@@ -396,7 +373,7 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      // 1. Direct Supabase PATCH: pulse_settings row 1 -> pulse_status = 'live'
+      // Exactly ONE UPDATE to pulse_settings row 1
       const { error } = await patchPulseSettings({ pulse_status: "live" });
 
       if (error) {
@@ -404,12 +381,6 @@ export function PulseStudio() {
         return;
       }
 
-      // 2. Sync local cache and liveOps state
-      setCachedSetting("pulse_status", "live");
-      updateLiveOpsState({ live_status: "live" }).catch(() => { });
-
-      // 3. Update React state
-      setLiveOps((prev) => ({ ...prev, live_status: "live" }));
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
 
       sendPushNotification({
@@ -422,78 +393,82 @@ export function PulseStudio() {
     }
   };
 
-const handlePausePulse = async () => {
-  try {
-    // Direct Supabase PATCH: pulse_settings -> pulse_status = 'paused'
-    const { error } = await patchPulseSettings({ pulse_status: "paused" });
+  const handlePausePulse = async () => {
+    try {
+      // Exactly ONE UPDATE to pulse_settings row 1
+      const { error } = await patchPulseSettings({ pulse_status: "paused" });
 
-    if (error) {
-      toast.error(`Pause failed: ${error.message}`);
-      return;
+      if (error) {
+        toast.error(`Pause failed: ${error.message}`);
+        return;
+      }
+
+      toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily locked.");
+    } catch (err: any) {
+      toast.error(err?.message || "Error pausing pulse.");
     }
+  };
 
-    setCachedSetting("pulse_status", "paused");
-    setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
-    toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
+  const handleEndPulse = async () => {
+    try {
+      // Exactly ONE UPDATE to pulse_settings row 1
+      const { error } = await patchPulseSettings({ pulse_status: "ended" });
 
-    updateLiveOpsState({ live_status: "paused" }).catch(() => { });
-  } catch (err: any) {
-    toast.error(err?.message || "Error pausing pulse.");
-  }
-};
+      if (error) {
+        toast.error(`End Pulse failed: ${error.message}`);
+        return;
+      }
 
-const handleEndPulse = async () => {
-  try {
-    // Direct Supabase PATCH: pulse_settings -> pulse_status = 'ended'
-    const { error } = await patchPulseSettings({ pulse_status: "ended" });
-
-    if (error) {
-      toast.error(`End Pulse failed: ${error.message}`);
-      return;
+      toast.info("⏹️ Pulse session officially ended.");
+    } catch (err: any) {
+      toast.error(err?.message || "Error ending pulse.");
     }
+  };
 
-    setCachedSetting("pulse_status", "ended");
-    setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
-    toast.info("⏹️ Pulse session officially ended.");
+  const handlePublishResults = async () => {
+    try {
+      // Exactly ONE UPDATE to pulse_settings row 1
+      const { error } = await patchPulseSettings({ results_published: true });
 
-    updateLiveOpsState({ live_status: "ended" }).catch(() => { });
-  } catch (err: any) {
-    toast.error(err?.message || "Error ending pulse.");
-  }
-};
+      if (error) {
+        toast.error(`Publish Results failed: ${error.message}`);
+        return;
+      }
 
-// ── 3. COUNTDOWN CONFIGURATION ───────────────────────────────────────────────
-const handleUpdateCountdown = async (e: React.FormEvent) => {
-  e.preventDefault();
-  try {
-    // 1. Immediately persist to Supabase pulse_settings (date and time ONLY, never overwrite pulse_status)
-    await savePulseSettingsRecord({
-      competition_date: liveOps.target_date,
-      start_time: liveOps.go_live_time,
-      end_time: liveOps.end_time,
-    });
+      toast.success("🏆 Official Results & Leaderboard published! Visible to all students.");
 
-    // 2. Persist to championship_live_ops (date and time ONLY)
-    const res = await updateLiveOpsState({
-      target_date: liveOps.target_date,
-      go_live_time: liveOps.go_live_time,
-      end_time: liveOps.end_time,
-    });
-
-    if (res.success && res.data) {
-      setLiveOps((prev) => ({
-        ...prev,
-        target_date: liveOps.target_date,
-        go_live_time: liveOps.go_live_time,
-        end_time: liveOps.end_time,
-      }));
+      sendPushNotification({
+        templateKey: "results_out",
+        title: "🏆 OFFICIAL RESULTS DECLARED!",
+        body: "Final standings are published! Check your official ranking and performance telemetry now.",
+      }).catch(() => { });
+    } catch (err: any) {
+      toast.error(err?.message || "Error publishing results.");
     }
+  };
 
-    toast.success("⏱️ Countdown time window synchronized for all students!");
-  } catch (err: any) {
-    toast.error(err?.message || "Failed to update countdown.");
-  }
-};
+  // ── 3. COUNTDOWN CONFIGURATION (SAVE DATE & TIME) ───────────────────────────
+  const handleSaveDateTime = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    try {
+      // Exactly ONE UPDATE to pulse_settings row 1
+      const { error } = await patchPulseSettings({
+        competition_date: liveOps.target_date || null,
+        start_time: liveOps.go_live_time ? liveOps.go_live_time.trim().slice(0, 8) : null,
+        end_time: liveOps.end_time ? liveOps.end_time.trim().slice(0, 8) : null,
+      });
+
+      if (error) {
+        toast.error(`Save failed: ${error.message}`);
+        return;
+      }
+
+      toast.success("⏱️ Competition Date & Time saved and synchronized to all students!");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save date & time.");
+    }
+  };
+  const handleUpdateCountdown = handleSaveDateTime;
 
 // ── 5. LEADERBOARD LOCK (DECLARE FINAL RESULTS) ──────────────────────────────
 const handleDeclareResults = async () => {
@@ -702,6 +677,14 @@ return (
           >
             <Square className="w-4 h-4 fill-current" />
             <span>END PULSE</span>
+          </button>
+
+          <button
+            onClick={handlePublishResults}
+            className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+          >
+            <Send className="w-4 h-4" />
+            <span>PUBLISH RESULTS</span>
           </button>
 
           {/* Requirement 1: Registration Lock / Unlock Buttons */}
@@ -1361,7 +1344,7 @@ return (
                   type="submit"
                   className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-blue-600/30"
                 >
-                  Sync Countdown For All Students
+                  Save Date & Time
                 </button>
               </form>
             </div>
@@ -1421,11 +1404,11 @@ return (
                 </button>
 
                 <button
-                  onClick={handlePublish}
+                  onClick={handlePublishResults}
                   className="py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Publish</span>
+                  <span>Publish Results</span>
                 </button>
               </div>
             </div>

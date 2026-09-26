@@ -51,29 +51,6 @@ export interface LiveLeaderboardEntry {
 export const PULSE_SETTINGS_TABLE = "pulse_settings";
 export const APP_SETTINGS_TABLE = "app_settings";
 export const SETTINGS_EVENT = "medtrail_setting_updated";
-const LOCAL_STORAGE_PREFIX = "medtrail_setting_";
-
-export function getCachedSetting(key: string): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(`${LOCAL_STORAGE_PREFIX}${key}`);
-  } catch {
-    return null;
-  }
-}
-
-export function setCachedSetting(key: string, value: string | null): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (value !== null && value !== undefined) {
-      localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${key}`, value);
-    } else {
-      localStorage.removeItem(`${LOCAL_STORAGE_PREFIX}${key}`);
-    }
-  } catch {
-    // Ignore storage quota or disabled storage
-  }
-}
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULTS: CompetitionSettings = {
@@ -89,87 +66,30 @@ const DEFAULTS: CompetitionSettings = {
 // ── Fetch all settings ────────────────────────────────────────────────────────
 
 export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
-  // 1. Initial values from local cache
-  const map: Record<string, string | null> = {
-    competition_date: getCachedSetting("competition_date"),
-    competition_end_date: getCachedSetting("competition_end_date"),
-    start_time: getCachedSetting("start_time"),
-    end_time: getCachedSetting("end_time"),
-    pulse_status: getCachedSetting("pulse_status"),
-    results_published: getCachedSetting("results_published"),
-    leaderboard_reset_at: getCachedSetting("leaderboard_reset_at"),
-  };
-
   try {
-    // 2. Query Supabase pulse_settings table first (Primary single source of truth)
-    const { data: pulseRows, error: pulseErr } = await (supabase as any)
+    // Query Supabase pulse_settings table (row id = 1) - ONLY source of truth
+    const { data: pulseRow, error: pulseErr } = await (supabase as any)
       .from("pulse_settings")
       .select("*")
-      .limit(1);
+      .eq("id", 1)
+      .maybeSingle();
 
-    let pulseRow = pulseRows && pulseRows.length > 0 ? pulseRows[0] : null;
-
-    if (pulseRow) {
-      if (pulseRow.competition_date) {
-        map["competition_date"] = pulseRow.competition_date;
-        setCachedSetting("competition_date", pulseRow.competition_date);
-      }
-      if (pulseRow.start_time) {
-        map["start_time"] = pulseRow.start_time;
-        setCachedSetting("start_time", pulseRow.start_time);
-      }
-      if (pulseRow.end_time) {
-        map["end_time"] = pulseRow.end_time;
-        setCachedSetting("end_time", pulseRow.end_time);
-      }
-      if (pulseRow.pulse_status) {
-        map["pulse_status"] = pulseRow.pulse_status;
-        setCachedSetting("pulse_status", pulseRow.pulse_status);
-      }
-      if (pulseRow.results_published !== undefined && pulseRow.results_published !== null) {
-        map["results_published"] = String(pulseRow.results_published);
-        setCachedSetting("results_published", String(pulseRow.results_published));
-      }
-    } else {
-      // 3. Fallback: Query app_settings table (key, value)
-      const { data: appData, error: appErr } = await (supabase as any)
-        .from("app_settings")
-        .select("key, value");
-
-      if (!appErr && appData && appData.length > 0) {
-        appData.forEach((row: { key: string; value: string | null }) => {
-          map[row.key] = row.value ?? null;
-          setCachedSetting(row.key, row.value ?? null);
-        });
-      } else {
-        // Fallback: check championship_settings
-        const { data: champData } = await (supabase as any)
-          .from("championship_settings")
-          .select("key, value");
-
-        if (champData && champData.length > 0) {
-          champData.forEach((row: { key: string; value: string | null }) => {
-            if (map[row.key] === null || map[row.key] === undefined) {
-              map[row.key] = row.value ?? null;
-              setCachedSetting(row.key, row.value ?? null);
-            }
-          });
-        }
-      }
+    if (!pulseErr && pulseRow) {
+      return {
+        competition_date: pulseRow.competition_date ?? null,
+        competition_end_date: pulseRow.competition_end_date ?? null,
+        start_time: pulseRow.start_time ?? "19:00",
+        end_time: pulseRow.end_time ?? "23:59",
+        pulse_status: (pulseRow.pulse_status as PulseStatus) ?? "upcoming",
+        results_published: pulseRow.results_published === true || pulseRow.results_published === "true",
+        leaderboard_reset_at: pulseRow.leaderboard_reset_at ?? null,
+      };
     }
   } catch (err) {
-    console.warn("[CompetitionSettings] Supabase fetch error, using cached settings:", err);
+    console.warn("[CompetitionSettings] Supabase fetch error:", err);
   }
 
-  return {
-    competition_date: map["competition_date"] ?? null,
-    competition_end_date: map["competition_end_date"] ?? null,
-    start_time: map["start_time"] ?? "19:00",
-    end_time: map["end_time"] ?? "23:59",
-    pulse_status: (map["pulse_status"] as PulseStatus) ?? "upcoming",
-    results_published: map["results_published"] === "true",
-    leaderboard_reset_at: map["leaderboard_reset_at"] ?? null,
-  };
+  return DEFAULTS;
 }
 
 // ── Save whole pulse settings record ──────────────────────────────────────────
@@ -181,17 +101,6 @@ export async function savePulseSettingsRecord(params: {
   pulse_status?: PulseStatus;
   results_published?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
-  // Update local cache
-  if (params.competition_date !== undefined) setCachedSetting("competition_date", params.competition_date);
-  if (params.start_time !== undefined) setCachedSetting("start_time", params.start_time);
-  if (params.end_time !== undefined) setCachedSetting("end_time", params.end_time);
-  if (params.pulse_status !== undefined) setCachedSetting("pulse_status", params.pulse_status);
-  if (params.results_published !== undefined) setCachedSetting("results_published", String(params.results_published));
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
-  }
-
   // Exact fields only: competition_date, start_time, end_time, pulse_status, results_published
   const updatePayload: Record<string, any> = {};
 
@@ -223,6 +132,10 @@ export async function savePulseSettingsRecord(params: {
     if (error) {
       console.error("[CompetitionSettings] pulse_settings update error:", error);
       return { success: false, error: error.message };
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
     }
 
     return { success: true };
@@ -337,12 +250,6 @@ export async function setPulseStatus(
   status: PulseStatus,
   adminEmail?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  setCachedSetting("pulse_status", status);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent(SETTINGS_EVENT, { detail: { key: "pulse_status", value: status } })
-    );
-  }
   return savePulseSettingsRecord({ pulse_status: status });
 }
 
@@ -350,7 +257,7 @@ export async function setResultsPublished(
   published: boolean,
   adminEmail?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  return saveCompetitionSetting("results_published", String(published), adminEmail);
+  return savePulseSettingsRecord({ results_published: published });
 }
 
 export async function resetLeaderboard(
@@ -579,7 +486,7 @@ export function subscribeToCompetitionSettings(
   onUpdate: (settings: CompetitionSettings) => void
 ): () => void {
   const channel = supabase
-    .channel("pulse_settings_realtime_v5")
+    .channel("pulse_settings_realtime_stream_v1")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "pulse_settings" },
@@ -595,11 +502,6 @@ export function subscribeToCompetitionSettings(
             results_published: row.results_published === true || row.results_published === "true",
             leaderboard_reset_at: row.leaderboard_reset_at ?? null,
           };
-          if (newSettings.competition_date) setCachedSetting("competition_date", newSettings.competition_date);
-          if (newSettings.start_time) setCachedSetting("start_time", newSettings.start_time);
-          if (newSettings.end_time) setCachedSetting("end_time", newSettings.end_time);
-          if (newSettings.pulse_status) setCachedSetting("pulse_status", newSettings.pulse_status);
-          setCachedSetting("results_published", String(newSettings.results_published));
           onUpdate(newSettings);
         } else {
           const settings = await fetchCompetitionSettings();
@@ -607,40 +509,26 @@ export function subscribeToCompetitionSettings(
         }
       }
     )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "app_settings" },
-      async () => {
-        const settings = await fetchCompetitionSettings();
-        onUpdate(settings);
-      }
-    )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "championship_settings" },
-      async () => {
-        const settings = await fetchCompetitionSettings();
-        onUpdate(settings);
-      }
-    )
     .subscribe();
 
-  // Instant local dispatch handler for zero-latency in-browser sync
-  const handleLocalUpdate = async () => {
-    const settings = await fetchCompetitionSettings();
-    onUpdate(settings);
+  const handleLocalUpdate = async (e?: any) => {
+    if (e?.detail) {
+      const current = await fetchCompetitionSettings();
+      onUpdate({ ...current, ...e.detail });
+    } else {
+      const settings = await fetchCompetitionSettings();
+      onUpdate(settings);
+    }
   };
 
   if (typeof window !== "undefined") {
     window.addEventListener(SETTINGS_EVENT, handleLocalUpdate);
-    window.addEventListener("storage", handleLocalUpdate);
   }
 
   return () => {
     supabase.removeChannel(channel);
     if (typeof window !== "undefined") {
       window.removeEventListener(SETTINGS_EVENT, handleLocalUpdate);
-      window.removeEventListener("storage", handleLocalUpdate);
     }
   };
 }

@@ -837,35 +837,34 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
     console.warn("fetchLiveOpsState warning:", err);
   }
 
-  // Also overlay app_settings table as single source of truth for competition timing
+  // Overlay pulse_settings table as single source of truth for competition timing and status
   try {
-    const { data: appData } = await (supabase as any)
-      .from("app_settings")
-      .select("key, value");
-    if (appData && Array.isArray(appData)) {
-      const appMap: Record<string, string> = {};
-      appData.forEach((row: { key: string; value: string | null }) => {
-        if (row.key && row.value) appMap[row.key] = row.value;
-      });
-      if (appMap["competition_date"]) {
-        const raw = appMap["competition_date"];
+    const { data: pulseData } = await (supabase as any)
+      .from("pulse_settings")
+      .select("*")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (pulseData) {
+      if (pulseData.competition_date) {
+        const raw = pulseData.competition_date;
         merged.target_date = raw.includes("T") ? raw.split("T")[0]! : raw;
       }
-      if (appMap["start_time"]) {
-        merged.go_live_time = appMap["start_time"];
+      if (pulseData.start_time) {
+        merged.go_live_time = pulseData.start_time;
       }
-      if (appMap["end_time"]) {
-        merged.end_time = appMap["end_time"];
+      if (pulseData.end_time) {
+        merged.end_time = pulseData.end_time;
       }
-      if (appMap["pulse_status"]) {
-        merged.live_status = appMap["pulse_status"] as any;
+      if (pulseData.pulse_status) {
+        merged.live_status = pulseData.pulse_status as any;
       }
-      if (appMap["results_published"]) {
-        merged.results_declared = appMap["results_published"] === "true";
+      if (pulseData.results_published !== undefined && pulseData.results_published !== null) {
+        merged.results_declared = Boolean(pulseData.results_published);
       }
     }
   } catch {
-    // Ignore app_settings query error
+    // Ignore pulse_settings query error
   }
 
   safeSetItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(merged));
