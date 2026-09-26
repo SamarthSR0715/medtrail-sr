@@ -71,6 +71,7 @@ import {
   fetchCompetitionSettings,
 } from "@/lib/competition-settings-service";
 import { fetchRegisteredDeviceStats } from "@/lib/fcm-client";
+import { supabase } from "@/integrations/supabase/client";
 
 export function PulseStudio() {
   const todayIST = getISTDateString();

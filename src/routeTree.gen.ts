@@ -19,8 +19,10 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as MbbsRouteImport } from './routes/mbbs'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
+import { Route as PulseStudioRouteImport } from './routes/pulse-studio'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as SuperAdminRouteImport } from './routes/super-admin'
 import { Route as TravelRouteImport } from './routes/travel'
 import { Route as TravelMapRouteImport } from './routes/travel-map'
 import { Route as DestinationsIndexRouteImport } from './routes/destinations.index'
@@ -76,6 +78,11 @@ const PortfolioRoute = PortfolioRouteImport.update({
   path: '/portfolio',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PulseStudioRoute = PulseStudioRouteImport.update({
+  id: '/pulse-studio',
+  path: '/pulse-studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -84,6 +91,11 @@ const SignupRoute = SignupRouteImport.update({
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuperAdminRoute = SuperAdminRouteImport.update({
+  id: '/super-admin',
+  path: '/super-admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TravelRoute = TravelRouteImport.update({
@@ -118,8 +130,10 @@ export interface FileRoutesByFullPath {
   '/mbbs': typeof MbbsRoute
   '/notes': typeof NotesRoute
   '/portfolio': typeof PortfolioRoute
+  '/pulse-studio': typeof PulseStudioRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/super-admin': typeof SuperAdminRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
   '/destinations/$slug': typeof DestinationsSlugRoute
@@ -136,8 +150,10 @@ export interface FileRoutesByTo {
   '/mbbs': typeof MbbsRoute
   '/notes': typeof NotesRoute
   '/portfolio': typeof PortfolioRoute
+  '/pulse-studio': typeof PulseStudioRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/super-admin': typeof SuperAdminRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
   '/destinations/$slug': typeof DestinationsSlugRoute
@@ -155,8 +171,10 @@ export interface FileRoutesById {
   '/mbbs': typeof MbbsRoute
   '/notes': typeof NotesRoute
   '/portfolio': typeof PortfolioRoute
+  '/pulse-studio': typeof PulseStudioRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/super-admin': typeof SuperAdminRoute
   '/travel': typeof TravelRoute
   '/travel-map': typeof TravelMapRoute
   '/destinations/$slug': typeof DestinationsSlugRoute
@@ -175,8 +193,10 @@ export interface FileRouteTypes {
     | '/mbbs'
     | '/notes'
     | '/portfolio'
+    | '/pulse-studio'
     | '/signup'
     | '/sitemap.xml'
+    | '/super-admin'
     | '/travel'
     | '/travel-map'
     | '/destinations/$slug'
@@ -193,8 +213,10 @@ export interface FileRouteTypes {
     | '/mbbs'
     | '/notes'
     | '/portfolio'
+    | '/pulse-studio'
     | '/signup'
     | '/sitemap.xml'
+    | '/super-admin'
     | '/travel'
     | '/travel-map'
     | '/destinations/$slug'
@@ -211,8 +233,10 @@ export interface FileRouteTypes {
     | '/mbbs'
     | '/notes'
     | '/portfolio'
+    | '/pulse-studio'
     | '/signup'
     | '/sitemap.xml'
+    | '/super-admin'
     | '/travel'
     | '/travel-map'
     | '/destinations/$slug'
@@ -230,8 +254,10 @@ export interface RootRouteChildren {
   MbbsRoute: typeof MbbsRoute
   NotesRoute: typeof NotesRoute
   PortfolioRoute: typeof PortfolioRoute
+  PulseStudioRoute: typeof PulseStudioRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  SuperAdminRoute: typeof SuperAdminRoute
   TravelRoute: typeof TravelRoute
   TravelMapRoute: typeof TravelMapRoute
   DestinationsSlugRoute: typeof DestinationsSlugRoute
@@ -310,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortfolioRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pulse-studio': {
+      id: '/pulse-studio'
+      path: '/pulse-studio'
+      fullPath: '/pulse-studio'
+      preLoaderRoute: typeof PulseStudioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -322,6 +355,13 @@ declare module '@tanstack/react-router' {
       path: '/sitemap.xml'
       fullPath: '/sitemap.xml'
       preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/super-admin': {
+      id: '/super-admin'
+      path: '/super-admin'
+      fullPath: '/super-admin'
+      preLoaderRoute: typeof SuperAdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/travel': {
@@ -366,8 +406,10 @@ const rootRouteChildren: RootRouteChildren = {
   MbbsRoute: MbbsRoute,
   NotesRoute: NotesRoute,
   PortfolioRoute: PortfolioRoute,
+  PulseStudioRoute: PulseStudioRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  SuperAdminRoute: SuperAdminRoute,
   TravelRoute: TravelRoute,
   TravelMapRoute: TravelMapRoute,
   DestinationsSlugRoute: DestinationsSlugRoute,

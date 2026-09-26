@@ -107,9 +107,34 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
       .select("*")
       .limit(1);
 
-    const pulseRow = pulseRows && pulseRows.length > 0 ? pulseRows[0] : null;
+    let pulseRow = pulseRows && pulseRows.length > 0 ? pulseRows[0] : null;
 
-    if (!pulseErr && pulseRow) {
+    if (!pulseRow && !pulseErr) {
+      // If table is completely empty, initialize default row
+      try {
+        const defaultRow = {
+          id: "singleton",
+          competition_date: getCachedSetting("competition_date") || "2026-09-27",
+          start_time: getCachedSetting("start_time") || "19:00",
+          end_time: getCachedSetting("end_time") || "23:59",
+          pulse_status: getCachedSetting("pulse_status") || "upcoming",
+          results_published: getCachedSetting("results_published") === "true",
+          updated_at: new Date().toISOString(),
+        };
+        const { data: createdRow } = await (supabase as any)
+          .from("pulse_settings")
+          .insert(defaultRow)
+          .select("*")
+          .maybeSingle();
+        if (createdRow) {
+          pulseRow = createdRow;
+        }
+      } catch {
+        // Ignore initialization conflict if another tab inserted concurrently
+      }
+    }
+
+    if (pulseRow) {
       if (pulseRow.competition_date) {
         map["competition_date"] = pulseRow.competition_date;
         setCachedSetting("competition_date", pulseRow.competition_date);
