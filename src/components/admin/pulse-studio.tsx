@@ -344,18 +344,14 @@ export function PulseStudio() {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      // 1. Direct PATCH to pulse_settings where id=1
-      const { error } = await (supabase as any)
-        .from("pulse_settings")
-        .update({ results_published: true })
-        .eq("id", 1);
-
-      if (error) {
-        console.error("[PulseStudio] Error updating results_published:", error);
-        toast.error(`Publish failed: ${error.message}`);
+      // 1. Await Supabase update using shared persistence function
+      const res = await savePulseSettingsRecord({ results_published: true });
+      if (!res.success) {
+        toast.error(`Publish failed: ${res.error}`);
         return;
       }
 
+      // 2. Update React state
       setStatus("published");
       setPublishedAt(new Date().toISOString());
       setLiveOps((prev) => ({ ...prev, live_status: "published", results_declared: true }));
@@ -375,18 +371,14 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      // 1. Direct PATCH to pulse_settings where id=1
-      const { error } = await (supabase as any)
-        .from("pulse_settings")
-        .update({ pulse_status: "live" })
-        .eq("id", 1);
-
-      if (error) {
-        console.error("[PulseStudio] Error going live:", error);
-        toast.error(`Go Live failed: ${error.message}`);
+      // 1. Await Supabase update using shared persistence function
+      const res = await savePulseSettingsRecord({ pulse_status: "live" });
+      if (!res.success) {
+        toast.error(`Go Live failed: ${res.error}`);
         return;
       }
 
+      // 2. Update React state
       setLiveOps((prev) => ({ ...prev, live_status: "live" }));
       setStatus("live");
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
@@ -405,18 +397,14 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
-      // 1. Direct PATCH to pulse_settings where id=1
-      const { error } = await (supabase as any)
-        .from("pulse_settings")
-        .update({ pulse_status: "paused" })
-        .eq("id", 1);
-
-      if (error) {
-        console.error("[PulseStudio] Error pausing pulse:", error);
-        toast.error(`Pause failed: ${error.message}`);
+      // 1. Await Supabase update using shared persistence function
+      const res = await savePulseSettingsRecord({ pulse_status: "paused" });
+      if (!res.success) {
+        toast.error(`Pause failed: ${res.error}`);
         return;
       }
 
+      // 2. Update React state
       setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
       toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
 
@@ -429,18 +417,14 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
-      // 1. Direct PATCH to pulse_settings where id=1
-      const { error } = await (supabase as any)
-        .from("pulse_settings")
-        .update({ pulse_status: "ended" })
-        .eq("id", 1);
-
-      if (error) {
-        console.error("[PulseStudio] Error ending pulse:", error);
-        toast.error(`End Pulse failed: ${error.message}`);
+      // 1. Await Supabase update using shared persistence function
+      const res = await savePulseSettingsRecord({ pulse_status: "ended" });
+      if (!res.success) {
+        toast.error(`End Pulse failed: ${res.error}`);
         return;
       }
 
+      // 2. Update React state
       setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
       toast.info("⏹️ Pulse session officially ended.");
 
@@ -487,11 +471,8 @@ export function PulseStudio() {
     }
     setShowDeclareModal(false);
     try {
-      // 1. Direct PATCH to pulse_settings where id=1
-      await (supabase as any)
-        .from("pulse_settings")
-        .update({ results_published: true, pulse_status: "ended" })
-        .eq("id", 1);
+      // 1. Await Supabase update using shared persistence function
+      await savePulseSettingsRecord({ results_published: true, pulse_status: "ended" });
 
       const res = await declareFinalResults();
       if (res.success) {

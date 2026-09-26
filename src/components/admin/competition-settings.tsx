@@ -200,19 +200,14 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   const handleSetStatus = async (status: PulseStatus) => {
     setIsSettingStatus(true);
     try {
-      // 1. Await the direct Supabase update on pulse_settings
-      const { error } = await (supabase as any)
-        .from("pulse_settings")
-        .update({ pulse_status: status })
-        .eq("id", 1);
-
-      if (error) {
-        console.error("[CompetitionSettings] Error updating pulse_status:", error);
-        toast.error(`Status update failed: ${error.message}`);
+      // 1. Await Supabase update using shared persistence function
+      const res = await savePulseSettingsRecord({ pulse_status: status });
+      if (!res.success) {
+        toast.error(`Status update failed: ${res.error}`);
         return;
       }
 
-      // 2. Update local state immediately
+      // 2. Update React state
       setSettings((prev) => ({
         ...prev,
         pulse_status: status,
@@ -227,7 +222,7 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       toast.success(labels[status]);
       setLastAction(labels[status]);
 
-      // Secondary sync in background without blocking
+      // 3. Secondary setting sync in background
       saveCompetitionSetting("pulse_status", status, adminEmail).catch(() => {});
     } catch (err: any) {
       toast.error(`Status update failed: ${err?.message || err}`);
@@ -242,19 +237,14 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
     if (next && !window.confirm("Publish final results? Students will immediately see the leaderboard.")) return;
     setIsTogglingResults(true);
     try {
-      // 1. Await the direct Supabase update on pulse_settings
-      const { error } = await (supabase as any)
-        .from("pulse_settings")
-        .update({ results_published: next })
-        .eq("id", 1);
-
-      if (error) {
-        console.error("[CompetitionSettings] Error updating results_published:", error);
-        toast.error(`Toggle failed: ${error.message}`);
+      // 1. Await Supabase update using shared persistence function
+      const res = await savePulseSettingsRecord({ results_published: next });
+      if (!res.success) {
+        toast.error(`Toggle failed: ${res.error}`);
         return;
       }
 
-      // 2. Update local state immediately
+      // 2. Update React state
       setSettings((prev) => ({
         ...prev,
         results_published: next,
@@ -263,7 +253,7 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       toast.success(next ? "📊 Results published! Students can now see the leaderboard." : "🙈 Results hidden. Students see 'Results will be announced.'");
       setLastAction(next ? "Results published" : "Results hidden");
 
-      // Secondary sync in background without blocking
+      // 3. Secondary setting sync in background
       saveCompetitionSetting("results_published", String(next), adminEmail).catch(() => {});
     } catch (err: any) {
       toast.error(`Toggle failed: ${err?.message || err}`);
