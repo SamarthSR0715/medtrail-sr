@@ -698,7 +698,7 @@ export async function fetchHallOfFameRecord(): Promise<HallOfFameData> {
     const { data, error } = await supabase
       .from("championship_hall_of_fame")
       .select("*")
-      .eq("id", "season_1")
+      .limit(1)
       .maybeSingle();
 
     if (!error && data) {
