@@ -782,7 +782,7 @@ const DEFAULT_LIVE_OPS: LiveOpsState = {
   id: "singleton",
   registration_open: true,
   live_status: "published",
-  target_date: "2026-09-27",
+  target_date: "",
   go_live_time: "19:00",
   end_time: "23:59",
   extended_minutes: 0,
@@ -819,7 +819,7 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
         id: data.id,
         registration_open: Boolean(data.registration_open),
         live_status: data.live_status as any,
-        target_date: data.target_date || "2026-09-27",
+        target_date: data.target_date || "",
         go_live_time: data.go_live_time || "19:00",
         end_time: data.end_time || "23:59",
         extended_minutes: Number(data.extended_minutes) || 0,
@@ -892,7 +892,9 @@ export async function updateLiveOpsState(
  * Counts: Registered, Online, Attempted, Completed, Average Score
  */
 export async function fetchLiveDashboardStats(targetDate?: string): Promise<LiveAnalytics> {
-  const dateToQuery = targetDate || "2026-09-27";
+  const dateToQuery =
+    targetDate ||
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
   let registered = 0;
   let attempted = 0;
   let completed = 0;

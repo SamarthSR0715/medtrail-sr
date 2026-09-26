@@ -95,8 +95,8 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       const utcISO = istLocalToUTC(startLocal);
       const res = await saveCompetitionSetting("competition_date", utcISO, adminEmail);
       if (res.success) {
-        toast.success("✅ Start date saved — all student views updated instantly.");
-        setLastAction(`Start date set to ${formatCompetitionDateTime(utcISO)}`);
+        toast.success("Competition date updated");
+        setLastAction(`Competition date set to ${formatCompetitionDateTime(utcISO)}`);
         await loadSettings();
       } else {
         toast.error(`Save failed: ${res.error}`);

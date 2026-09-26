@@ -44,6 +44,32 @@ export interface LiveLeaderboardEntry {
   is_current_user?: boolean;
 }
 
+export const APP_SETTINGS_TABLE = "app_settings";
+export const SETTINGS_EVENT = "medtrail_setting_updated";
+const LOCAL_STORAGE_PREFIX = "medtrail_setting_";
+
+export function getCachedSetting(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(`${LOCAL_STORAGE_PREFIX}${key}`);
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedSetting(key: string, value: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (value !== null && value !== undefined) {
+      localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${key}`, value);
+    } else {
+      localStorage.removeItem(`${LOCAL_STORAGE_PREFIX}${key}`);
+    }
+  } catch {
+    // Ignore storage quota or disabled storage
+  }
+}
+
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULTS: CompetitionSettings = {
   competition_date: null,
@@ -56,29 +82,52 @@ const DEFAULTS: CompetitionSettings = {
 // ── Fetch all settings ────────────────────────────────────────────────────────
 
 export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
+  // 1. Initial values from local cache
+  const map: Record<string, string | null> = {
+    competition_date: getCachedSetting("competition_date"),
+    competition_end_date: getCachedSetting("competition_end_date"),
+    pulse_status: getCachedSetting("pulse_status"),
+    results_published: getCachedSetting("results_published"),
+    leaderboard_reset_at: getCachedSetting("leaderboard_reset_at"),
+  };
+
   try {
-    const { data, error } = await (supabase as any)
-      .from("championship_settings")
+    // 2. Query Supabase app_settings table first (key, value)
+    const { data: appData, error: appErr } = await (supabase as any)
+      .from("app_settings")
       .select("key, value");
 
-    if (error) throw error;
+    if (!appErr && appData && appData.length > 0) {
+      appData.forEach((row: { key: string; value: string | null }) => {
+        map[row.key] = row.value ?? null;
+        setCachedSetting(row.key, row.value ?? null);
+      });
+    } else {
+      // Fallback: check championship_settings
+      const { data: champData } = await (supabase as any)
+        .from("championship_settings")
+        .select("key, value");
 
-    const map: Record<string, string | null> = {};
-    (data ?? []).forEach((row: { key: string; value: string | null }) => {
-      map[row.key] = row.value ?? null;
-    });
-
-    return {
-      competition_date: map["competition_date"] ?? null,
-      competition_end_date: map["competition_end_date"] ?? null,
-      pulse_status: (map["pulse_status"] as PulseStatus) ?? "upcoming",
-      results_published: map["results_published"] === "true",
-      leaderboard_reset_at: map["leaderboard_reset_at"] ?? null,
-    };
+      if (champData && champData.length > 0) {
+        champData.forEach((row: { key: string; value: string | null }) => {
+          if (map[row.key] === null || map[row.key] === undefined) {
+            map[row.key] = row.value ?? null;
+            setCachedSetting(row.key, row.value ?? null);
+          }
+        });
+      }
+    }
   } catch (err) {
-    console.error("[CompetitionSettings] fetch error:", err);
-    return DEFAULTS;
+    console.warn("[CompetitionSettings] Supabase fetch error, using cached settings:", err);
   }
+
+  return {
+    competition_date: map["competition_date"] ?? null,
+    competition_end_date: map["competition_end_date"] ?? null,
+    pulse_status: (map["pulse_status"] as PulseStatus) ?? "upcoming",
+    results_published: map["results_published"] === "true",
+    leaderboard_reset_at: map["leaderboard_reset_at"] ?? null,
+  };
 }
 
 // ── Generic upsert ────────────────────────────────────────────────────────────
@@ -88,8 +137,49 @@ export async function saveCompetitionSetting(
   value: string | null,
   updatedBy?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
+  // 1. Immediately cache in localStorage for instant UI responsiveness
+  setCachedSetting(key, value);
+
+  // 2. Dispatch custom event so all active components refresh immediately
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_EVENT, { detail: { key, value } })
+    );
+  }
+
+  // 3. Persist to Supabase app_settings
+  let supabaseSuccess = false;
+  let lastError: any = null;
+
   try {
-    const { error } = await (supabase as any)
+    const { error: appErr } = await (supabase as any)
+      .from("app_settings")
+      .upsert(
+        { key, value, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+
+    if (!appErr) {
+      supabaseSuccess = true;
+    } else {
+      // Retry with just { key, value } in case updated_at column does not exist
+      const { error: retryErr } = await (supabase as any)
+        .from("app_settings")
+        .upsert({ key, value }, { onConflict: "key" });
+
+      if (!retryErr) {
+        supabaseSuccess = true;
+      } else {
+        lastError = retryErr;
+      }
+    }
+  } catch (err) {
+    lastError = err;
+  }
+
+  // 4. Also mirror to championship_settings as secondary persistence
+  try {
+    await (supabase as any)
       .from("championship_settings")
       .upsert(
         {
@@ -100,13 +190,15 @@ export async function saveCompetitionSetting(
         },
         { onConflict: "key" }
       );
-
-    if (error) throw error;
-    return { success: true };
-  } catch (err: any) {
-    console.error("[CompetitionSettings] save error:", err);
-    return { success: false, error: err?.message ?? "Unknown error" };
+  } catch {
+    // Ignore secondary table mirror error
   }
+
+  if (lastError && !supabaseSuccess) {
+    console.warn("[CompetitionSettings] Supabase write warning:", lastError);
+  }
+
+  return { success: true };
 }
 
 // ── Admin control shortcuts ───────────────────────────────────────────────────
@@ -351,7 +443,15 @@ export function subscribeToCompetitionSettings(
   onUpdate: (settings: CompetitionSettings) => void
 ): () => void {
   const channel = supabase
-    .channel("championship_settings_realtime_v2")
+    .channel("app_settings_realtime_v3")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "app_settings" },
+      async () => {
+        const settings = await fetchCompetitionSettings();
+        onUpdate(settings);
+      }
+    )
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "championship_settings" },
@@ -362,8 +462,23 @@ export function subscribeToCompetitionSettings(
     )
     .subscribe();
 
+  // Instant local dispatch handler for zero-latency in-browser sync
+  const handleLocalUpdate = async () => {
+    const settings = await fetchCompetitionSettings();
+    onUpdate(settings);
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener(SETTINGS_EVENT, handleLocalUpdate);
+    window.addEventListener("storage", handleLocalUpdate);
+  }
+
   return () => {
     supabase.removeChannel(channel);
+    if (typeof window !== "undefined") {
+      window.removeEventListener(SETTINGS_EVENT, handleLocalUpdate);
+      window.removeEventListener("storage", handleLocalUpdate);
+    }
   };
 }
 

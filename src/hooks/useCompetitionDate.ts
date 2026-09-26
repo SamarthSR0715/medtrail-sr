@@ -15,6 +15,7 @@ import {
   formatCompetitionDateTime,
   formatCompetitionTime,
   computeSeasonStatus,
+  getCachedSetting,
   type CompetitionSettings,
   type PulseStatus,
 } from "@/lib/competition-settings-service";
@@ -101,8 +102,27 @@ function buildState(
   };
 }
 
+function getInitialState(): CompetitionDateState {
+  const cachedStart = getCachedSetting("competition_date");
+  const cachedEnd = getCachedSetting("competition_end_date");
+  const cachedPulseStatus = (getCachedSetting("pulse_status") as PulseStatus) ?? "upcoming";
+  const cachedResults = getCachedSetting("results_published") === "true";
+  const cachedReset = getCachedSetting("leaderboard_reset_at");
+
+  if (!cachedStart && !cachedEnd) return LOADING_STATE;
+
+  const initialSettings: CompetitionSettings = {
+    competition_date: cachedStart,
+    competition_end_date: cachedEnd,
+    pulse_status: cachedPulseStatus,
+    results_published: cachedResults,
+    leaderboard_reset_at: cachedReset,
+  };
+  return buildState(initialSettings, new Date());
+}
+
 export function useCompetitionDate(): CompetitionDateState {
-  const [state, setState] = useState<CompetitionDateState>(LOADING_STATE);
+  const [state, setState] = useState<CompetitionDateState>(getInitialState);
   const settingsRef = useRef<CompetitionSettings | null>(null);
 
   // Rebuild state every second so autoSeasonStatus stays accurate

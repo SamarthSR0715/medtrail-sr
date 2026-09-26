@@ -167,9 +167,9 @@ export async function fetchSuperAdminDashboardStats(): Promise<SuperAdminDashboa
     console.warn("[SuperAdmin] Profiles query warning:", err);
   }
 
-  // Calculate Championship Day (Assuming Day 1 starts 2026-09-25 or liveOps target_date)
-  const startDate = new Date("2026-09-25T00:00:00Z");
+  // Calculate Championship Day based on dynamic date
   const now = new Date();
+  const startDate = liveOps.target_date ? new Date(liveOps.target_date) : now;
   const diffDays = Math.max(1, Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
   // Dynamic active online heuristic based on live status

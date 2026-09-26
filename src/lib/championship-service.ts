@@ -16,9 +16,9 @@ export const EVENT_TZ = "Asia/Kolkata";
 export const EVENT_TZ_ABBR = "IST";
 export const EVENT_TZ_OFFSET = "UTC+5:30";
 
-/** Season window in UTC */
-export const SEASON_START_UTC = new Date("2026-09-27T13:30:00Z"); // 7:00 PM IST
-export const SEASON_END_UTC   = new Date("2026-10-17T13:30:00Z"); // 7:00 PM IST
+/** Season window in UTC — dynamically loaded from Supabase */
+export const SEASON_START_UTC: Date | null = null;
+export const SEASON_END_UTC: Date | null = null;
 
 /** Daily pulse rules */
 export const DAILY_PULSE_TOTAL = 5;
@@ -200,9 +200,10 @@ export function getSeasonStatus(
   customStart?: Date | null,
   customEnd?: Date | null
 ): SeasonStatus {
-  const start = customStart ?? SEASON_START_UTC;
-  const end = customEnd ?? SEASON_END_UTC;
-  if (start && now < start) return "pre";
+  const start = customStart ?? null;
+  const end = customEnd ?? null;
+  if (!start) return "pre";
+  if (now < start) return "pre";
   if (end && now > end) return "ended";
   return "live";
 }
