@@ -205,7 +205,7 @@ export async function savePulseSettingsRecord(params: {
   end_time?: string | null;
   pulse_status?: PulseStatus;
   results_published?: boolean;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; data?: any; error?: string }> {
   // Update local cache
   if (params.competition_date !== undefined) setCachedSetting("competition_date", params.competition_date);
   if (params.start_time !== undefined) setCachedSetting("start_time", params.start_time);
@@ -217,66 +217,79 @@ export async function savePulseSettingsRecord(params: {
     window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
   }
 
-  // 1. Direct Supabase update on pulse_settings
-  const updatePayload: Record<string, any> = {
-    updated_at: new Date().toISOString(),
-  };
+  // Exact fields only: competition_date, start_time, end_time, pulse_status, results_published
+  const updatePayload: Record<string, any> = {};
+
   if (params.competition_date !== undefined) {
     const raw = params.competition_date;
-    updatePayload.competition_date = raw && raw.includes("T") ? raw.split("T")[0] : raw;
+    updatePayload.competition_date = raw && raw.includes("T") ? raw.split("T")[0] : (raw || null);
   }
-  if (params.start_time !== undefined) updatePayload.start_time = params.start_time;
-  if (params.end_time !== undefined) updatePayload.end_time = params.end_time;
-  if (params.pulse_status !== undefined) updatePayload.pulse_status = params.pulse_status;
-  if (params.results_published !== undefined) updatePayload.results_published = params.results_published;
+  if (params.start_time !== undefined) {
+    updatePayload.start_time = params.start_time ? params.start_time.trim().slice(0, 8) : null;
+  }
+  if (params.end_time !== undefined) {
+    updatePayload.end_time = params.end_time ? params.end_time.trim().slice(0, 8) : null;
+  }
+  if (params.pulse_status !== undefined) {
+    updatePayload.pulse_status = params.pulse_status;
+  }
+  if (params.results_published !== undefined) {
+    updatePayload.results_published = Boolean(params.results_published);
+  }
 
   try {
-    // Check existing row in pulse_settings
-    const { data: existingRows } = await (supabase as any)
+    // Exact user requirement: supabase.from("pulse_settings").update({...}).eq("id", 1).select().single()
+    let { data, error } = await (supabase as any)
       .from("pulse_settings")
-      .select("id")
-      .limit(1);
+      .update(updatePayload)
+      .eq("id", 1)
+      .select()
+      .single();
 
-    if (existingRows && existingRows.length > 0) {
-      await (supabase as any)
+    if (error) {
+      // Fallback: try id = '1' or existing row id
+      const { data: stringIdData, error: stringIdErr } = await (supabase as any)
         .from("pulse_settings")
         .update(updatePayload)
-        .eq("id", existingRows[0].id);
-    } else {
-      const { error: update1Err } = await (supabase as any)
-        .from("pulse_settings")
-        .update(updatePayload)
-        .eq("id", 1);
+        .eq("id", "1")
+        .select()
+        .single();
 
-      if (update1Err) {
-        await (supabase as any)
+      if (!stringIdErr && stringIdData) {
+        data = stringIdData;
+        error = null;
+      } else {
+        const { data: rows } = await (supabase as any)
           .from("pulse_settings")
-          .upsert({ id: 1, ...updatePayload }, { onConflict: "id" });
+          .select("id")
+          .limit(1);
+
+        if (rows && rows.length > 0) {
+          const { data: firstRowData, error: firstRowErr } = await (supabase as any)
+            .from("pulse_settings")
+            .update(updatePayload)
+            .eq("id", rows[0].id)
+            .select()
+            .single();
+
+          if (!firstRowErr && firstRowData) {
+            data = firstRowData;
+            error = null;
+          }
+        }
       }
     }
-  } catch (err) {
-    console.warn("[CompetitionSettings] pulse_settings update error:", err);
-  }
 
-  // 2. Also persist to app_settings for backwards compatibility
-  try {
-    const pairs: { key: string; value: string | null }[] = [];
-    if (params.competition_date !== undefined) pairs.push({ key: "competition_date", value: params.competition_date });
-    if (params.start_time !== undefined) pairs.push({ key: "start_time", value: params.start_time });
-    if (params.end_time !== undefined) pairs.push({ key: "end_time", value: params.end_time });
-    if (params.pulse_status !== undefined) pairs.push({ key: "pulse_status", value: params.pulse_status });
-    if (params.results_published !== undefined) pairs.push({ key: "results_published", value: String(params.results_published) });
-
-    for (const p of pairs) {
-      await (supabase as any)
-        .from("app_settings")
-        .upsert({ key: p.key, value: p.value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    if (error) {
+      console.error("[CompetitionSettings] pulse_settings update error:", error);
+      return { success: false, error: error.message };
     }
-  } catch {
-    // Ignore app_settings write failure
-  }
 
-  return { success: true };
+    return { success: true, data };
+  } catch (err: any) {
+    console.error("[CompetitionSettings] pulse_settings save error:", err);
+    return { success: false, error: err?.message || String(err) };
+  }
 }
 
 // ── Generic upsert ────────────────────────────────────────────────────────────
@@ -296,7 +309,7 @@ export async function saveCompetitionSetting(
     );
   }
 
-  // 3. Persist to pulse_settings if the key belongs to pulse_settings
+  // 3. Persist to pulse_settings directly if the key belongs to pulse_settings
   const pulseFieldMap: Record<string, string> = {
     competition_date: "competition_date",
     start_time: "start_time",
@@ -317,31 +330,22 @@ export async function saveCompetitionSetting(
 
       const updateData: Record<string, any> = {
         [field]: val,
-        updated_at: new Date().toISOString(),
       };
 
-      const { data: rows } = await (supabase as any)
+      const { error } = await (supabase as any)
         .from("pulse_settings")
-        .select("id")
-        .limit(1);
+        .update(updateData)
+        .eq("id", 1)
+        .select()
+        .single();
 
-      if (rows && rows.length > 0) {
+      if (error) {
         await (supabase as any)
           .from("pulse_settings")
           .update(updateData)
-          .eq("id", rows[0].id);
-      } else {
-        const { error: err1 } = await (supabase as any)
-          .from("pulse_settings")
-          .update(updateData)
-          .eq("id", 1);
-
-        if (err1) {
-          await (supabase as any)
-            .from("pulse_settings")
-            .update(updateData)
-            .eq("id", "singleton");
-        }
+          .eq("id", "1")
+          .select()
+          .single();
       }
     } catch (err) {
       console.warn("[CompetitionSettings] pulse_settings write notice:", err);
