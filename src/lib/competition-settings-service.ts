@@ -568,13 +568,32 @@ export function subscribeToCompetitionSettings(
   onUpdate: (settings: CompetitionSettings) => void
 ): () => void {
   const channel = supabase
-    .channel("pulse_settings_realtime_v4")
+    .channel("pulse_settings_realtime_v5")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "pulse_settings" },
-      async () => {
-        const settings = await fetchCompetitionSettings();
-        onUpdate(settings);
+      async (payload: any) => {
+        if (payload?.new) {
+          const row = payload.new;
+          const newSettings: CompetitionSettings = {
+            competition_date: row.competition_date ?? null,
+            competition_end_date: row.competition_end_date ?? null,
+            start_time: row.start_time ?? "19:00",
+            end_time: row.end_time ?? "23:59",
+            pulse_status: (row.pulse_status as PulseStatus) ?? "upcoming",
+            results_published: row.results_published === true || row.results_published === "true",
+            leaderboard_reset_at: row.leaderboard_reset_at ?? null,
+          };
+          if (newSettings.competition_date) setCachedSetting("competition_date", newSettings.competition_date);
+          if (newSettings.start_time) setCachedSetting("start_time", newSettings.start_time);
+          if (newSettings.end_time) setCachedSetting("end_time", newSettings.end_time);
+          if (newSettings.pulse_status) setCachedSetting("pulse_status", newSettings.pulse_status);
+          setCachedSetting("results_published", String(newSettings.results_published));
+          onUpdate(newSettings);
+        } else {
+          const settings = await fetchCompetitionSettings();
+          onUpdate(settings);
+        }
       }
     )
     .on(

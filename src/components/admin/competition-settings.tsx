@@ -33,6 +33,7 @@ import {
 import {
   fetchCompetitionSettings,
   saveCompetitionSetting,
+  subscribeToCompetitionSettings,
   setPulseStatus,
   setResultsPublished,
   resetLeaderboard,
@@ -86,6 +87,15 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
 
   useEffect(() => {
     loadSettings();
+    const unsub = subscribeToCompetitionSettings((newSettings) => {
+      setSettings(newSettings);
+      setStartLocal(utcToISTLocal(newSettings.competition_date));
+      setEndLocal(utcToISTLocal(newSettings.competition_end_date));
+    });
+
+    return () => {
+      unsub();
+    };
   }, []);
 
   // ── Date saving ─────────────────────────────────────────────────────────────

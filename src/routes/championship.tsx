@@ -466,11 +466,25 @@ function RouteComponent() {
 
     // Pulse Settings Realtime Channel — instant sync for Go Live, Pause, End, Publish, Countdown
     const pulseSettingsChannel = supabase
-      .channel("championship_pulse_settings_live_v1")
+      .channel("championship_pulse_settings_live_v2")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pulse_settings" },
-        () => {
+        (payload: any) => {
+          if (payload?.new) {
+            const row = payload.new;
+            setLiveOps((prev) => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                target_date: row.competition_date || prev.target_date,
+                go_live_time: row.start_time || prev.go_live_time,
+                end_time: row.end_time || prev.end_time,
+                live_status: row.pulse_status || prev.live_status,
+                results_declared: row.results_published !== undefined ? row.results_published : prev.results_declared,
+              };
+            });
+          }
           loadTodayPulse();
         }
       )

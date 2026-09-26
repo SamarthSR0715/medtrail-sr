@@ -246,16 +246,50 @@ export function PulseStudio() {
   useEffect(() => {
     refreshLiveOps();
     refreshAnalytics();
+
+    // Supabase Realtime subscription for pulse_settings and attempt analytics
+    const channel = supabase
+      .channel("pulse_studio_realtime_v3")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pulse_settings" },
+        (payload: any) => {
+          if (payload?.new) {
+            const row = payload.new;
+            setLiveOps((prev) => ({
+              ...prev,
+              target_date: row.competition_date || prev.target_date,
+              go_live_time: row.start_time || prev.go_live_time,
+              end_time: row.end_time || prev.end_time,
+              live_status: row.pulse_status || prev.live_status,
+              results_declared: row.results_published !== undefined ? row.results_published : prev.results_declared,
+            }));
+          }
+          refreshLiveOps();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_pulse_attempts" },
+        () => {
+          refreshAnalytics();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [refreshLiveOps, refreshAnalytics]);
 
-  // 5-10 second auto-refresh cycle for Live Dashboard
+  // Periodic heartbeat timer for live dashboard
   useEffect(() => {
     const timer = setInterval(() => {
       setAutoRefreshTimer((prev) => {
         if (prev <= 1) {
           refreshAnalytics();
           refreshLiveOps();
-          return 7;
+          return 10;
         }
         return prev - 1;
       });
