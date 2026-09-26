@@ -102,11 +102,12 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
 
   try {
     // 2. Query Supabase pulse_settings table first (Primary single source of truth)
-    const { data: pulseRow, error: pulseErr } = await (supabase as any)
+    const { data: pulseRows, error: pulseErr } = await (supabase as any)
       .from("pulse_settings")
       .select("*")
-      .eq("id", "singleton")
-      .maybeSingle();
+      .limit(1);
+
+    const pulseRow = pulseRows && pulseRows.length > 0 ? pulseRows[0] : null;
 
     if (!pulseErr && pulseRow) {
       if (pulseRow.competition_date) {
@@ -194,7 +195,6 @@ export async function savePulseSettingsRecord(params: {
   // 1. Persist to pulse_settings
   try {
     const pulseUpsertData: Record<string, any> = {
-      id: "singleton",
       updated_at: new Date().toISOString(),
     };
     if (params.competition_date !== undefined) pulseUpsertData.competition_date = params.competition_date;
@@ -203,9 +203,21 @@ export async function savePulseSettingsRecord(params: {
     if (params.pulse_status !== undefined) pulseUpsertData.pulse_status = params.pulse_status;
     if (params.results_published !== undefined) pulseUpsertData.results_published = params.results_published;
 
-    await (supabase as any)
+    const { data: existingRows } = await (supabase as any)
       .from("pulse_settings")
-      .upsert(pulseUpsertData, { onConflict: "id" });
+      .select("id")
+      .limit(1);
+
+    if (existingRows && existingRows.length > 0) {
+      await (supabase as any)
+        .from("pulse_settings")
+        .update(pulseUpsertData)
+        .eq("id", existingRows[0].id);
+    } else {
+      await (supabase as any)
+        .from("pulse_settings")
+        .upsert({ id: "singleton", ...pulseUpsertData }, { onConflict: "id" });
+    }
   } catch (err) {
     console.warn("[CompetitionSettings] pulse_settings upsert note:", err);
   }
