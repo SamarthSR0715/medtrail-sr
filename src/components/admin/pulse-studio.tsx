@@ -67,6 +67,16 @@ import {
   savePulseSettingsRecord,
   fetchCompetitionSettings,
 } from "@/lib/competition-settings-service";
+import {
+  saveSchedule,
+  goLive,
+  pausePulse,
+  endPulse,
+  publishResults,
+  getPulseSettings,
+  subscribeToPulseStatus,
+  type PulseStatus,
+} from "@/lib/pulse-service";
 import { fetchRegisteredDeviceStats } from "@/lib/fcm-client";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -74,43 +84,6 @@ export function PulseStudio() {
   const todayIST = getISTDateString();
   const [pulseDate, setPulseDate] = useState<string>(todayIST);
 
-  /**
-   * Patches the single pulse_settings row (id = 1).
-   * Does NOT write 'id' in the update payload.
-   * Uses UPDATE without any INSERT/UPSERT to prevent identity column errors.
-   */
-  const patchPulseSettings = async (fields: Record<string, unknown>): Promise<{ error: any }> => {
-    try {
-      // Do not write the id field in the update payload
-      const { id, ...updateFields } = fields;
-
-      // Dynamically resolve target row id (handles id=1, id="singleton", or whatever primary key exists)
-      let targetId: any = 1;
-      try {
-        const { data: existing } = await (supabase as any)
-          .from("pulse_settings")
-          .select("id")
-          .limit(1)
-          .maybeSingle();
-        if (existing?.id !== undefined && existing?.id !== null) {
-          targetId = existing.id;
-        }
-      } catch {
-        targetId = 1;
-      }
-
-      console.log(`[patchPulseSettings] updating pulse_settings (id=${targetId}) with:`, updateFields);
-      const result = await (supabase as any)
-        .from("pulse_settings")
-        .update(updateFields)
-        .eq("id", targetId);
-      console.log("[patchPulseSettings] update result:", result);
-      return result;
-    } catch (err: any) {
-      console.error("[patchPulseSettings] exception:", err);
-      return { error: err };
-    }
-  };
   const [questions, setQuestions] = useState<PulseQuestionInput[]>(createEmptyPulseQuestions());
   const [activeSlot, setActiveSlot] = useState<number>(1);
   const [status, setStatus] = useState<"draft" | "published" | "empty">("empty");
@@ -389,15 +362,14 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      // Exactly ONE UPDATE to pulse_settings: pulse_status = "live"
-      const { error } = await patchPulseSettings({ pulse_status: "live" });
-
-      if (error) {
-        toast.error(`Go Live failed: ${error.message}`);
+      // Exactly ONE UPDATE to pulse_settings row 1 via pulse-service
+      const res = await goLive();
+      if (!res.success) {
+        toast.error(`Go Live failed: ${res.error || "Unknown error"}`);
         return;
       }
 
-      setLiveOps((prev) => ({ ...prev, live_status: "live" }));
+      await refreshLiveOps();
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
 
       sendPushNotification({
@@ -412,15 +384,14 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
-      // Exactly ONE UPDATE to pulse_settings: pulse_status = "paused"
-      const { error } = await patchPulseSettings({ pulse_status: "paused" });
-
-      if (error) {
-        toast.error(`Pause failed: ${error.message}`);
+      // Exactly ONE UPDATE to pulse_settings row 1 via pulse-service
+      const res = await pausePulse();
+      if (!res.success) {
+        toast.error(`Pause failed: ${res.error || "Unknown error"}`);
         return;
       }
 
-      setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
+      await refreshLiveOps();
       toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily locked.");
     } catch (err: any) {
       toast.error(err?.message || "Error pausing pulse.");
@@ -429,15 +400,14 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
-      // Exactly ONE UPDATE to pulse_settings: pulse_status = "ended"
-      const { error } = await patchPulseSettings({ pulse_status: "ended" });
-
-      if (error) {
-        toast.error(`End Pulse failed: ${error.message}`);
+      // Exactly ONE UPDATE to pulse_settings row 1 via pulse-service
+      const res = await endPulse();
+      if (!res.success) {
+        toast.error(`End Pulse failed: ${res.error || "Unknown error"}`);
         return;
       }
 
-      setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
+      await refreshLiveOps();
       toast.info("⏹️ Pulse session officially ended.");
     } catch (err: any) {
       toast.error(err?.message || "Error ending pulse.");
@@ -446,15 +416,14 @@ export function PulseStudio() {
 
   const handlePublishResults = async () => {
     try {
-      // Exactly ONE UPDATE to pulse_settings: results_published = true only (never modify pulse_status)
-      const { error } = await patchPulseSettings({ results_published: true });
-
-      if (error) {
-        toast.error(`Publish Results failed: ${error.message}`);
+      // Exactly ONE UPDATE to pulse_settings row 1 via pulse-service: results_published = true
+      const res = await publishResults();
+      if (!res.success) {
+        toast.error(`Publish Results failed: ${res.error || "Unknown error"}`);
         return;
       }
 
-      setLiveOps((prev) => ({ ...prev, results_declared: true }));
+      await refreshLiveOps();
       toast.success("🏆 Official Results & Leaderboard published! Visible to all students.");
 
       sendPushNotification({
@@ -471,18 +440,19 @@ export function PulseStudio() {
   const handleSaveDateTime = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     try {
-      // Exactly ONE UPDATE to pulse_settings row 1
-      const { error } = await patchPulseSettings({
+      // Exactly ONE UPDATE to pulse_settings row 1 via pulse-service
+      const res = await saveSchedule({
         competition_date: liveOps.target_date || null,
         start_time: liveOps.go_live_time ? liveOps.go_live_time.trim().slice(0, 8) : null,
         end_time: liveOps.end_time ? liveOps.end_time.trim().slice(0, 8) : null,
       });
 
-      if (error) {
-        toast.error(`Save failed: ${error.message}`);
+      if (!res.success) {
+        toast.error(`Save failed: ${res.error || "Unknown error"}`);
         return;
       }
 
+      await refreshLiveOps();
       toast.success("⏱️ Competition Date & Time saved and synchronized to all students!");
     } catch (err: any) {
       toast.error(err?.message || "Failed to save date & time.");
@@ -499,7 +469,11 @@ const handleDeclareResults = async () => {
   setShowDeclareModal(false);
   try {
     // 1. Await Supabase update: publish results only (do not alter pulse_status)
-    await patchPulseSettings({ results_published: true });
+    const pubRes = await publishResults();
+    if (!pubRes.success) {
+      toast.error(`Publish failed: ${pubRes.error}`);
+      return;
+    }
 
     const res = await declareFinalResults();
     if (res.success) {

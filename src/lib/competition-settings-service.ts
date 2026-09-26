@@ -12,6 +12,14 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import {
+  getPulseSettings,
+  saveSchedule,
+  goLive,
+  pausePulse,
+  endPulse,
+  publishResults,
+} from "@/lib/pulse-service";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,29 +75,20 @@ const DEFAULTS: CompetitionSettings = {
 
 export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
   try {
-    // Query Supabase pulse_settings table (single source of truth) - STRICT READ ONLY
-    const { data: pulseRow, error: pulseErr } = await (supabase as any)
-      .from("pulse_settings")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
-
-    if (!pulseErr && pulseRow) {
-      return {
-        competition_date: pulseRow.competition_date ?? null,
-        competition_end_date: pulseRow.competition_end_date ?? null,
-        start_time: pulseRow.start_time ?? "19:00",
-        end_time: pulseRow.end_time ?? "23:59",
-        pulse_status: (pulseRow.pulse_status as PulseStatus) ?? "upcoming",
-        results_published: pulseRow.results_published === true || pulseRow.results_published === "true",
-        leaderboard_reset_at: pulseRow.leaderboard_reset_at ?? null,
-      };
-    }
+    const pulse = await getPulseSettings();
+    return {
+      competition_date: pulse.competition_date,
+      competition_end_date: null,
+      start_time: pulse.start_time ?? "19:00",
+      end_time: pulse.end_time ?? "23:59",
+      pulse_status: pulse.pulse_status,
+      results_published: pulse.results_published,
+      leaderboard_reset_at: null,
+    };
   } catch (err) {
-    console.warn("[CompetitionSettings] Supabase fetch error:", err);
+    console.warn("[CompetitionSettings] fetch error:", err);
+    return DEFAULTS;
   }
-
-  return DEFAULTS;
 }
 
 // ── Save whole pulse settings record ──────────────────────────────────────────
@@ -101,60 +100,29 @@ export async function savePulseSettingsRecord(params: {
   pulse_status?: PulseStatus;
   results_published?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
-  // Exact fields only: competition_date, start_time, end_time, pulse_status, results_published
-  const updatePayload: Record<string, any> = {};
-
-  if (params.competition_date !== undefined) {
-    const raw = params.competition_date;
-    updatePayload.competition_date = raw && raw.includes("T") ? raw.split("T")[0] : (raw || null);
-  }
-  if (params.start_time !== undefined) {
-    updatePayload.start_time = params.start_time ? params.start_time.trim().slice(0, 8) : null;
-  }
-  if (params.end_time !== undefined) {
-    updatePayload.end_time = params.end_time ? params.end_time.trim().slice(0, 8) : null;
-  }
-  if (params.pulse_status !== undefined) {
-    updatePayload.pulse_status = params.pulse_status;
-  }
-  if (params.results_published !== undefined) {
-    updatePayload.results_published = Boolean(params.results_published);
-  }
-
   try {
-    delete (updatePayload as any).id;
-
-    let targetId: any = 1;
-    try {
-      const { data: existing } = await (supabase as any)
-        .from("pulse_settings")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-      if (existing?.id !== undefined && existing?.id !== null) {
-        targetId = existing.id;
-      }
-    } catch {
-      targetId = 1;
+    if (params.pulse_status === "live") {
+      return goLive();
     }
-
-    const { error } = await (supabase as any)
-      .from("pulse_settings")
-      .update(updatePayload)
-      .eq("id", targetId);
-
-    if (error) {
-      console.error("[CompetitionSettings] pulse_settings update error:", error);
-      return { success: false, error: error.message };
+    if (params.pulse_status === "paused") {
+      return pausePulse();
     }
-
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
+    if (params.pulse_status === "ended") {
+      return endPulse();
     }
-
+    if (params.results_published !== undefined) {
+      return publishResults();
+    }
+    if (params.competition_date !== undefined || params.start_time !== undefined || params.end_time !== undefined) {
+      return saveSchedule({
+        competition_date: params.competition_date ?? null,
+        start_time: params.start_time ?? null,
+        end_time: params.end_time ?? null,
+      });
+    }
     return { success: true };
   } catch (err: any) {
-    console.error("[CompetitionSettings] pulse_settings save error:", err);
+    console.error("[CompetitionSettings] save error:", err);
     return { success: false, error: err?.message || String(err) };
   }
 }

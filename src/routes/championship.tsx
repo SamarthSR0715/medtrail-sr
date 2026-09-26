@@ -2,11 +2,15 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCompetitionDate } from "@/hooks/useCompetitionDate";
 import {
-  fetchLiveLeaderboard,
-  subscribeToLeaderboard,
   formatTimeTaken,
   type LiveLeaderboardEntry,
 } from "@/lib/competition-settings-service";
+import {
+  fetchPulseLeaderboard,
+  subscribeToPulseLeaderboard,
+  subscribeToPulseStatus,
+  type PulseAttemptLeaderboardEntry,
+} from "@/lib/pulse-service";
 import { toast } from "sonner";
 import {
   Award,
@@ -465,19 +469,31 @@ function RouteComponent() {
     return () => clearInterval(interval);
   }, [loadTodayPulse, adminPulseStatus, seasonStartUTC, seasonEndUTC, seasonStartTimeDisplay]);
 
-  // Real-time leaderboard — fetchLiveLeaderboard orders by score → time → submitted_at
+  // Real-time leaderboard — fetchPulseLeaderboard orders by score → time → submitted_at
   useEffect(() => {
     const fetchBoard = async () => {
       setLoadingLeaderboard(true);
-      const data = await fetchLiveLeaderboard(user?.email);
-      setLeaderboard(data);
+      const data = await fetchPulseLeaderboard(user?.email);
+      // Map to LiveLeaderboardEntry structure
+      const mapped: LiveLeaderboardEntry[] = data.map((d) => ({
+        rank: d.rank,
+        participant_id: d.user_id || d.id,
+        display_name: d.student_name,
+        institution: d.college,
+        score: d.score,
+        time_taken_seconds: d.time_taken_seconds,
+        submitted_at: d.completed_at,
+        accuracy: d.accuracy,
+        is_current_user: d.is_current_user,
+      }));
+      setLeaderboard(mapped);
       setLoadingLeaderboard(false);
     };
 
     fetchBoard();
 
-    // Supabase Realtime: re-fetch on any pulse_attempts or participants change
-    const unsub = subscribeToLeaderboard(fetchBoard);
+    // Supabase Realtime: re-fetch on any pulse_attempts change
+    const unsub = subscribeToPulseLeaderboard(fetchBoard);
 
     // Live ops channel for notifications
     const opsChannel = supabase
@@ -739,8 +755,18 @@ function RouteComponent() {
           timeTakenSeconds: timeTaken,
         });
 
-        const refreshed = await fetchLiveLeaderboard(user?.email);
-        setLeaderboard(refreshed);
+        const refreshed = await fetchPulseLeaderboard(user?.email);
+        setLeaderboard(refreshed.map((d) => ({
+          rank: d.rank,
+          participant_id: d.user_id || d.id,
+          display_name: d.student_name,
+          institution: d.college,
+          score: d.score,
+          time_taken_seconds: d.time_taken_seconds,
+          submitted_at: d.completed_at,
+          accuracy: d.accuracy,
+          is_current_user: d.is_current_user,
+        })));
       } else {
         setCurrentQIndex((prev) => prev + 1);
         setSelectedOption(null);
