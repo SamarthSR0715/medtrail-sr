@@ -360,16 +360,6 @@ export function PulseStudio() {
       setPublishedAt(new Date().toISOString());
       setLiveOps((prev) => ({ ...prev, live_status: "published", results_declared: true }));
 
-      // Update local storage & broadcast event
-      setCachedSetting("results_published", "true");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("medtrail_setting_updated", {
-            detail: { key: "results_published", value: "true" },
-          })
-        );
-      }
-
       toast.success(`Published Pulse for ${pulseDate}! Ready for scheduled go-live window.`);
 
       // Background ops sync
@@ -401,16 +391,6 @@ export function PulseStudio() {
       setStatus("live");
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
 
-      // Update local storage & broadcast event
-      setCachedSetting("pulse_status", "live");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("medtrail_setting_updated", {
-            detail: { key: "pulse_status", value: "live" },
-          })
-        );
-      }
-
       // Background ops & notification
       updateLiveOpsState({ live_status: "live" }).catch(() => {});
       sendPushNotification({
@@ -440,16 +420,6 @@ export function PulseStudio() {
       setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
       toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
 
-      // Update local storage & broadcast event
-      setCachedSetting("pulse_status", "paused");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("medtrail_setting_updated", {
-            detail: { key: "pulse_status", value: "paused" },
-          })
-        );
-      }
-
       // Background ops sync
       updateLiveOpsState({ live_status: "paused" }).catch(() => {});
     } catch (err: any) {
@@ -473,16 +443,6 @@ export function PulseStudio() {
 
       setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
       toast.info("⏹️ Pulse session officially ended.");
-
-      // Update local storage & broadcast event
-      setCachedSetting("pulse_status", "ended");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("medtrail_setting_updated", {
-            detail: { key: "pulse_status", value: "ended" },
-          })
-        );
-      }
 
       // Background ops sync
       updateLiveOpsState({ live_status: "ended" }).catch(() => {});
@@ -532,21 +492,6 @@ export function PulseStudio() {
         .from("pulse_settings")
         .update({ results_published: true, pulse_status: "ended" })
         .eq("id", 1);
-
-      setCachedSetting("results_published", "true");
-      setCachedSetting("pulse_status", "ended");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("medtrail_setting_updated", {
-            detail: { key: "results_published", value: "true" },
-          })
-        );
-        window.dispatchEvent(
-          new CustomEvent("medtrail_setting_updated", {
-            detail: { key: "pulse_status", value: "ended" },
-          })
-        );
-      }
 
       const res = await declareFinalResults();
       if (res.success) {

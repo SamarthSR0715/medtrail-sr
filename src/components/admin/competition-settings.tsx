@@ -218,14 +218,6 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
         pulse_status: status,
       }));
 
-      // 3. Broadcast and cache locally
-      setCachedSetting("pulse_status", status);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent(SETTINGS_EVENT, { detail: { key: "pulse_status", value: status } })
-        );
-      }
-
       const labels: Record<PulseStatus, string> = {
         upcoming: "🕒 Pulse set to Upcoming",
         live: "🔴 Pulse is now LIVE — students can compete!",
@@ -267,14 +259,6 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
         ...prev,
         results_published: next,
       }));
-
-      // 3. Broadcast and cache locally
-      setCachedSetting("results_published", String(next));
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent(SETTINGS_EVENT, { detail: { key: "results_published", value: String(next) } })
-        );
-      }
 
       toast.success(next ? "📊 Results published! Students can now see the leaderboard." : "🙈 Results hidden. Students see 'Results will be announced.'");
       setLastAction(next ? "Results published" : "Results hidden");
