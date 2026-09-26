@@ -513,7 +513,7 @@ export function SuperAdminControlCenter() {
             { id: "notifications", label: "Notification Center", icon: Bell },
             { id: "hall_of_fame", label: "Hall of Fame", icon: Award },
             { id: "trips", label: "Trip Admin", icon: MapPin },
-            { id: "competition_settings", label: "Competition Settings", icon: Settings2 },
+            { id: "competition_settings", label: "Pulse Settings", icon: Settings2 },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;

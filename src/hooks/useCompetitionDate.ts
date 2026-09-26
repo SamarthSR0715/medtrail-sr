@@ -1,70 +1,139 @@
 /**
- * useCompetitionDate — React hook for dynamic competition date.
+ * useCompetitionDate — React hook for the fully dynamic competition system.
  *
- * Fetches the competition_date and competition_end_date from Supabase
- * and subscribes to real-time changes. The entire site should use this
- * hook (or the context below) instead of hardcoded SEASON_START_UTC /
- * SEASON_END_UTC constants.
+ * Fetches all championship_settings from Supabase (competition dates, pulse
+ * status, results_published) and subscribes to real-time changes.
+ * Every component should use this hook instead of any hardcoded constant.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchCompetitionSettings,
   subscribeToCompetitionSettings,
   parseDateSetting,
   formatCompetitionDate,
+  formatCompetitionDateTime,
+  formatCompetitionTime,
+  computeSeasonStatus,
   type CompetitionSettings,
+  type PulseStatus,
 } from "@/lib/competition-settings-service";
 
 export interface CompetitionDateState {
-  /** Parsed UTC Date object for season start, or null if not set */
+  // ── Dates ──────────────────────────────────────────────────────────────────
   seasonStartUTC: Date | null;
-  /** Parsed UTC Date object for season end, or null if not set */
   seasonEndUTC: Date | null;
-  /** Friendly IST string for season start (e.g. "27 September 2026") */
+  /** e.g. "27 September 2026" */
   seasonStartDisplay: string | null;
-  /** Friendly IST string for season end */
+  /** e.g. "17 October 2026" */
   seasonEndDisplay: string | null;
-  /** Raw settings from Supabase */
+  /** e.g. "07:00 PM IST" */
+  seasonStartTimeDisplay: string | null;
+  /** e.g. "07:00 PM IST" */
+  seasonEndTimeDisplay: string | null;
+  /** e.g. "27 September 2026, 07:00 PM" */
+  seasonStartDisplayFull: string | null;
+  seasonEndDisplayFull: string | null;
+
+  // ── Computed status ────────────────────────────────────────────────────────
+  /** Auto-computed from dates: "pre" | "live" | "ended" */
+  autoSeasonStatus: "pre" | "live" | "ended";
+  /** Admin-controlled override: "upcoming" | "live" | "paused" | "ended" */
+  adminPulseStatus: PulseStatus;
+  /** Whether the competition is effectively live (auto OR admin override) */
+  isLive: boolean;
+  /** Whether the admin has published final results */
+  resultsPublished: boolean;
+  /** UTC ISO of last leaderboard reset (or null) */
+  leaderboardResetAt: string | null;
+
+  // ── Raw settings ───────────────────────────────────────────────────────────
   rawSettings: CompetitionSettings | null;
-  /** True while the first fetch is in progress */
   isLoading: boolean;
 }
 
-const UNSET: CompetitionDateState = {
+const LOADING_STATE: CompetitionDateState = {
   seasonStartUTC: null,
   seasonEndUTC: null,
   seasonStartDisplay: null,
   seasonEndDisplay: null,
+  seasonStartTimeDisplay: null,
+  seasonEndTimeDisplay: null,
+  seasonStartDisplayFull: null,
+  seasonEndDisplayFull: null,
+  autoSeasonStatus: "pre",
+  adminPulseStatus: "upcoming",
+  isLive: false,
+  resultsPublished: false,
+  leaderboardResetAt: null,
   rawSettings: null,
   isLoading: true,
 };
 
-function buildState(settings: CompetitionSettings): CompetitionDateState {
+function buildState(
+  settings: CompetitionSettings,
+  now: Date = new Date()
+): CompetitionDateState {
+  const startUTC = parseDateSetting(settings.competition_date);
+  const endUTC = parseDateSetting(settings.competition_end_date);
+  const autoStatus = computeSeasonStatus(now, startUTC, endUTC);
+  const adminStatus = settings.pulse_status;
+
+  // isLive = either auto computed as live OR admin explicitly set it to "live"
+  const isLive = autoStatus === "live" || adminStatus === "live";
+
   return {
-    seasonStartUTC: parseDateSetting(settings.competition_date),
-    seasonEndUTC: parseDateSetting(settings.competition_end_date),
+    seasonStartUTC: startUTC,
+    seasonEndUTC: endUTC,
     seasonStartDisplay: formatCompetitionDate(settings.competition_date),
     seasonEndDisplay: formatCompetitionDate(settings.competition_end_date),
+    seasonStartTimeDisplay: formatCompetitionTime(settings.competition_date),
+    seasonEndTimeDisplay: formatCompetitionTime(settings.competition_end_date),
+    seasonStartDisplayFull: formatCompetitionDateTime(settings.competition_date),
+    seasonEndDisplayFull: formatCompetitionDateTime(settings.competition_end_date),
+    autoSeasonStatus: autoStatus,
+    adminPulseStatus: adminStatus,
+    isLive,
+    resultsPublished: settings.results_published,
+    leaderboardResetAt: settings.leaderboard_reset_at,
     rawSettings: settings,
     isLoading: false,
   };
 }
 
 export function useCompetitionDate(): CompetitionDateState {
-  const [state, setState] = useState<CompetitionDateState>(UNSET);
+  const [state, setState] = useState<CompetitionDateState>(LOADING_STATE);
+  const settingsRef = useRef<CompetitionSettings | null>(null);
+
+  // Rebuild state every second so autoSeasonStatus stays accurate
+  useEffect(() => {
+    const tick = () => {
+      if (settingsRef.current) {
+        setState(buildState(settingsRef.current, new Date()));
+      }
+    };
+
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     // Initial fetch
     fetchCompetitionSettings().then((settings) => {
-      if (!cancelled) setState(buildState(settings));
+      if (!cancelled) {
+        settingsRef.current = settings;
+        setState(buildState(settings, new Date()));
+      }
     });
 
     // Real-time subscription
     const unsub = subscribeToCompetitionSettings((settings) => {
-      if (!cancelled) setState(buildState(settings));
+      if (!cancelled) {
+        settingsRef.current = settings;
+        setState(buildState(settings, new Date()));
+      }
     });
 
     return () => {

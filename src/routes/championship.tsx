@@ -1,6 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCompetitionDate } from "@/hooks/useCompetitionDate";
+import {
+  fetchLiveLeaderboard,
+  subscribeToLeaderboard,
+  formatTimeTaken,
+  type LiveLeaderboardEntry,
+} from "@/lib/competition-settings-service";
 import { toast } from "sonner";
 import {
   Award,
@@ -41,11 +47,9 @@ import {
   EVENT_TZ_OFFSET,
   HALL_OF_FAME_RECORDS,
   SEASON_ID,
-  SEED_LEADERBOARD,
   formatIST,
   getDailyPulseTimeState,
   getISTDateString,
-  getLiveLeaderboard,
   registerChampionshipParticipant,
   submitPulseAttempt,
   fetchTodayPublishedPulse,
@@ -56,7 +60,6 @@ import {
   type LiveOpsState,
   type PulseSetRecord,
   type PulseAttemptRecord,
-  type LeaderboardEntry,
   type PassportBadge,
   type PulseQuestion,
   type SeasonStatus,
@@ -124,12 +127,18 @@ function RouteComponent() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"global" | "college" | "batch" | "weekly">("global");
 
-  // Dynamic competition dates from Supabase (real-time via hook)
+  // Dynamic competition dates + status from Supabase (real-time via hook)
   const competitionDate = useCompetitionDate();
   const seasonStartUTC = competitionDate.seasonStartUTC;
   const seasonEndUTC = competitionDate.seasonEndUTC;
   const seasonStartDisplay = competitionDate.seasonStartDisplay;
   const seasonEndDisplay = competitionDate.seasonEndDisplay;
+  const seasonStartTimeDisplay = competitionDate.seasonStartTimeDisplay;
+  const seasonEndTimeDisplay = competitionDate.seasonEndTimeDisplay;
+  const resultsPublished = competitionDate.resultsPublished;
+  const adminPulseStatus = competitionDate.adminPulseStatus;
+  // isLive: either auto-computed (dates) OR admin explicitly set to "live"
+  const competitionIsLive = competitionDate.isLive;
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals & Notifications
@@ -189,8 +198,8 @@ function RouteComponent() {
     checkServerRegistration();
   }, [user]);
 
-  // Live Leaderboard Data
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(SEED_LEADERBOARD);
+  // Live Leaderboard Data — now uses LiveLeaderboardEntry from competition-settings-service
+  const [leaderboard, setLeaderboard] = useState<LiveLeaderboardEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   // Admin-managed Daily Pulse State (Strictly from Supabase)
@@ -341,33 +350,7 @@ function RouteComponent() {
   useEffect(() => {
     const updateTimeState = () => {
       const now = new Date();
-      const baseWindowState = getDailyPulseTimeState(now);
-
-      // If admin manually triggered Go LIVE, pulse is immediately active
-      if (liveOps?.live_status === "live") {
-        setTimeWindowState({
-          status: "active_pulse",
-          countdownSeconds: 0,
-          label: "Pulse Active & Live Now",
-          opensAtIST: "LIVE NOW",
-        });
-      } else if (liveOps?.live_status === "paused") {
-        setTimeWindowState({
-          status: "before_7pm",
-          countdownSeconds: 0,
-          label: "Pulse Paused by Admin",
-          opensAtIST: "Paused",
-        });
-      } else if (liveOps?.live_status === "ended") {
-        setTimeWindowState({
-          status: "day_ended",
-          countdownSeconds: 0,
-          label: "Today's Pulse Ended",
-          opensAtIST: "Ended",
-        });
-      } else {
-        setTimeWindowState(baseWindowState);
-      }
+      const baseWindowState = getDailyPulseTimeState(now, seasonStartUTC);
 
       // Season countdown & status — use dynamic dates from Supabase
       const dynamicStart = seasonStartUTC;
@@ -378,9 +361,49 @@ function RouteComponent() {
       if (dynamicStart && now >= dynamicStart) dynamicStatus = "live";
       if (dynamicEnd && now >= dynamicEnd) dynamicStatus = "ended";
 
-      const isLive = liveOps?.live_status === "live" || dynamicStatus === "live";
+      // Live pulse status: check admin override first, then liveOps, then automatic time
+      const isPulseLive =
+        adminPulseStatus === "live" ||
+        liveOps?.live_status === "live" ||
+        (dynamicStatus === "live" && baseWindowState.status === "active_pulse");
 
-      if (dynamicStatus === "ended" || liveOps?.results_declared) {
+      const isPulsePaused =
+        adminPulseStatus === "paused" ||
+        liveOps?.live_status === "paused";
+
+      const isPulseEnded =
+        adminPulseStatus === "ended" ||
+        liveOps?.live_status === "ended" ||
+        dynamicStatus === "ended";
+
+      if (isPulseLive) {
+        setTimeWindowState({
+          status: "active_pulse",
+          countdownSeconds: 0,
+          label: "Pulse Active & Live Now",
+          opensAtIST: "LIVE NOW",
+        });
+      } else if (isPulsePaused) {
+        setTimeWindowState({
+          status: "before_7pm",
+          countdownSeconds: 0,
+          label: "Pulse Paused by Admin",
+          opensAtIST: "Paused",
+        });
+      } else if (isPulseEnded) {
+        setTimeWindowState({
+          status: "day_ended",
+          countdownSeconds: 0,
+          label: "Today's Pulse Ended",
+          opensAtIST: "Ended",
+        });
+      } else {
+        setTimeWindowState(baseWindowState);
+      }
+
+      const isLive = adminPulseStatus === "live" || liveOps?.live_status === "live" || dynamicStatus === "live";
+
+      if (dynamicStatus === "ended" || liveOps?.results_declared || adminPulseStatus === "ended") {
         setSeasonRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, status: "ended", isLive: false, label: "Season Completed" });
         return;
       }
@@ -407,34 +430,25 @@ function RouteComponent() {
     updateTimeState();
     const interval = setInterval(updateTimeState, 1000);
     return () => clearInterval(interval);
-  }, [loadTodayPulse, liveOps?.live_status, liveOps?.results_declared, seasonStartUTC, seasonEndUTC]);
+  }, [loadTodayPulse, liveOps?.live_status, liveOps?.results_declared, adminPulseStatus, seasonStartUTC, seasonEndUTC]);
 
-  // Fetch live leaderboard and subscribe to Supabase Realtime for participants & live ops
+  // Real-time leaderboard — fetchLiveLeaderboard orders by score → time → submitted_at
   useEffect(() => {
     const fetchBoard = async () => {
       setLoadingLeaderboard(true);
-      const data = await getLiveLeaderboard();
+      const data = await fetchLiveLeaderboard(user?.email);
       setLeaderboard(data);
       setLoadingLeaderboard(false);
     };
 
     fetchBoard();
 
-    // Channel 1: Leaderboard updates
-    const partChannel = supabase
-      .channel("championship_live_updates")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "championship_participants" },
-        () => {
-          fetchBoard();
-        }
-      )
-      .subscribe();
+    // Supabase Realtime: re-fetch on any pulse_attempts or participants change
+    const unsub = subscribeToLeaderboard(fetchBoard);
 
-    // Channel 2: Live Ops real-time broadcasts (Go Live, Pauses, Final Results, Notifications)
+    // Also keep legacy ops channel for notifications
     const opsChannel = supabase
-      .channel("championship_live_ops_channel")
+      .channel("championship_live_ops_channel_v2")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "championship_live_ops" },
@@ -451,10 +465,10 @@ function RouteComponent() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(partChannel);
+      unsub();
       supabase.removeChannel(opsChannel);
     };
-  }, []);
+  }, [user?.email]);
 
   // Filter leaderboard
   const filteredLeaderboard = useMemo(() => {
@@ -463,8 +477,7 @@ function RouteComponent() {
     return leaderboard.filter(
       (p) =>
         (p.display_name && p.display_name.toLowerCase().includes(q)) ||
-        (p.institution && p.institution.toLowerCase().includes(q)) ||
-        (p.batch && p.batch.toLowerCase().includes(q))
+        (p.institution && p.institution.toLowerCase().includes(q))
     );
   }, [leaderboard, searchQuery]);
 
@@ -547,31 +560,34 @@ function RouteComponent() {
   // Start Pulse Quiz (Strict Admin-managed single attempt per day)
   const startPulseQuiz = () => {
     // 0. Live Ops administrative status checks
-    if (liveOps) {
-      if (liveOps.results_declared) {
-        toast.error("Championship results have been officially declared. All submissions are locked.");
-        setIsReviewModalOpen(true);
-        return;
-      }
-      if (liveOps.live_status === "paused") {
-        toast.warning("Pulse is currently paused by Administration. Submissions on hold.");
-        return;
-      }
-      if (liveOps.live_status === "ended") {
-        toast.info("Today's Pulse session has concluded.");
-        return;
-      }
+    if (resultsPublished || liveOps?.results_declared) {
+      toast.error("Championship results have been officially declared. All submissions are locked.");
+      setIsReviewModalOpen(true);
+      return;
+    }
+    if (adminPulseStatus === "paused" || liveOps?.live_status === "paused") {
+      toast.warning("Pulse is currently paused by Administration. Submissions on hold.");
+      return;
+    }
+    if (adminPulseStatus === "ended" || liveOps?.live_status === "ended") {
+      toast.info("Today's Pulse session has concluded.");
+      return;
     }
 
     // 1. Must be published by Admin in Supabase
     if (!publishedPulseSet || todayQuestions.length === 0) {
-      toast.info("Today's Pulse has not been published by the MedTrail Admin yet. Official questions are released every evening at 7:00 PM IST.");
+      toast.info(
+        `Today's Pulse has not been published by the MedTrail Admin yet. Official questions are released every evening at ${seasonStartTimeDisplay ?? "7:00 PM IST"}.`
+      );
       return;
     }
 
-    // 2. Pulse unlocks: if admin explicitly set live_status === 'live', bypass time restriction! Otherwise check before_7pm
-    if (liveOps?.live_status !== "live" && timeWindowState.status === "before_7pm") {
-      toast.info(`Today's Pulse opens at 7:00 PM IST. Countdown remaining: ${formatCountdown(timeWindowState.countdownSeconds)}.`);
+    // 2. Pulse unlocks: if admin explicitly set live, bypass time restriction! Otherwise check before_7pm
+    const isExplicitlyLive = adminPulseStatus === "live" || liveOps?.live_status === "live";
+    if (!isExplicitlyLive && timeWindowState.status === "before_7pm") {
+      toast.info(
+        `Today's Pulse opens at ${seasonStartTimeDisplay ?? "7:00 PM IST"}. Countdown remaining: ${formatCountdown(timeWindowState.countdownSeconds)}.`
+      );
       return;
     }
 
@@ -635,10 +651,11 @@ function RouteComponent() {
             pulseDate: todayStr,
             userId: studentId,
             userEmail: user?.email || regEmail || undefined,
-            userName: user?.user_metadata?.full_name || regName || "MedTrail Doctor",
+            userName: (user?.user_metadata as any)?.full_name || regName || "MedTrail Doctor",
+            college: regCollege || undefined,
             score: earnedScore,
             accuracy,
-            xp: earnedXP,
+            xpEarned: earnedXP,
             answers: newAnswers,
             timeTakenSeconds: timeTaken,
           });
@@ -656,7 +673,7 @@ function RouteComponent() {
           timeTakenSeconds: timeTaken,
         });
 
-        const refreshed = await getLiveLeaderboard();
+        const refreshed = await fetchLiveLeaderboard(user?.email);
         setLeaderboard(refreshed);
       } else {
         setCurrentQIndex((prev) => prev + 1);
@@ -781,11 +798,19 @@ function RouteComponent() {
                   SEASON 1
                 </span>
 
-                {/* Requirement 5: Top Hero status displays 🟢 REGISTRATION OPEN before 27 Sept 7:00 PM; after changes to 🔴 CHAMPIONSHIP LIVE */}
-                {seasonRemaining.isLive ? (
+                {/* Status badge — driven by hook (auto-computed + admin override) */}
+                {competitionIsLive ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-black tracking-wider uppercase shadow-lg shadow-red-500/20 animate-pulse">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                     🔴 CHAMPIONSHIP LIVE
+                  </span>
+                ) : adminPulseStatus === "ended" || competitionDate.autoSeasonStatus === "ended" ? (
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-slate-700/60 border border-slate-600 text-slate-300 text-xs font-black tracking-wider uppercase">
+                    🏁 SEASON ENDED
+                  </span>
+                ) : adminPulseStatus === "paused" ? (
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-black tracking-wider uppercase">
+                    ⏸️ PULSE PAUSED
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-black tracking-wider uppercase shadow-lg shadow-emerald-500/20">
@@ -809,8 +834,8 @@ function RouteComponent() {
                 </p>
               </div>
 
-              {/* Requirement 4: Live Championship Timer Display Prominently on Hero */}
-              {!seasonRemaining.isLive ? (
+              {/* Countdown hero block — uses hook's isLive + seasonRemaining from timer */}
+              {!competitionIsLive ? (
                 /* BEFORE LAUNCH: Show countdown & prominent header */
                 <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-950/70 via-slate-900/80 to-indigo-950/70 border border-blue-500/30 backdrop-blur-md shadow-xl space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-500/20 pb-3">
@@ -828,7 +853,7 @@ function RouteComponent() {
                         {seasonStartDisplay ?? "Date to be announced"}
                       </div>
                       <div className="text-xs font-semibold text-slate-300">
-                        {seasonStartUTC ? "7:00 PM IST" : ""}
+                        {seasonStartUTC ? (seasonStartTimeDisplay ?? "7:00 PM IST") : ""}
                       </div>
                     </div>
                   </div>
@@ -873,7 +898,7 @@ function RouteComponent() {
                   )}
                 </div>
               ) : (
-                /* AT EXACTLY 7:00 PM: Countdown disappears, Pulse automatically becomes live */
+                /* LIVE: Admin set to live OR dates crossed */
                 <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/60 via-slate-900/90 to-blue-950/60 border border-red-500/40 backdrop-blur-md shadow-2xl space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -883,7 +908,9 @@ function RouteComponent() {
                       </span>
                     </div>
                     <span className="text-xs font-mono text-slate-300 font-semibold">
-                      {seasonEndDisplay ? `Ends ${seasonEndDisplay}, 7:00 PM IST` : "Season in progress"}
+                      {seasonEndDisplay
+                        ? `Ends ${seasonEndDisplay}${seasonEndTimeDisplay ? `, ${seasonEndTimeDisplay}` : ""}`
+                        : "Season in progress"}
                     </span>
                   </div>
                   <h3 className="text-2xl font-black text-white">Daily Pulses Are Now Active</h3>
@@ -893,7 +920,7 @@ function RouteComponent() {
                 </div>
               )}
 
-              {/* Action Buttons: Join Pulse becomes active at 7:00 PM */}
+              {/* Action Buttons: Join Pulse becomes active at start time */}
               <div className="flex flex-wrap items-center gap-4 pt-2">
                 {hasAttemptedToday ? (
                   <button
@@ -933,7 +960,7 @@ function RouteComponent() {
                       className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-sm border border-slate-700 transition cursor-pointer"
                     >
                       <Play className="w-4 h-4 text-emerald-400" />
-                      <span>Join Pulse (7:00 PM IST)</span>
+                      <span>Join Pulse ({seasonStartTimeDisplay ?? "7:00 PM IST"})</span>
                     </button>
                   </>
                 )}
@@ -1008,7 +1035,7 @@ function RouteComponent() {
               <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto">
                 Register your profile to represent your medical college and compete in daily pulses
                 {seasonStartDisplay
-                  ? ` starting ${seasonStartDisplay} at 7:00 PM IST.`
+                  ? ` starting ${seasonStartDisplay}${seasonStartTimeDisplay ? ` at ${seasonStartTimeDisplay}` : ""}.`
                   : ". Competition date will be announced."
                 }
               </p>
@@ -1217,7 +1244,7 @@ function RouteComponent() {
                 Today's 5 Pulse Slots
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                Created strictly by MedTrail Admin &bull; 5 High-Yield Questions &bull; Unlocks at 7:00 PM IST.
+                Created strictly by MedTrail Admin &bull; 5 High-Yield Questions &bull; Unlocks at {seasonStartTimeDisplay ?? "7:00 PM IST"}.
               </p>
             </div>
 
@@ -1228,7 +1255,7 @@ function RouteComponent() {
               }`} />
               <div>
                 <div className="text-xs font-bold text-white">
-                  {timeWindowState.status === "active_pulse" ? "WINDOW IS LIVE" : "LOCKED UNTIL 7:00 PM IST"}
+                  {timeWindowState.status === "active_pulse" ? "WINDOW IS LIVE" : `LOCKED UNTIL ${seasonStartTimeDisplay ?? "7:00 PM IST"}`}
                 </div>
                 <div className="text-[11px] font-mono text-slate-400">
                   {timeWindowState.status === "active_pulse" ? "Active until 23:59 IST" : `Opens in ${formatCountdown(timeWindowState.countdownSeconds)}`}
@@ -1252,7 +1279,7 @@ function RouteComponent() {
               <div className="space-y-1.5 max-w-md mx-auto">
                 <h3 className="text-xl font-bold text-white">Today's Pulse Has Not Been Published Yet</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>7:00 PM IST</strong>. Check back soon!
+                  Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>{seasonStartTimeDisplay ?? "7:00 PM IST"}</strong>. Check back soon!
                 </p>
               </div>
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-[11px] font-mono text-slate-300">
@@ -1381,20 +1408,28 @@ function RouteComponent() {
             </div>
           </div>
 
-          {/* Requirement 5: Final Results Declared & Leaderboard Freeze Notice */}
-          {(liveOps?.is_leaderboard_frozen || liveOps?.results_declared) && (
+          {/* Results Published Notice (from competition settings) OR Legacy Freeze Notice */}
+          {resultsPublished ? (
+            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 text-xs sm:text-sm font-semibold flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Trophy className="w-5 h-5 text-amber-400 shrink-0" />
+                <span><strong>Official Final Results Published:</strong> Season 1 standings are live. Badges awarded to top finishers.</span>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/40 shrink-0">OFFICIAL</span>
+            </div>
+          ) : (liveOps?.is_leaderboard_frozen || liveOps?.results_declared) ? (
             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs sm:text-sm font-semibold flex items-center justify-between gap-3 shadow-lg shadow-amber-500/10">
               <div className="flex items-center gap-2.5">
                 <Trophy className="w-5 h-5 text-amber-400 shrink-0" />
                 <span>
-                  <strong>Official Final Results Declared & Leaderboard Frozen:</strong> Season 1 standings are permanently locked. Digital accolades and badges have been awarded.
+                  <strong>Official Final Results Declared &amp; Leaderboard Frozen:</strong> Season 1 standings are permanently locked. Digital accolades and badges have been awarded.
                 </span>
               </div>
               <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/40 shrink-0">
-                LOCKED & FROZEN
+                LOCKED &amp; FROZEN
               </span>
             </div>
-          )}
+          ) : null}
 
           {/* 4 Tabs: Global, College, Batch, Weekly */}
           <div className="flex items-center gap-2 border-b border-slate-800 overflow-x-auto pb-1">
@@ -1426,110 +1461,155 @@ function RouteComponent() {
           {/* TAB 1: INDIVIDUAL RANKING */}
           {activeTab === "global" && (
             <div className="space-y-4">
+              {/* Results Hidden State */}
+              {!resultsPublished && adminPulseStatus === "ended" && (
+                <div className="p-8 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-700/60 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-800/60 border border-slate-700 flex items-center justify-center mx-auto">
+                    <Trophy className="w-7 h-7 text-amber-400" />
+                  </div>
+                  <h3 className="text-xl font-black text-white">Results Will Be Announced</h3>
+                  <p className="text-sm text-slate-400 max-w-md mx-auto">
+                    The competition has ended. Final results will be published by the admin. Check back soon.
+                  </p>
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-amber-300">
+                    <Clock className="w-3.5 h-3.5" />
+                    Awaiting admin result publication
+                  </div>
+                </div>
+              )}
+
+              {/* Leaderboard loading */}
+              {loadingLeaderboard && (
+                <div className="flex items-center justify-center gap-3 py-8 text-slate-400 text-sm">
+                  <Clock className="w-5 h-5 animate-spin text-blue-400" />
+                  Loading live leaderboard…
+                </div>
+              )}
+
+              {/* No entries yet */}
+              {!loadingLeaderboard && filteredLeaderboard.length === 0 && !(adminPulseStatus === "ended" && !resultsPublished) && (
+                <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+                  <div className="text-4xl">🏆</div>
+                  <h3 className="text-base font-bold text-white">No Submissions Yet</h3>
+                  <p className="text-xs text-slate-400">Be the first to complete today's pulse and claim the top spot!</p>
+                </div>
+              )}
+
+              {/* Real-time Leaderboard indicator */}
+              {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
+                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  Live leaderboard — updates automatically
+                </div>
+              )}
+
               {/* Top 3 Podium Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                {filteredLeaderboard.slice(0, 3).map((student, idx) => {
-                  const medalColors = [
-                    "from-amber-500/20 via-yellow-500/10 to-transparent border-amber-500/40 text-amber-300",
-                    "from-slate-400/20 via-slate-400/10 to-transparent border-slate-400/40 text-slate-200",
-                    "from-amber-700/20 via-amber-700/10 to-transparent border-amber-700/40 text-amber-500",
-                  ];
-                  return (
-                    <div
-                      key={student.participant_id}
-                      className={`p-5 rounded-2xl border bg-gradient-to-b ${medalColors[idx]} relative overflow-hidden backdrop-blur-md`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 flex items-center justify-center font-mono font-black text-base">
-                          #{idx + 1}
+              {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  {filteredLeaderboard.slice(0, 3).map((student, idx) => {
+                    const medalColors = [
+                      "from-amber-500/20 via-yellow-500/10 to-transparent border-amber-500/40 text-amber-300",
+                      "from-slate-400/20 via-slate-400/10 to-transparent border-slate-400/40 text-slate-200",
+                      "from-amber-700/20 via-amber-700/10 to-transparent border-amber-700/40 text-amber-500",
+                    ];
+                    return (
+                      <div
+                        key={student.participant_id}
+                        className={`p-5 rounded-2xl border bg-gradient-to-b ${medalColors[idx]} relative overflow-hidden backdrop-blur-md ${
+                          student.is_current_user ? "ring-2 ring-blue-500/60 ring-offset-1 ring-offset-slate-950" : ""
+                        }`}
+                      >
+                        {student.is_current_user && (
+                          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-blue-500/30 border border-blue-500/50 text-blue-300 text-[9px] font-bold uppercase tracking-wider">You</div>
+                        )}
+                        <div className="flex items-start justify-between">
+                          <div className="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 flex items-center justify-center font-mono font-black text-base">
+                            #{idx + 1}
+                          </div>
+                          <span className="text-[11px] font-mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                            {student.score.toLocaleString()} PTS
+                          </span>
                         </div>
-                        <span className="text-[11px] font-mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                          {student.total_score.toLocaleString()} PTS
-                        </span>
-                      </div>
 
-                      <div className="mt-4 space-y-1">
-                        <h4 className="text-base font-bold text-white truncate">{student.display_name}</h4>
-                        <p className="text-xs text-slate-300 truncate">{student.institution}</p>
-                        <p className="text-[11px] text-blue-300 font-mono">{student.batch || "MBBS Candidate"}</p>
-                      </div>
+                        <div className="mt-4 space-y-1">
+                          <h4 className="text-base font-bold text-white truncate">{student.display_name}</h4>
+                          <p className="text-xs text-slate-300 truncate">{student.institution}</p>
+                        </div>
 
-                      <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-center text-xs">
-                        <div>
-                          <div className="text-[10px] text-slate-400 font-mono">Pulses</div>
-                          <div className="font-bold text-white mt-0.5">{student.total_pulses_done}</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-400 font-mono">Accuracy</div>
-                          <div className="font-bold text-emerald-400 mt-0.5">{student.total_accuracy_pct}%</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-400 font-mono">Streak</div>
-                          <div className="font-bold text-amber-400 mt-0.5 flex items-center justify-center gap-0.5">
-                            <Flame className="w-3 h-3 text-amber-400 fill-amber-400" />
-                            {student.current_streak}d
+                        <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-center text-xs">
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-mono">Accuracy</div>
+                            <div className="font-bold text-emerald-400 mt-0.5">{student.accuracy}%</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-mono">Time</div>
+                            <div className="font-bold text-blue-300 mt-0.5">{formatTimeTaken(student.time_taken_seconds)}</div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Full Standings Table */}
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-xl">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
-                      <tr>
-                        <th className="py-3 px-4">Rank</th>
-                        <th className="py-3 px-4">Doctor / Participant</th>
-                        <th className="py-3 px-4">Medical College</th>
-                        <th className="py-3 px-4">Batch Mapping</th>
-                        <th className="py-3 px-4 text-center">Accuracy</th>
-                        <th className="py-3 px-4 text-center">Streak</th>
-                        <th className="py-3 px-4 text-right">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-sans">
-                      {filteredLeaderboard.map((student) => (
-                        <tr key={student.participant_id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3 px-4 font-mono font-bold text-slate-300">
-                            <span className={`inline-block w-6 text-center ${
-                              student.rank === 1
-                                ? "text-amber-400 font-black"
-                                : student.rank === 2
-                                ? "text-slate-300 font-black"
-                                : student.rank === 3
-                                ? "text-amber-600 font-black"
-                                : "text-slate-500"
-                            }`}>
-                              #{student.rank}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="font-semibold text-white">{student.display_name}</div>
-                            <div className="text-[10px] text-slate-500 sm:hidden">{student.institution}</div>
-                          </td>
-                          <td className="py-3 px-4 text-slate-300">{student.institution}</td>
-                          <td className="py-3 px-4 text-blue-300 font-mono text-[11px]">
-                            {student.batch || "2026 Batch → Freshers"}
-                          </td>
-                          <td className="py-3 px-4 text-center font-mono text-emerald-400 font-semibold">
-                            {student.total_accuracy_pct}%
-                          </td>
-                          <td className="py-3 px-4 text-center font-mono text-amber-400 font-semibold">
-                            {student.current_streak}d
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-white">
-                            {student.total_score.toLocaleString()}
-                          </td>
+              {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
+                        <tr>
+                          <th className="py-3 px-4">Rank</th>
+                          <th className="py-3 px-4">Participant</th>
+                          <th className="py-3 px-4">Medical College</th>
+                          <th className="py-3 px-4 text-center">Accuracy</th>
+                          <th className="py-3 px-4 text-center">Time Taken</th>
+                          <th className="py-3 px-4 text-right">Score</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-sans">
+                        {filteredLeaderboard.map((student) => (
+                          <tr
+                            key={student.participant_id}
+                            className={`transition-colors ${
+                              student.is_current_user
+                                ? "bg-blue-500/10 border-l-2 border-blue-500 hover:bg-blue-500/15"
+                                : "hover:bg-slate-800/40"
+                            }`}
+                          >
+                            <td className="py-3 px-4 font-mono font-bold text-slate-300">
+                              <span className={`inline-block w-6 text-center ${
+                                student.rank === 1
+                                  ? "text-amber-400 font-black"
+                                  : student.rank === 2
+                                  ? "text-slate-300 font-black"
+                                  : student.rank === 3
+                                  ? "text-amber-600 font-black"
+                                  : "text-slate-500"
+                              }`}>
+                                #{student.rank}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="font-semibold text-white">{student.display_name}</div>
+                                {student.is_current_user && (
+                                  <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-blue-300 text-[9px] font-bold">YOU</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 sm:hidden">{student.institution}</div>
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">{student.institution ?? "—"}</td>
+                            <td className="py-3 px-4 text-center font-mono text-emerald-400 font-semibold">{student.accuracy}%</td>
+                            <td className="py-3 px-4 text-center font-mono text-blue-300 font-semibold">{formatTimeTaken(student.time_taken_seconds)}</td>
+                            <td className="py-3 px-4 text-right font-mono font-bold text-white">{student.score.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 

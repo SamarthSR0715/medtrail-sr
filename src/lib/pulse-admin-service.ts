@@ -643,10 +643,14 @@ export async function checkStudentAttempt(
 export async function recordStudentAttempt(params: {
   pulseDate: string;
   userId?: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
+  college?: string | null;
   score: number;
   xpEarned: number;
   accuracy: number;
   answers: number[];
+  timeTakenSeconds?: number;
 }): Promise<PulseAttemptRecord> {
   const now = new Date().toISOString();
   const attemptRecord: PulseAttemptRecord = {
@@ -670,21 +674,29 @@ export async function recordStudentAttempt(params: {
     // Ignore
   }
 
-  // 2. Save to Supabase if user is authenticated
-  if (params.userId) {
-    try {
-      await supabase.from("championship_pulse_attempts").insert({
-        pulse_date: params.pulseDate,
-        user_id: params.userId,
-        score: params.score,
-        xp_earned: params.xpEarned,
-        accuracy: params.accuracy,
-        answers: params.answers as any,
-        completed_at: now,
-      });
-    } catch (err) {
-      console.warn("Supabase attempt record note:", err);
-    }
+  // 2. Save to Supabase
+  try {
+    const isUUID =
+      params.userId &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        params.userId
+      );
+
+    await (supabase as any).from("championship_pulse_attempts").insert({
+      pulse_date: params.pulseDate,
+      user_id: isUUID ? params.userId : null,
+      user_email: params.userEmail || null,
+      student_name: params.userName || null,
+      college: params.college || null,
+      score: params.score,
+      xp_earned: params.xpEarned,
+      accuracy: params.accuracy,
+      answers: params.answers as any,
+      time_taken_seconds: params.timeTakenSeconds || 0,
+      completed_at: now,
+    });
+  } catch (err) {
+    console.warn("Supabase attempt record note:", err);
   }
 
   return attemptRecord;

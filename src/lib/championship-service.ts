@@ -130,7 +130,10 @@ export function getDailyPulsesForDate(_date: Date = new Date()): PulseQuestion[]
 // 7:00 PM - 11:59 PM IST -> Today's Pulse Active
 // Next day -> Unlocks next pulse
 
-export function getDailyPulseTimeState(now: Date = new Date()): TimeWindowState {
+export function getDailyPulseTimeState(
+  now: Date = new Date(),
+  customStartTime?: Date | null
+): TimeWindowState {
   // Get IST hours and minutes
   const istFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: EVENT_TZ,
@@ -146,18 +149,40 @@ export function getDailyPulseTimeState(now: Date = new Date()): TimeWindowState 
   const second = parseInt(parts.find((p) => p.type === "second")?.value || "0", 10);
 
   const currentSeconds = hour * 3600 + minute * 60 + second;
-  const target7pmSeconds = 19 * 3600; // 19:00:00 IST
 
-  if (currentSeconds < target7pmSeconds) {
-    const remaining = target7pmSeconds - currentSeconds;
+  let targetHour = 19;
+  let targetMinute = 0;
+  let targetTimeLabel = "7:00 PM IST";
+
+  if (customStartTime) {
+    const startParts = istFormatter.formatToParts(customStartTime);
+    targetHour = parseInt(startParts.find((p) => p.type === "hour")?.value || "19", 10);
+    targetMinute = parseInt(startParts.find((p) => p.type === "minute")?.value || "0", 10);
+    try {
+      targetTimeLabel =
+        customStartTime.toLocaleTimeString("en-IN", {
+          timeZone: EVENT_TZ,
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        }) + " IST";
+    } catch {
+      targetTimeLabel = "7:00 PM IST";
+    }
+  }
+
+  const targetOpeningSeconds = targetHour * 3600 + targetMinute * 60;
+
+  if (currentSeconds < targetOpeningSeconds) {
+    const remaining = targetOpeningSeconds - currentSeconds;
     return {
       status: "before_7pm",
       countdownSeconds: remaining,
-      label: "Unlocks at 7:00 PM IST",
-      opensAtIST: "7:00 PM IST",
+      label: `Unlocks at ${targetTimeLabel}`,
+      opensAtIST: targetTimeLabel,
     };
   } else {
-    // 7:00 PM to 11:59 PM
+    // Window active
     const endOfDaySeconds = 24 * 3600;
     const remaining = endOfDaySeconds - currentSeconds;
     return {
@@ -170,9 +195,15 @@ export function getDailyPulseTimeState(now: Date = new Date()): TimeWindowState 
 }
 
 // ── Season status helper ──────────────────────────────────────────────────────
-export function getSeasonStatus(now: Date = new Date()): SeasonStatus {
-  if (now < SEASON_START_UTC) return "pre";
-  if (now > SEASON_END_UTC)   return "ended";
+export function getSeasonStatus(
+  now: Date = new Date(),
+  customStart?: Date | null,
+  customEnd?: Date | null
+): SeasonStatus {
+  const start = customStart ?? SEASON_START_UTC;
+  const end = customEnd ?? SEASON_END_UTC;
+  if (start && now < start) return "pre";
+  if (end && now > end) return "ended";
   return "live";
 }
 
