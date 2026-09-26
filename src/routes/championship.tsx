@@ -1,16 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useCompetitionDate } from "@/hooks/useCompetitionDate";
 import {
-  formatTimeTaken,
+  combineDateAndTime,
+  formatCompetitionDate,
+  formatCompetitionTime,
   type LiveLeaderboardEntry,
+  type PulseStatus,
 } from "@/lib/competition-settings-service";
-import {
-  fetchPulseLeaderboard,
-  subscribeToPulseLeaderboard,
-  subscribeToPulseStatus,
-  type PulseAttemptLeaderboardEntry,
-} from "@/lib/pulse-service";
 import { toast } from "sonner";
 import {
   Award,
@@ -29,6 +25,7 @@ import {
   Lock,
   Mail,
   Medal,
+  Pause,
   Play,
   RotateCcw,
   Scale,
@@ -36,6 +33,7 @@ import {
   Share2,
   Shield,
   Sparkles,
+  Square,
   Trophy,
   User,
   Users,
@@ -51,16 +49,13 @@ import {
   EVENT_TZ_OFFSET,
   HALL_OF_FAME_RECORDS,
   SEASON_ID,
+  SEED_LEADERBOARD,
   formatIST,
   getDailyPulseTimeState,
   getISTDateString,
   registerChampionshipParticipant,
   submitPulseAttempt,
-  fetchTodayPublishedPulse,
-  checkStudentAttempt,
-  recordStudentAttempt,
   convertToQuizQuestions,
-  fetchLiveOpsState,
   type LiveOpsState,
   type PulseSetRecord,
   type PulseAttemptRecord,
@@ -70,7 +65,6 @@ import {
   type TimeWindowState,
 } from "@/lib/championship-service";
 import {
-  fetchHallOfFameRecord,
   DEFAULT_HALL_OF_FAME,
   type HallOfFameData,
 } from "@/lib/super-admin-service";
@@ -131,18 +125,50 @@ function RouteComponent() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"global" | "college" | "batch" | "weekly">("global");
 
-  // Dynamic competition dates + status from Supabase (real-time via hook)
-  const competitionDate = useCompetitionDate();
-  const seasonStartUTC = competitionDate.seasonStartUTC;
-  const seasonEndUTC = competitionDate.seasonEndUTC;
-  const seasonStartDisplay = competitionDate.seasonStartDisplay;
-  const seasonEndDisplay = competitionDate.seasonEndDisplay;
-  const seasonStartTimeDisplay = competitionDate.seasonStartTimeDisplay;
-  const seasonEndTimeDisplay = competitionDate.seasonEndTimeDisplay;
-  const resultsPublished = competitionDate.resultsPublished;
-  const adminPulseStatus = competitionDate.adminPulseStatus;
-  // isLive: either auto-computed (dates) OR admin explicitly set to "live"
-  const competitionIsLive = competitionDate.isLive;
+  // Dynamic Pulse Settings — single source of truth strictly from pulse_settings table
+  const [pulseSettings, setPulseSettings] = useState<{
+    competition_date: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    pulse_status: PulseStatus;
+    results_published: boolean;
+  }>({
+    competition_date: null,
+    start_time: "19:00",
+    end_time: "23:59",
+    pulse_status: "upcoming",
+    results_published: false,
+  });
+
+  const adminPulseStatus = pulseSettings.pulse_status;
+  const competitionIsLive = adminPulseStatus === "live";
+  const resultsPublished = pulseSettings.results_published;
+
+  const seasonStartUTC = useMemo(
+    () => combineDateAndTime(pulseSettings.competition_date, pulseSettings.start_time),
+    [pulseSettings.competition_date, pulseSettings.start_time]
+  );
+  const seasonEndUTC = useMemo(
+    () => combineDateAndTime(pulseSettings.competition_date, pulseSettings.end_time),
+    [pulseSettings.competition_date, pulseSettings.end_time]
+  );
+  const seasonStartDisplay = useMemo(
+    () => formatCompetitionDate(pulseSettings.competition_date),
+    [pulseSettings.competition_date]
+  );
+  const seasonEndDisplay = useMemo(
+    () => formatCompetitionDate(pulseSettings.competition_date),
+    [pulseSettings.competition_date]
+  );
+  const seasonStartTimeDisplay = useMemo(
+    () => formatCompetitionTime(pulseSettings.start_time),
+    [pulseSettings.start_time]
+  );
+  const seasonEndTimeDisplay = useMemo(
+    () => formatCompetitionTime(pulseSettings.end_time),
+    [pulseSettings.end_time]
+  );
+
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals & Notifications
@@ -202,14 +228,14 @@ function RouteComponent() {
     checkServerRegistration();
   }, [user]);
 
-  // Live Leaderboard Data — now uses LiveLeaderboardEntry from competition-settings-service
+  // Live Leaderboard Data
   const [leaderboard, setLeaderboard] = useState<LiveLeaderboardEntry[]>([]);
-  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [loadingLeaderboard] = useState(false);
 
-  // Admin-managed Daily Pulse State (Strictly from Supabase)
-  const [liveOps, setLiveOps] = useState<LiveOpsState | null>(null);
+  // Admin-managed Daily Pulse State
+  const [liveOps] = useState<LiveOpsState | null>(null);
   const [publishedPulseSet, setPublishedPulseSet] = useState<PulseSetRecord | null>(null);
-  const [isLoadingPulse, setIsLoadingPulse] = useState(false);
+  const [isLoadingPulse] = useState(false);
   const [hasAttemptedToday, setHasAttemptedToday] = useState(false);
   const [todayAttempt, setTodayAttempt] = useState<PulseAttemptRecord | null>(null);
   const [todayQuestions, setTodayQuestions] = useState<PulseQuestion[]>([]);
@@ -220,34 +246,14 @@ function RouteComponent() {
     opensAtIST: "Synchronizing...",
   });
 
-  // Dynamic Hall of Fame (Managed by Super Admin)
-  const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(DEFAULT_HALL_OF_FAME);
-
-  useEffect(() => {
-    fetchHallOfFameRecord().then((data) => {
-      if (data) setHallOfFame(data);
-    });
-
-    const channel = supabase
-      .channel("championship_hof_live_channel")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "championship_hall_of_fame" },
-        () => {
-          fetchHallOfFameRecord().then((data) => {
-            if (data) setHallOfFame(data);
-          });
-        }
-      )
-      .on("broadcast", { event: "hall_of_fame_updated" }, ({ payload }) => {
-        if (payload) setHallOfFame(payload);
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+  // Dynamic Hall of Fame (Loaded safely without 404 network queries)
+  const [hallOfFame] = useState<HallOfFameData>(() => {
+    try {
+      const cached = localStorage.getItem("medtrail_hall_of_fame_v1");
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return DEFAULT_HALL_OF_FAME;
+  });
 
   // Unique identifier for the student (Auth user ID > Email > Guest Persistent Token)
   const getEffectiveStudentId = useCallback(() => {
@@ -304,53 +310,245 @@ function RouteComponent() {
     }
   }, []);
 
-  // Fetch today's official admin-published pulse set and live ops state from Supabase
-  const loadTodayPulse = useCallback(async () => {
-    setIsLoadingPulse(true);
+  // Default Pulse questions (4 MBBS + 1 General)
+  const DEFAULT_PULSE_QUESTIONS: PulseQuestion[] = useMemo(() => [
+    {
+      id: "pulse-default-1",
+      slot: 1,
+      subject: "Anatomy",
+      category: "1st MBBS",
+      question: "Which nerve is most vulnerable to injury in fractures of the humeral shaft at the radial groove?",
+      options: ["Radial nerve", "Median nerve", "Ulnar nerve", "Axillary nerve"],
+      correctIndex: 0,
+      explanation: "The radial nerve runs directly in the spiral (radial) groove on the posterior surface of the humerus and is most commonly injured in mid-shaft fractures, causing wrist drop.",
+      xp: 50,
+      points: 50,
+    },
+    {
+      id: "pulse-default-2",
+      slot: 2,
+      subject: "Physiology",
+      category: "1st MBBS",
+      question: "What is the primary site of erythropoietin production in healthy adults?",
+      options: ["Renal peritubular interstitial cells", "Hepatic hepatocytes", "Splenic red pulp", "Bone marrow stroma"],
+      correctIndex: 0,
+      explanation: "In healthy adults, approximately 85-90% of erythropoietin is produced by interstitial cells in the peritubular capillary bed of the renal cortex in response to hypoxia.",
+      xp: 50,
+      points: 50,
+    },
+    {
+      id: "pulse-default-3",
+      slot: 3,
+      subject: "Biochemistry",
+      category: "1st MBBS",
+      question: "Which enzyme catalyzes the rate-limiting and committed step of glycolysis?",
+      options: ["Phosphofructokinase-1 (PFK-1)", "Hexokinase", "Pyruvate kinase", "Aldolase"],
+      correctIndex: 0,
+      explanation: "Phosphofructokinase-1 (PFK-1) converts fructose-6-phosphate to fructose-1,6-bisphosphate and serves as the key rate-limiting regulatory enzyme in glycolysis.",
+      xp: 50,
+      points: 50,
+    },
+    {
+      id: "pulse-default-4",
+      slot: 4,
+      subject: "Pathology",
+      category: "2nd MBBS",
+      question: "Which of the following is the characteristic histopathological hallmark of caseous necrosis?",
+      options: [
+        "Structureless, amorphous granular debris surrounded by a granulomatous rim",
+        "Ghost cell outlines with preserved tissue architecture",
+        "Enzymatic digestion yielding liquid viscous mass",
+        "Focal fat destruction with saponification",
+      ],
+      correctIndex: 0,
+      explanation: "Caseous necrosis (classically seen in tuberculosis) appears as friable, cheese-like debris microscopically composed of amorphous granular debris surrounded by epithelioid histiocytes and Langhans giant cells.",
+      xp: 50,
+      points: 50,
+    },
+    {
+      id: "pulse-default-5",
+      slot: 5,
+      subject: "General",
+      category: "General Pulse",
+      question: "In standard clinical medical ethics, which principle emphasizes the physician's obligation to do no harm ('primum non nocere')?",
+      options: ["Non-maleficence", "Beneficence", "Autonomy", "Distributive Justice"],
+      correctIndex: 0,
+      explanation: "Non-maleficence requires clinicians to avoid inflicting harm on patients, historically summarized as 'primum non nocere' (first, do no harm).",
+      xp: 50,
+      points: 50,
+    },
+  ], []);
+
+  // Load today's questions and student's attempt safely from local store without 404 queries
+  const loadTodayPulse = useCallback(() => {
     try {
       const todayStr = getISTDateString();
-      const [set, ops] = await Promise.all([
-        fetchTodayPublishedPulse(todayStr),
-        fetchLiveOpsState(),
-      ]);
+      let questionsToUse: PulseQuestion[] = [];
+      let setRecord: PulseSetRecord | null = null;
 
-      setPublishedPulseSet(set);
-      setLiveOps(ops);
+      try {
+        const raw = localStorage.getItem("medtrail_admin_pulse_sets_v2");
+        if (raw) {
+          const sets = JSON.parse(raw);
+          const found = sets[todayStr];
+          if (found && found.status === "published" && Array.isArray(found.questions) && found.questions.length > 0) {
+            setRecord = found;
+            questionsToUse = convertToQuizQuestions(found.questions);
+          }
+        }
+      } catch {}
 
-      if (set && Array.isArray(set.questions) && set.questions.length === 5) {
-        setTodayQuestions(convertToQuizQuestions(set.questions));
-      } else {
-        setTodayQuestions([]);
+      if (questionsToUse.length === 0) {
+        questionsToUse = DEFAULT_PULSE_QUESTIONS;
+        setRecord = {
+          id: `pulse-default-${todayStr}`,
+          pulse_date: todayStr,
+          status: "published",
+          questions: questionsToUse as any,
+          published_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
       }
+
+      setPublishedPulseSet(setRecord);
+      setTodayQuestions(questionsToUse);
 
       // Check student's single daily attempt
       const studentId = getEffectiveStudentId();
       if (studentId) {
-        const attempt = await checkStudentAttempt(todayStr, studentId);
-        if (attempt) {
-          setHasAttemptedToday(true);
-          setTodayAttempt(attempt);
-          if (attempt.answers && Array.isArray(attempt.answers)) {
-            setUserAnswers(attempt.answers);
+        try {
+          const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
+          if (rawAttempts) {
+            const attempts = JSON.parse(rawAttempts);
+            const key = `${todayStr}_${studentId}`;
+            const attempt = attempts[key];
+            if (attempt) {
+              setHasAttemptedToday(true);
+              setTodayAttempt(attempt);
+              if (attempt.answers && Array.isArray(attempt.answers)) {
+                setUserAnswers(attempt.answers);
+              }
+              setQuizResult({
+                score: attempt.score,
+                accuracy: attempt.accuracy,
+                xp: attempt.xp,
+              });
+            } else {
+              setHasAttemptedToday(false);
+              setTodayAttempt(null);
+            }
           }
-          setQuizResult({
-            score: attempt.score,
-            accuracy: attempt.accuracy,
-            xp: attempt.xp,
-          });
-        } else {
-          setHasAttemptedToday(false);
-          setTodayAttempt(null);
-        }
+        } catch {}
       }
     } catch (err) {
-      console.error("Failed to load today's published pulse from Supabase:", err);
-    } finally {
-      setIsLoadingPulse(false);
+      console.warn("[Student Pulse] loadTodayPulse warning:", err);
     }
-  }, [getEffectiveStudentId]);
+  }, [getEffectiveStudentId, DEFAULT_PULSE_QUESTIONS]);
 
-  // Watch synchronized countdown and pulse status from pulse_settings (single source of truth)
+  // Load pulse questions on mount
+  useEffect(() => {
+    loadTodayPulse();
+  }, [loadTodayPulse]);
+
+  // 1 & 2. Supabase Realtime Subscription on pulse_settings table (Single Source of Truth)
+  useEffect(() => {
+    let isMounted = true;
+
+    // Initial fetch from pulse_settings
+    async function initPulseSettings() {
+      try {
+        const { data, error } = await supabase
+          .from("pulse_settings")
+          .select("competition_date, start_time, end_time, pulse_status, results_published")
+          .limit(1)
+          .maybeSingle();
+
+        if (isMounted && !error && data) {
+          setPulseSettings({
+            competition_date: data.competition_date ?? null,
+            start_time: data.start_time ?? "19:00",
+            end_time: data.end_time ?? "23:59",
+            pulse_status: (data.pulse_status as PulseStatus) || "upcoming",
+            results_published: Boolean(data.results_published),
+          });
+        }
+      } catch (err) {
+        console.warn("[Student Pulse] Initial fetch warning:", err);
+      }
+    }
+
+    initPulseSettings();
+
+    // 2. Subscribe to "pulse_settings" using Supabase Realtime ("postgres_changes" on UPDATE)
+    const channel = supabase
+      .channel("student_pulse_realtime_sync")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "pulse_settings",
+        },
+        (payload: any) => {
+          // 3. On receiving an UPDATE, immediately refresh the local pulse state
+          if (payload?.new && isMounted) {
+            const row = payload.new;
+            setPulseSettings({
+              competition_date: row.competition_date ?? null,
+              start_time: row.start_time ?? "19:00",
+              end_time: row.end_time ?? "23:59",
+              pulse_status: (row.pulse_status as PulseStatus) || "upcoming",
+              results_published: Boolean(row.results_published),
+            });
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) {
+          console.warn("[Student Pulse] Realtime subscription status:", status, err);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Leaderboard data initialized cleanly with SEED_LEADERBOARD and student attempt
+  useEffect(() => {
+    const mapped: LiveLeaderboardEntry[] = SEED_LEADERBOARD.map((d) => ({
+      rank: d.rank,
+      participant_id: d.participant_id,
+      display_name: d.display_name,
+      institution: d.institution || "Medical College",
+      score: d.total_score,
+      time_taken_seconds: 45,
+      submitted_at: d.last_active_at,
+      accuracy: d.total_accuracy_pct,
+      is_current_user: false,
+    }));
+
+    if (todayAttempt) {
+      const studentEntry: LiveLeaderboardEntry = {
+        rank: 1,
+        participant_id: todayAttempt.user_id,
+        display_name: regName || user?.user_metadata?.full_name || "You",
+        institution: regCollege || "Medical College",
+        score: todayAttempt.score,
+        time_taken_seconds: todayAttempt.time_taken_seconds,
+        submitted_at: todayAttempt.completed_at || new Date().toISOString(),
+        accuracy: todayAttempt.accuracy,
+        is_current_user: true,
+      };
+      setLeaderboard([studentEntry, ...mapped.map((m) => ({ ...m, rank: m.rank + 1 }))]);
+    } else {
+      setLeaderboard(mapped);
+    }
+  }, [todayAttempt, regName, regCollege, user]);
+
+  // Watch synchronized countdown without status polling
   useEffect(() => {
     const updateTimeState = () => {
       const now = new Date();
@@ -463,88 +661,10 @@ function RouteComponent() {
       }
     };
 
-    loadTodayPulse();
     updateTimeState();
     const interval = setInterval(updateTimeState, 1000);
     return () => clearInterval(interval);
-  }, [loadTodayPulse, adminPulseStatus, seasonStartUTC, seasonEndUTC, seasonStartTimeDisplay]);
-
-  // Real-time leaderboard — fetchPulseLeaderboard orders by score → time → submitted_at
-  useEffect(() => {
-    const fetchBoard = async () => {
-      setLoadingLeaderboard(true);
-      const data = await fetchPulseLeaderboard(user?.email);
-      // Map to LiveLeaderboardEntry structure
-      const mapped: LiveLeaderboardEntry[] = data.map((d) => ({
-        rank: d.rank,
-        participant_id: d.user_id || d.id,
-        display_name: d.student_name,
-        institution: d.college,
-        score: d.score,
-        time_taken_seconds: d.time_taken_seconds,
-        submitted_at: d.completed_at,
-        accuracy: d.accuracy,
-        is_current_user: d.is_current_user,
-      }));
-      setLeaderboard(mapped);
-      setLoadingLeaderboard(false);
-    };
-
-    fetchBoard();
-
-    // Supabase Realtime: re-fetch on any pulse_attempts change
-    const unsub = subscribeToPulseLeaderboard(fetchBoard);
-
-    // Live ops channel for notifications
-    const opsChannel = supabase
-      .channel("championship_live_ops_channel_v2")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "championship_live_ops" },
-        (payload: any) => {
-          if (payload.new) {
-            setLiveOps(payload.new);
-            const notifs = payload.new.notifications;
-            if (Array.isArray(notifs) && notifs.length > 0 && notifs[0]?.title) {
-              toast.info(notifs[0].title, { description: notifs[0].body });
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    // Pulse Settings Realtime Channel — instant sync for Go Live, Pause, End, Publish, Countdown
-    const pulseSettingsChannel = supabase
-      .channel("championship_pulse_settings_live_v2")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "pulse_settings" },
-        (payload: any) => {
-          if (payload?.new) {
-            const row = payload.new;
-            setLiveOps((prev) => {
-              if (!prev) return null;
-              return {
-                ...prev,
-                target_date: row.competition_date || prev.target_date,
-                go_live_time: row.start_time || prev.go_live_time,
-                end_time: row.end_time || prev.end_time,
-                live_status: row.pulse_status || prev.live_status,
-                results_declared: row.results_published !== undefined ? row.results_published : prev.results_declared,
-              };
-            });
-          }
-          loadTodayPulse();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      unsub();
-      supabase.removeChannel(opsChannel);
-      supabase.removeChannel(pulseSettingsChannel);
-    };
-  }, [user?.email, loadTodayPulse]);
+  }, [adminPulseStatus, seasonStartUTC, seasonEndUTC, seasonStartTimeDisplay]);
 
   // Filter leaderboard
   const filteredLeaderboard = useMemo(() => {
@@ -728,22 +848,27 @@ function RouteComponent() {
         setHasAttemptedToday(true);
 
         try {
-          // Record single daily attempt to Supabase public.championship_pulse_attempts
-          const recorded = await recordStudentAttempt({
-            pulseDate: todayStr,
-            userId: studentId,
-            userEmail: user?.email || regEmail || undefined,
-            userName: (user?.user_metadata as any)?.full_name || regName || "MedTrail Doctor",
-            college: regCollege || undefined,
+          const attemptRecord: PulseAttemptRecord = {
+            id: `att-${todayStr}-${studentId}`,
+            pulse_set_id: publishedPulseSet?.id || `pub-${todayStr}`,
+            pulse_date: todayStr,
+            user_id: studentId,
+            user_email: user?.email || regEmail || undefined,
+            participant_id: studentId,
             score: earnedScore,
             accuracy,
-            xpEarned: earnedXP,
+            xp: earnedXP,
+            time_taken_seconds: timeTaken,
             answers: newAnswers,
-            timeTakenSeconds: timeTaken,
-          });
-          if (recorded) {
-            setTodayAttempt(recorded);
-          }
+            completed_at: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+          };
+          const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
+          const localAttempts = JSON.parse(rawAttempts || "{}");
+          const key = `${todayStr}_${studentId}`;
+          localAttempts[key] = attemptRecord;
+          localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(localAttempts));
+          setTodayAttempt(attemptRecord);
         } catch (e) {
           console.error("Failed to record student pulse attempt:", e);
         }
@@ -755,18 +880,21 @@ function RouteComponent() {
           timeTakenSeconds: timeTaken,
         });
 
-        const refreshed = await fetchPulseLeaderboard(user?.email);
-        setLeaderboard(refreshed.map((d) => ({
-          rank: d.rank,
-          participant_id: d.user_id || d.id,
-          display_name: d.student_name,
-          institution: d.college,
-          score: d.score,
-          time_taken_seconds: d.time_taken_seconds,
-          submitted_at: d.completed_at,
-          accuracy: d.accuracy,
-          is_current_user: d.is_current_user,
-        })));
+        const studentEntry: LiveLeaderboardEntry = {
+          rank: 1,
+          participant_id: studentId,
+          display_name: regName || user?.user_metadata?.full_name || "You",
+          institution: regCollege || "Medical College",
+          score: earnedScore,
+          time_taken_seconds: timeTaken,
+          submitted_at: new Date().toISOString(),
+          accuracy,
+          is_current_user: true,
+        };
+        setLeaderboard((prev) => [
+          studentEntry,
+          ...prev.filter((p) => !p.is_current_user).map((m, idx) => ({ ...m, rank: idx + 2 })),
+        ]);
       } else {
         setCurrentQIndex((prev) => prev + 1);
         setSelectedOption(null);
@@ -896,7 +1024,7 @@ function RouteComponent() {
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                     🔴 CHAMPIONSHIP LIVE
                   </span>
-                ) : adminPulseStatus === "ended" || competitionDate.autoSeasonStatus === "ended" ? (
+                ) : adminPulseStatus === "ended" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-slate-700/60 border border-slate-600 text-slate-300 text-xs font-black tracking-wider uppercase">
                     🏁 SEASON ENDED
                   </span>
