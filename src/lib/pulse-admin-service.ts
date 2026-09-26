@@ -842,7 +842,7 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
     const { data: pulseData } = await (supabase as any)
       .from("pulse_settings")
       .select("*")
-      .eq("id", 1)
+      .limit(1)
       .maybeSingle();
 
     if (pulseData) {

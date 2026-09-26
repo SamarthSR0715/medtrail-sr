@@ -83,11 +83,27 @@ export function PulseStudio() {
     try {
       // Do not write the id field in the update payload
       const { id, ...updateFields } = fields;
-      console.log("[patchPulseSettings] updating pulse_settings id=1 with:", updateFields);
+
+      // Dynamically resolve target row id (handles id=1, id="singleton", or whatever primary key exists)
+      let targetId: any = 1;
+      try {
+        const { data: existing } = await (supabase as any)
+          .from("pulse_settings")
+          .select("id")
+          .limit(1)
+          .maybeSingle();
+        if (existing?.id !== undefined && existing?.id !== null) {
+          targetId = existing.id;
+        }
+      } catch {
+        targetId = 1;
+      }
+
+      console.log(`[patchPulseSettings] updating pulse_settings (id=${targetId}) with:`, updateFields);
       const result = await (supabase as any)
         .from("pulse_settings")
         .update(updateFields)
-        .eq("id", 1);
+        .eq("id", targetId);
       console.log("[patchPulseSettings] update result:", result);
       return result;
     } catch (err: any) {
@@ -478,8 +494,8 @@ const handleDeclareResults = async () => {
   }
   setShowDeclareModal(false);
   try {
-    // 1. Await Supabase update using shared persistence function
-    await savePulseSettingsRecord({ results_published: true, pulse_status: "ended" });
+    // 1. Await Supabase update: publish results only (do not alter pulse_status)
+    await patchPulseSettings({ results_published: true });
 
     const res = await declareFinalResults();
     if (res.success) {

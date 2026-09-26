@@ -67,11 +67,11 @@ const DEFAULTS: CompetitionSettings = {
 
 export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
   try {
-    // Query Supabase pulse_settings table (row id = 1) - ONLY source of truth
+    // Query Supabase pulse_settings table (single source of truth) - STRICT READ ONLY
     const { data: pulseRow, error: pulseErr } = await (supabase as any)
       .from("pulse_settings")
       .select("*")
-      .eq("id", 1)
+      .limit(1)
       .maybeSingle();
 
     if (!pulseErr && pulseRow) {
@@ -124,10 +124,24 @@ export async function savePulseSettingsRecord(params: {
   try {
     delete (updatePayload as any).id;
 
+    let targetId: any = 1;
+    try {
+      const { data: existing } = await (supabase as any)
+        .from("pulse_settings")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id !== undefined && existing?.id !== null) {
+        targetId = existing.id;
+      }
+    } catch {
+      targetId = 1;
+    }
+
     const { error } = await (supabase as any)
       .from("pulse_settings")
       .update(updatePayload)
-      .eq("id", 1);
+      .eq("id", targetId);
 
     if (error) {
       console.error("[CompetitionSettings] pulse_settings update error:", error);
@@ -181,10 +195,24 @@ export async function saveCompetitionSetting(
         val = value.split("T")[0];
       }
 
+      let targetId: any = 1;
+      try {
+        const { data: existing } = await (supabase as any)
+          .from("pulse_settings")
+          .select("id")
+          .limit(1)
+          .maybeSingle();
+        if (existing?.id !== undefined && existing?.id !== null) {
+          targetId = existing.id;
+        }
+      } catch {
+        targetId = 1;
+      }
+
       await (supabase as any)
         .from("pulse_settings")
         .update({ [field]: val })
-        .eq("id", 1);
+        .eq("id", targetId);
     } catch (err) {
       console.warn("[CompetitionSettings] pulse_settings write notice:", err);
     }
