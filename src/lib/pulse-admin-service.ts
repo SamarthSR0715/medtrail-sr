@@ -807,6 +807,8 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
     // Ignore
   }
 
+  let merged: LiveOpsState = cached;
+
   try {
     const { data, error } = await supabase
       .from("championship_live_ops")
@@ -815,7 +817,7 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
       .maybeSingle();
 
     if (!error && data) {
-      const merged: LiveOpsState = {
+      merged = {
         id: data.id,
         registration_open: Boolean(data.registration_open),
         live_status: data.live_status as any,
@@ -830,14 +832,44 @@ export async function fetchLiveOpsState(): Promise<LiveOpsState> {
         notifications: (data.notifications as any) || [],
         updated_at: data.updated_at || new Date().toISOString(),
       };
-      safeSetItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(merged));
-      return merged;
     }
   } catch (err) {
     console.warn("fetchLiveOpsState warning:", err);
   }
 
-  return cached;
+  // Also overlay app_settings table as single source of truth for competition timing
+  try {
+    const { data: appData } = await (supabase as any)
+      .from("app_settings")
+      .select("key, value");
+    if (appData && Array.isArray(appData)) {
+      const appMap: Record<string, string> = {};
+      appData.forEach((row: { key: string; value: string | null }) => {
+        if (row.key && row.value) appMap[row.key] = row.value;
+      });
+      if (appMap["competition_date"]) {
+        const raw = appMap["competition_date"];
+        merged.target_date = raw.includes("T") ? raw.split("T")[0]! : raw;
+      }
+      if (appMap["start_time"]) {
+        merged.go_live_time = appMap["start_time"];
+      }
+      if (appMap["end_time"]) {
+        merged.end_time = appMap["end_time"];
+      }
+      if (appMap["pulse_status"]) {
+        merged.live_status = appMap["pulse_status"] as any;
+      }
+      if (appMap["results_published"]) {
+        merged.results_declared = appMap["results_published"] === "true";
+      }
+    }
+  } catch {
+    // Ignore app_settings query error
+  }
+
+  safeSetItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(merged));
+  return merged;
 }
 
 /**
@@ -857,7 +889,7 @@ export async function updateLiveOpsState(
     // Save to local cache immediately
     safeSetItem(LOCAL_STORAGE_LIVE_OPS_KEY, JSON.stringify(updated));
 
-    // Upsert to Supabase
+    // Upsert to championship_live_ops
     const { error } = await supabase
       .from("championship_live_ops")
       .upsert({
@@ -878,6 +910,53 @@ export async function updateLiveOpsState(
 
     if (error) {
       console.warn("Supabase live ops sync error (local state active):", error.message);
+    }
+
+    // Sync app_settings table as single source of truth
+    try {
+      const appSettingsUpserts: { key: string; value: string }[] = [];
+      if (partial.target_date !== undefined) {
+        appSettingsUpserts.push({ key: "competition_date", value: partial.target_date });
+      }
+      if (partial.go_live_time !== undefined) {
+        appSettingsUpserts.push({ key: "start_time", value: partial.go_live_time });
+      }
+      if (partial.end_time !== undefined) {
+        appSettingsUpserts.push({ key: "end_time", value: partial.end_time });
+      }
+      if (partial.live_status !== undefined) {
+        const statusMap: Record<string, string> = {
+          draft: "upcoming",
+          published: "upcoming",
+          live: "live",
+          paused: "paused",
+          ended: "ended",
+        };
+        appSettingsUpserts.push({
+          key: "pulse_status",
+          value: statusMap[partial.live_status] || partial.live_status,
+        });
+      }
+      if (partial.results_declared !== undefined) {
+        appSettingsUpserts.push({
+          key: "results_published",
+          value: String(partial.results_declared),
+        });
+      }
+
+      for (const item of appSettingsUpserts) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`medtrail_setting_${item.key}`, item.value);
+          window.dispatchEvent(
+            new CustomEvent("medtrail_setting_updated", { detail: item })
+          );
+        }
+        await (supabase as any)
+          .from("app_settings")
+          .upsert(item, { onConflict: "key" });
+      }
+    } catch {
+      // Ignore app_settings write failure
     }
 
     return { success: true, data: updated };

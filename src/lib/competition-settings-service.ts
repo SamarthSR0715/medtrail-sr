@@ -20,6 +20,8 @@ export type PulseStatus = "upcoming" | "live" | "paused" | "ended";
 export interface CompetitionSettings {
   competition_date: string | null;
   competition_end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
   pulse_status: PulseStatus;
   results_published: boolean;
   leaderboard_reset_at: string | null;
@@ -28,6 +30,8 @@ export interface CompetitionSettings {
 export type SettingKey =
   | "competition_date"
   | "competition_end_date"
+  | "start_time"
+  | "end_time"
   | "pulse_status"
   | "results_published"
   | "leaderboard_reset_at";
@@ -74,6 +78,8 @@ export function setCachedSetting(key: string, value: string | null): void {
 const DEFAULTS: CompetitionSettings = {
   competition_date: null,
   competition_end_date: null,
+  start_time: "19:00",
+  end_time: "23:59",
   pulse_status: "upcoming",
   results_published: false,
   leaderboard_reset_at: null,
@@ -86,6 +92,8 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
   const map: Record<string, string | null> = {
     competition_date: getCachedSetting("competition_date"),
     competition_end_date: getCachedSetting("competition_end_date"),
+    start_time: getCachedSetting("start_time"),
+    end_time: getCachedSetting("end_time"),
     pulse_status: getCachedSetting("pulse_status"),
     results_published: getCachedSetting("results_published"),
     leaderboard_reset_at: getCachedSetting("leaderboard_reset_at"),
@@ -124,6 +132,8 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
   return {
     competition_date: map["competition_date"] ?? null,
     competition_end_date: map["competition_end_date"] ?? null,
+    start_time: map["start_time"] ?? "19:00",
+    end_time: map["end_time"] ?? "23:59",
     pulse_status: (map["pulse_status"] as PulseStatus) ?? "upcoming",
     results_published: map["results_published"] === "true",
     leaderboard_reset_at: map["leaderboard_reset_at"] ?? null,

@@ -63,6 +63,12 @@ import {
   type LiveAnalytics,
 } from "@/lib/pulse-admin-service";
 import { getISTDateString } from "@/lib/championship-service";
+import {
+  saveCompetitionSetting,
+  setPulseStatus,
+  setResultsPublished,
+  fetchCompetitionSettings,
+} from "@/lib/competition-settings-service";
 
 export function PulseStudio() {
   const todayIST = getISTDateString();
@@ -70,6 +76,7 @@ export function PulseStudio() {
   const [questions, setQuestions] = useState<PulseQuestionInput[]>(createEmptyPulseQuestions());
   const [activeSlot, setActiveSlot] = useState<number>(1);
   const [status, setStatus] = useState<"draft" | "published" | "empty">("empty");
+  const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
@@ -85,7 +92,7 @@ export function PulseStudio() {
     id: "singleton",
     registration_open: true,
     live_status: "published",
-    target_date: "2026-09-27",
+    target_date: todayIST,
     go_live_time: "19:00",
     end_time: "23:59",
     extended_minutes: 0,
@@ -186,12 +193,28 @@ export function PulseStudio() {
   // Load live ops state and analytics
   const refreshLiveOps = useCallback(async () => {
     try {
-      const ops = await fetchLiveOpsState();
-      setLiveOps(ops);
+      const [ops, compSettings] = await Promise.all([
+        fetchLiveOpsState(),
+        fetchCompetitionSettings(),
+      ]);
+
+      const effectiveTargetDate = compSettings.competition_date || ops.target_date || todayIST;
+      const effectiveStartTime = compSettings.start_time || ops.go_live_time || "19:00";
+      const effectiveEndTime = compSettings.end_time || ops.end_time || "23:59";
+      const effectiveStatus = (compSettings.pulse_status as any) || ops.live_status || "published";
+
+      setLiveOps({
+        ...ops,
+        target_date: effectiveTargetDate,
+        go_live_time: effectiveStartTime,
+        end_time: effectiveEndTime,
+        live_status: effectiveStatus,
+        results_declared: compSettings.results_published || ops.results_declared,
+      });
     } catch (err) {
       console.error("Failed to fetch live ops:", err);
     }
-  }, []);
+  }, [todayIST]);
 
   const refreshAnalytics = useCallback(async () => {
     setIsRefreshingStats(true);
@@ -279,7 +302,8 @@ export function PulseStudio() {
       if (res.success) {
         setStatus("published");
         setPublishedAt(new Date().toISOString());
-        await updateLiveOpsState({ live_status: "published" });
+        await setResultsPublished(true);
+        await updateLiveOpsState({ live_status: "published", results_declared: true });
         await refreshLiveOps();
         toast.success(`Published Pulse for ${pulseDate}! It will be live at 7:00 PM IST.`);
       } else {
@@ -295,19 +319,20 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
+      await setPulseStatus("live");
       const res = await updateLiveOpsState({ live_status: "live" });
       if (res.success && res.data) {
         setLiveOps(res.data);
-        toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
-        // Send automatic broadcast
-        await sendPushNotification({
-          templateKey: "pulse_live",
-          title: "🔴 CHAMPIONSHIP PULSE IS LIVE!",
-          body: "The window is now open! 5 clinical challenge slots are waiting. Rise through every pulse.",
-        });
       } else {
-        toast.error("Failed to start live pulse.");
+        setLiveOps((prev) => ({ ...prev, live_status: "live" }));
       }
+      toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
+      // Send automatic broadcast
+      await sendPushNotification({
+        templateKey: "pulse_live",
+        title: "🔴 CHAMPIONSHIP PULSE IS LIVE!",
+        body: "The window is now open! 5 clinical challenge slots are waiting. Rise through every pulse.",
+      });
     } catch (err: any) {
       toast.error(err?.message || "Error going live.");
     }
@@ -315,11 +340,14 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
+      await setPulseStatus("paused");
       const res = await updateLiveOpsState({ live_status: "paused" });
       if (res.success && res.data) {
         setLiveOps(res.data);
-        toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
+      } else {
+        setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
       }
+      toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
     } catch (err: any) {
       toast.error(err?.message || "Error pausing pulse.");
     }
@@ -327,11 +355,14 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
+      await setPulseStatus("ended");
       const res = await updateLiveOpsState({ live_status: "ended" });
       if (res.success && res.data) {
         setLiveOps(res.data);
-        toast.info("⏹️ Pulse session officially ended.");
+      } else {
+        setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
       }
+      toast.info("⏹️ Pulse session officially ended.");
     } catch (err: any) {
       toast.error(err?.message || "Error ending pulse.");
     }
@@ -341,15 +372,25 @@ export function PulseStudio() {
   const handleUpdateCountdown = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // 1. Immediately persist to Supabase app_settings (single source of truth)
+      await Promise.all([
+        saveCompetitionSetting("competition_date", liveOps.target_date),
+        saveCompetitionSetting("start_time", liveOps.go_live_time),
+        saveCompetitionSetting("end_time", liveOps.end_time),
+      ]);
+
+      // 2. Persist to championship_live_ops
       const res = await updateLiveOpsState({
         target_date: liveOps.target_date,
         go_live_time: liveOps.go_live_time,
         end_time: liveOps.end_time,
       });
+
       if (res.success && res.data) {
         setLiveOps(res.data);
-        toast.success("⏱️ Countdown time window synchronized for all students!");
       }
+
+      toast.success("⏱️ Countdown time window synchronized for all students!");
     } catch (err: any) {
       toast.error(err?.message || "Failed to update countdown.");
     }
@@ -363,6 +404,8 @@ export function PulseStudio() {
     }
     setShowDeclareModal(false);
     try {
+      await setResultsPublished(true);
+      await setPulseStatus("ended");
       const res = await declareFinalResults();
       if (res.success) {
         toast.success(res.message);

@@ -52,6 +52,8 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   const [settings, setSettings] = useState<CompetitionSettings>({
     competition_date: null,
     competition_end_date: null,
+    start_time: "19:00",
+    end_time: "23:59",
     pulse_status: "upcoming",
     results_published: false,
     leaderboard_reset_at: null,
