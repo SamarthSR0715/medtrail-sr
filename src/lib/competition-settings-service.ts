@@ -144,47 +144,9 @@ export async function saveCompetitionSetting(
     );
   }
 
-  // 3. Persist to pulse_settings directly if the key belongs to pulse_settings (dates/publish only)
-  // NOTE: pulse_status is strictly managed via Go Live / dedicated pulse controls, never overwritten here.
-  const pulseFieldMap: Record<string, string> = {
-    competition_date: "competition_date",
-    start_time: "start_time",
-    end_time: "end_time",
-    results_published: "results_published",
-  };
+  // 3. Date / Time fields for pulse_settings are handled strictly via saveSchedule().
+  // pulse_settings is NEVER written directly here.
 
-  if (pulseFieldMap[key]) {
-    try {
-      const field = pulseFieldMap[key]!;
-      let val: any = value;
-      if (key === "results_published") {
-        val = value === "true";
-      } else if (key === "competition_date" && value && value.includes("T")) {
-        val = value.split("T")[0];
-      }
-
-      let targetId: any = 1;
-      try {
-        const { data: existing } = await (supabase as any)
-          .from("pulse_settings")
-          .select("id")
-          .limit(1)
-          .maybeSingle();
-        if (existing?.id !== undefined && existing?.id !== null) {
-          targetId = existing.id;
-        }
-      } catch {
-        targetId = 1;
-      }
-
-      await (supabase as any)
-        .from("pulse_settings")
-        .update({ [field]: val })
-        .eq("id", targetId);
-    } catch (err) {
-      console.warn("[CompetitionSettings] pulse_settings write notice:", err);
-    }
-  }
 
   // 4. Persist to Supabase app_settings
   let supabaseSuccess = false;

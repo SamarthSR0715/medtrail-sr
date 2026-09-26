@@ -45,6 +45,12 @@ import {
   type CompetitionSettings,
   type PulseStatus,
 } from "@/lib/competition-settings-service";
+import {
+  goLive,
+  pausePulse,
+  endPulse,
+  publishResults,
+} from "@/lib/pulse-service";
 
 interface CompetitionSettingsProps {
   adminEmail?: string | undefined;
@@ -198,16 +204,29 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
 
   // ── Pulse status controls ───────────────────────────────────────────────────
   const handleSetStatus = async (status: PulseStatus) => {
+    // Only goLive, pausePulse, endPulse may change status
+    if (status !== "live" && status !== "paused" && status !== "ended") {
+      toast.error("Status cannot be set to upcoming directly. Use dedicated Pulse controls.");
+      return;
+    }
+
     setIsSettingStatus(true);
     try {
-      // 1. Await Supabase update using shared persistence function
-      const res = await savePulseSettingsRecord({ pulse_status: status });
+      let res: { success: boolean; error?: string };
+      if (status === "live") {
+        res = await goLive();
+      } else if (status === "paused") {
+        res = await pausePulse();
+      } else {
+        res = await endPulse();
+      }
+
       if (!res.success) {
         toast.error(`Status update failed: ${res.error}`);
         return;
       }
 
-      // 2. Update React state
+      // Update React state
       setSettings((prev) => ({
         ...prev,
         pulse_status: status,
@@ -221,9 +240,6 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       };
       toast.success(labels[status]);
       setLastAction(labels[status]);
-
-      // 3. Secondary setting sync in background
-      saveCompetitionSetting("pulse_status", status, adminEmail).catch(() => {});
     } catch (err: any) {
       toast.error(`Status update failed: ${err?.message || err}`);
     } finally {
