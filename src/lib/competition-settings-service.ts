@@ -205,7 +205,7 @@ export async function savePulseSettingsRecord(params: {
   end_time?: string | null;
   pulse_status?: PulseStatus;
   results_published?: boolean;
-}): Promise<{ success: boolean; data?: any; error?: string }> {
+}): Promise<{ success: boolean; error?: string }> {
   // Update local cache
   if (params.competition_date !== undefined) setCachedSetting("competition_date", params.competition_date);
   if (params.start_time !== undefined) setCachedSetting("start_time", params.start_time);
@@ -238,54 +238,17 @@ export async function savePulseSettingsRecord(params: {
   }
 
   try {
-    // Exact user requirement: supabase.from("pulse_settings").update({...}).eq("id", 1).select().single()
-    let { data, error } = await (supabase as any)
+    const { error } = await (supabase as any)
       .from("pulse_settings")
       .update(updatePayload)
-      .eq("id", 1)
-      .select()
-      .single();
-
-    if (error) {
-      // Fallback: try id = '1' or existing row id
-      const { data: stringIdData, error: stringIdErr } = await (supabase as any)
-        .from("pulse_settings")
-        .update(updatePayload)
-        .eq("id", "1")
-        .select()
-        .single();
-
-      if (!stringIdErr && stringIdData) {
-        data = stringIdData;
-        error = null;
-      } else {
-        const { data: rows } = await (supabase as any)
-          .from("pulse_settings")
-          .select("id")
-          .limit(1);
-
-        if (rows && rows.length > 0) {
-          const { data: firstRowData, error: firstRowErr } = await (supabase as any)
-            .from("pulse_settings")
-            .update(updatePayload)
-            .eq("id", rows[0].id)
-            .select()
-            .single();
-
-          if (!firstRowErr && firstRowData) {
-            data = firstRowData;
-            error = null;
-          }
-        }
-      }
-    }
+      .eq("id", 1);
 
     if (error) {
       console.error("[CompetitionSettings] pulse_settings update error:", error);
       return { success: false, error: error.message };
     }
 
-    return { success: true, data };
+    return { success: true };
   } catch (err: any) {
     console.error("[CompetitionSettings] pulse_settings save error:", err);
     return { success: false, error: err?.message || String(err) };
@@ -328,25 +291,10 @@ export async function saveCompetitionSetting(
         val = value.split("T")[0];
       }
 
-      const updateData: Record<string, any> = {
-        [field]: val,
-      };
-
-      const { error } = await (supabase as any)
+      await (supabase as any)
         .from("pulse_settings")
-        .update(updateData)
-        .eq("id", 1)
-        .select()
-        .single();
-
-      if (error) {
-        await (supabase as any)
-          .from("pulse_settings")
-          .update(updateData)
-          .eq("id", "1")
-          .select()
-          .single();
-      }
+        .update({ [field]: val })
+        .eq("id", 1);
     } catch (err) {
       console.warn("[CompetitionSettings] pulse_settings write notice:", err);
     }
