@@ -201,21 +201,32 @@ function RouteComponent() {
     }
   }, [user]);
 
-  // Check if current user is already registered in Supabase on load
+  // Check if current user is already registered in Supabase championship_registrations on load
   useEffect(() => {
-    if (!user?.email) return;
+    let emailToCheck = user?.email || regEmail;
+    if (!emailToCheck) {
+      try {
+        const saved = localStorage.getItem("medtrail_my_championship_reg");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.email) emailToCheck = parsed.email;
+        }
+      } catch {}
+    }
+    if (!emailToCheck) return;
+
     async function checkServerRegistration() {
       try {
         const { data, error } = await supabase
           .from("championship_registrations")
           .select("*")
-          .ilike("email", user!.email!)
+          .ilike("email", emailToCheck)
           .maybeSingle();
 
         if (data && !error) {
           setRegName(data.full_name);
           setRegCollege(data.medical_college);
-          setRegBatch(data.batch);
+          setRegBatch(data.batch || "2026 Batch → Freshers");
           setRegPassportId(data.passport_id || "");
           setRegEmail(data.email);
           setRegistered(true);
@@ -226,7 +237,7 @@ function RouteComponent() {
       }
     }
     checkServerRegistration();
-  }, [user]);
+  }, [user?.email, regEmail]);
 
   // Live Leaderboard Data
   const [leaderboard, setLeaderboard] = useState<LiveLeaderboardEntry[]>([]);
@@ -516,37 +527,88 @@ function RouteComponent() {
     };
   }, []);
 
-  // Leaderboard data initialized cleanly with SEED_LEADERBOARD and student attempt
+  // Leaderboard data loaded from championship_registrations and student attempt
   useEffect(() => {
-    const mapped: LiveLeaderboardEntry[] = SEED_LEADERBOARD.map((d) => ({
-      rank: d.rank,
-      participant_id: d.participant_id,
-      display_name: d.display_name,
-      institution: d.institution || "Medical College",
-      score: d.total_score,
-      time_taken_seconds: 45,
-      submitted_at: d.last_active_at,
-      accuracy: d.total_accuracy_pct,
-      is_current_user: false,
-    }));
+    let isMounted = true;
+    async function loadRegistrations() {
+      try {
+        const { data, error } = await supabase
+          .from("championship_registrations")
+          .select("id, full_name, email, medical_college, batch, created_at")
+          .order("created_at", { ascending: false })
+          .limit(50);
 
-    if (todayAttempt) {
-      const studentEntry: LiveLeaderboardEntry = {
-        rank: 1,
-        participant_id: todayAttempt.user_id,
-        display_name: regName || user?.user_metadata?.full_name || "You",
-        institution: regCollege || "Medical College",
-        score: todayAttempt.score,
-        time_taken_seconds: todayAttempt.time_taken_seconds,
-        submitted_at: todayAttempt.completed_at || new Date().toISOString(),
-        accuracy: todayAttempt.accuracy,
-        is_current_user: true,
-      };
-      setLeaderboard([studentEntry, ...mapped.map((m) => ({ ...m, rank: m.rank + 1 }))]);
-    } else {
-      setLeaderboard(mapped);
+        if (!error && data && data.length > 0 && isMounted) {
+          const mapped: LiveLeaderboardEntry[] = data.map((r: any, idx: number) => ({
+            rank: idx + 1,
+            participant_id: r.id,
+            display_name: r.full_name || "Doctor",
+            institution: r.medical_college || "Medical College",
+            score: 0,
+            time_taken_seconds: 0,
+            submitted_at: r.created_at ?? null,
+            accuracy: 100,
+            is_current_user: Boolean(
+              user?.email && r.email && r.email.toLowerCase() === user.email.toLowerCase()
+            ),
+          }));
+
+          if (todayAttempt) {
+            const studentEntry: LiveLeaderboardEntry = {
+              rank: 1,
+              participant_id: todayAttempt.user_id,
+              display_name: regName || user?.user_metadata?.full_name || "You",
+              institution: regCollege || "Medical College",
+              score: todayAttempt.score,
+              time_taken_seconds: todayAttempt.time_taken_seconds,
+              submitted_at: todayAttempt.completed_at || new Date().toISOString(),
+              accuracy: todayAttempt.accuracy,
+              is_current_user: true,
+            };
+            setLeaderboard([studentEntry, ...mapped.map((m) => ({ ...m, rank: m.rank + 1 }))]);
+          } else {
+            setLeaderboard(mapped);
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn("[Student Registrations] load warning:", err);
+      }
+
+      if (isMounted) {
+        const mapped: LiveLeaderboardEntry[] = SEED_LEADERBOARD.map((d) => ({
+          rank: d.rank,
+          participant_id: d.participant_id,
+          display_name: d.display_name,
+          institution: d.institution || "Medical College",
+          score: d.total_score,
+          time_taken_seconds: 45,
+          submitted_at: d.last_active_at,
+          accuracy: d.total_accuracy_pct,
+          is_current_user: false,
+        }));
+
+        if (todayAttempt) {
+          const studentEntry: LiveLeaderboardEntry = {
+            rank: 1,
+            participant_id: todayAttempt.user_id,
+            display_name: regName || user?.user_metadata?.full_name || "You",
+            institution: regCollege || "Medical College",
+            score: todayAttempt.score,
+            time_taken_seconds: todayAttempt.time_taken_seconds,
+            submitted_at: todayAttempt.completed_at || new Date().toISOString(),
+            accuracy: todayAttempt.accuracy,
+            is_current_user: true,
+          };
+          setLeaderboard([studentEntry, ...mapped.map((m) => ({ ...m, rank: m.rank + 1 }))]);
+        } else {
+          setLeaderboard(mapped);
+        }
+      }
     }
-  }, [todayAttempt, regName, regCollege, user]);
+
+    loadRegistrations();
+  }, [todayAttempt, regName, regCollege, user?.email]);
 
   // Watch synchronized countdown without status polling
   useEffect(() => {
