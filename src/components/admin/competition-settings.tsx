@@ -118,7 +118,12 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       if (res.success) {
         toast.success("Competition date updated");
         setLastAction(`Competition date set to ${formatCompetitionDateTime(utcISO)}`);
-        await loadSettings();
+        // Use local updated state immediately
+        setSettings((prev) => ({
+          ...prev,
+          competition_date: utcISO,
+          start_time: timePart || "19:00",
+        }));
       } else {
         toast.error(`Save failed: ${res.error}`);
       }
@@ -142,7 +147,12 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       if (res.success) {
         toast.success("✅ End date saved — all student views updated instantly.");
         setLastAction(`End date set to ${formatCompetitionDateTime(utcISO)}`);
-        await loadSettings();
+        // Use local updated state immediately
+        setSettings((prev) => ({
+          ...prev,
+          competition_end_date: utcISO,
+          end_time: timePart || "23:59",
+        }));
       } else {
         toast.error(`Save failed: ${res.error}`);
       }
@@ -158,7 +168,11 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       if (res.success) {
         toast.info("Start date cleared. Site shows 'TBA'.");
         setStartLocal("");
-        await loadSettings();
+        // Use local updated state immediately
+        setSettings((prev) => ({
+          ...prev,
+          competition_date: null,
+        }));
       }
     } finally { setIsClearingStart(false); }
   };
@@ -172,7 +186,12 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       if (res.success) {
         toast.info("End date cleared.");
         setEndLocal("");
-        await loadSettings();
+        // Use local updated state immediately
+        setSettings((prev) => ({
+          ...prev,
+          competition_end_date: null,
+          end_time: "23:59",
+        }));
       }
     } finally { setIsClearingEnd(false); }
   };
@@ -193,7 +212,11 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
         };
         toast.success(labels[status]);
         setLastAction(labels[status]);
-        await loadSettings();
+        // Use local updated state immediately
+        setSettings((prev) => ({
+          ...prev,
+          pulse_status: status,
+        }));
       } else {
         toast.error(`Status update failed: ${res.error}`);
       }
@@ -212,7 +235,11 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       if (res.success) {
         toast.success(next ? "📊 Results published! Students can now see the leaderboard." : "🙈 Results hidden. Students see 'Results will be announced.'");
         setLastAction(next ? "Results published" : "Results hidden");
-        await loadSettings();
+        // Use local updated state immediately
+        setSettings((prev) => ({
+          ...prev,
+          results_published: next,
+        }));
       } else {
         toast.error(`Toggle failed: ${res.error}`);
       }
@@ -228,7 +255,10 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
         toast.success("♻️ Leaderboard reset marker saved. Students will see the cleared leaderboard.");
         setLastAction("Leaderboard reset");
         setShowResetConfirm(false);
-        await loadSettings();
+        setSettings((prev) => ({
+          ...prev,
+          leaderboard_reset_at: new Date().toISOString(),
+        }));
       } else {
         toast.error(`Reset failed: ${res.error}`);
       }

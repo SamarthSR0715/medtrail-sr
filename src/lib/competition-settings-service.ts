@@ -121,14 +121,10 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
           results_published: getCachedSetting("results_published") === "true",
           updated_at: new Date().toISOString(),
         };
-        const { data: createdRow } = await (supabase as any)
+        await (supabase as any)
           .from("pulse_settings")
-          .insert(defaultRow)
-          .select("*")
-          .maybeSingle();
-        if (createdRow) {
-          pulseRow = createdRow;
-        }
+          .insert(defaultRow);
+        pulseRow = defaultRow;
       } catch {
         // Ignore initialization conflict if another tab inserted concurrently
       }
