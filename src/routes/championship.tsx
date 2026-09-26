@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCompetitionDate } from "@/hooks/useCompetitionDate";
 import { toast } from "sonner";
 import {
   Award,
@@ -39,15 +40,12 @@ import {
   EVENT_TZ_ABBR,
   EVENT_TZ_OFFSET,
   HALL_OF_FAME_RECORDS,
-  SEASON_END_UTC,
   SEASON_ID,
-  SEASON_START_UTC,
   SEED_LEADERBOARD,
   formatIST,
   getDailyPulseTimeState,
   getISTDateString,
   getLiveLeaderboard,
-  getSeasonStatus,
   registerChampionshipParticipant,
   submitPulseAttempt,
   fetchTodayPublishedPulse,
@@ -125,6 +123,13 @@ function RouteComponent() {
   // Navigation & tabs
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"global" | "college" | "batch" | "weekly">("global");
+
+  // Dynamic competition dates from Supabase (real-time via hook)
+  const competitionDate = useCompetitionDate();
+  const seasonStartUTC = competitionDate.seasonStartUTC;
+  const seasonEndUTC = competitionDate.seasonEndUTC;
+  const seasonStartDisplay = competitionDate.seasonStartDisplay;
+  const seasonEndDisplay = competitionDate.seasonEndDisplay;
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals & Notifications
@@ -364,20 +369,30 @@ function RouteComponent() {
         setTimeWindowState(baseWindowState);
       }
 
-      // Season countdown & status
-      const status = getSeasonStatus(now);
-      const isLive = liveOps?.live_status === "live" || status === "live";
+      // Season countdown & status — use dynamic dates from Supabase
+      const dynamicStart = seasonStartUTC;
+      const dynamicEnd = seasonEndUTC;
 
-      let target = SEASON_START_UTC;
-      let label = "LIVE PULSE BEGINS";
+      // Compute season status inline against dynamic dates
+      let dynamicStatus: SeasonStatus = "pre";
+      if (dynamicStart && now >= dynamicStart) dynamicStatus = "live";
+      if (dynamicEnd && now >= dynamicEnd) dynamicStatus = "ended";
 
-      if (isLive) {
-        target = SEASON_END_UTC;
-        label = "Season Ends In";
-      } else if (status === "ended" || liveOps?.results_declared) {
+      const isLive = liveOps?.live_status === "live" || dynamicStatus === "live";
+
+      if (dynamicStatus === "ended" || liveOps?.results_declared) {
         setSeasonRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, status: "ended", isLive: false, label: "Season Completed" });
         return;
       }
+
+      if (!dynamicStart) {
+        // No date set yet — show zeros, label will be "TBA"
+        setSeasonRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, status: "pre", isLive: false, label: "LIVE PULSE BEGINS" });
+        return;
+      }
+
+      const target = isLive && dynamicEnd ? dynamicEnd : dynamicStart;
+      const label = isLive ? "Season Ends In" : "LIVE PULSE BEGINS";
 
       const diff = Math.max(0, target.getTime() - now.getTime());
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -385,14 +400,14 @@ function RouteComponent() {
       const minutes = Math.floor((diff / (1000 * 60)) % 60);
       const seconds = Math.floor((diff / 1000) % 60);
 
-      setSeasonRemaining({ days, hours, minutes, seconds, status, isLive, label });
+      setSeasonRemaining({ days, hours, minutes, seconds, status: dynamicStatus, isLive, label });
     };
 
     loadTodayPulse();
     updateTimeState();
     const interval = setInterval(updateTimeState, 1000);
     return () => clearInterval(interval);
-  }, [loadTodayPulse, liveOps?.live_status, liveOps?.results_declared]);
+  }, [loadTodayPulse, liveOps?.live_status, liveOps?.results_declared, seasonStartUTC, seasonEndUTC]);
 
   // Fetch live leaderboard and subscribe to Supabase Realtime for participants & live ops
   useEffect(() => {
@@ -809,8 +824,12 @@ function RouteComponent() {
                       </div>
                     </div>
                     <div className="sm:text-right font-mono">
-                      <div className="text-base font-extrabold text-amber-300">27 September 2026</div>
-                      <div className="text-xs font-semibold text-slate-300">7:00 PM IST</div>
+                      <div className="text-base font-extrabold text-amber-300">
+                        {seasonStartDisplay ?? "Date to be announced"}
+                      </div>
+                      <div className="text-xs font-semibold text-slate-300">
+                        {seasonStartUTC ? "7:00 PM IST" : ""}
+                      </div>
                     </div>
                   </div>
 
@@ -822,27 +841,36 @@ function RouteComponent() {
                     <span className="font-mono text-[11px] text-slate-400">Asia/Kolkata (IST, UTC+5:30)</span>
                   </div>
 
-                  {/* Countdown Timer */}
-                  <div className="grid grid-cols-4 gap-2 sm:gap-3 max-w-md pt-1">
-                    {[
-                      { label: "DAYS", val: seasonRemaining.days },
-                      { label: "HOURS", val: seasonRemaining.hours },
-                      { label: "MINS", val: seasonRemaining.minutes },
-                      { label: "SECS", val: seasonRemaining.seconds },
-                    ].map((unit, idx) => (
-                      <div
-                        key={idx}
-                        className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-blue-500/20 shadow-inner"
-                      >
-                        <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
-                          {String(unit.val).padStart(2, "0")}
-                        </span>
-                        <span className="text-[10px] font-semibold text-blue-300/80 tracking-widest mt-0.5">
-                          {unit.label}
-                        </span>
+                  {/* Countdown Timer — only show if date is configured */}
+                  {seasonStartUTC ? (
+                    <div className="grid grid-cols-4 gap-2 sm:gap-3 max-w-md pt-1">
+                      {[
+                        { label: "DAYS", val: seasonRemaining.days },
+                        { label: "HOURS", val: seasonRemaining.hours },
+                        { label: "MINS", val: seasonRemaining.minutes },
+                        { label: "SECS", val: seasonRemaining.seconds },
+                      ].map((unit, idx) => (
+                        <div
+                          key={idx}
+                          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-blue-500/20 shadow-inner"
+                        >
+                          <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
+                            {String(unit.val).padStart(2, "0")}
+                          </span>
+                          <span className="text-[10px] font-semibold text-blue-300/80 tracking-widest mt-0.5">
+                            {unit.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="pt-2">
+                      <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 text-sm font-semibold">
+                        <Calendar className="w-4 h-4 text-amber-400" />
+                        Competition date will be announced.
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* AT EXACTLY 7:00 PM: Countdown disappears, Pulse automatically becomes live */
@@ -854,7 +882,9 @@ function RouteComponent() {
                         CHAMPIONSHIP PULSE IS LIVE
                       </span>
                     </div>
-                    <span className="text-xs font-mono text-slate-300 font-semibold">Ends 17 October 2026, 7:00 PM IST</span>
+                    <span className="text-xs font-mono text-slate-300 font-semibold">
+                      {seasonEndDisplay ? `Ends ${seasonEndDisplay}, 7:00 PM IST` : "Season in progress"}
+                    </span>
                   </div>
                   <h3 className="text-2xl font-black text-white">Daily Pulses Are Now Active</h3>
                   <p className="text-sm text-slate-300">
@@ -976,7 +1006,11 @@ function RouteComponent() {
                 Season 1 Registration
               </h2>
               <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto">
-                Register your profile to represent your medical college and compete in daily pulses starting 27 September at 7:00 PM IST.
+                Register your profile to represent your medical college and compete in daily pulses
+                {seasonStartDisplay
+                  ? ` starting ${seasonStartDisplay} at 7:00 PM IST.`
+                  : ". Competition date will be announced."
+                }
               </p>
             </div>
 

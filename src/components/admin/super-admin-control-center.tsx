@@ -38,6 +38,8 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 import { PulseStudio } from "@/components/admin/pulse-studio";
 import { AdminPanel } from "@/components/trips/admin-panel";
+import { CompetitionSettings } from "@/components/admin/competition-settings";
+import { Settings2 } from "lucide-react";
 import { sendRealFCMPush, requestAndRegisterNotificationPermission, detectDevicePlatform } from "@/lib/fcm-client";
 import {
   SUPER_ADMIN_EMAIL,
@@ -71,7 +73,7 @@ export function SuperAdminControlCenter() {
 
   // Top Section Tab
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "pulse_studio" | "registrations" | "leaderboard" | "notifications" | "hall_of_fame" | "trips"
+    "dashboard" | "pulse_studio" | "registrations" | "leaderboard" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
   >("dashboard");
 
   // ── 1. Dashboard State ──────────────────────────────────────────────────────
@@ -511,6 +513,7 @@ export function SuperAdminControlCenter() {
             { id: "notifications", label: "Notification Center", icon: Bell },
             { id: "hall_of_fame", label: "Hall of Fame", icon: Award },
             { id: "trips", label: "Trip Admin", icon: MapPin },
+            { id: "competition_settings", label: "Competition Settings", icon: Settings2 },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1626,6 +1629,13 @@ export function SuperAdminControlCenter() {
       {activeTab === "trips" && (
         <div className="space-y-4">
           <AdminPanel />
+        </div>
+      )}
+
+      {/* ── TAB 8: COMPETITION SETTINGS (DYNAMIC DATE CONFIGURATION) ── */}
+      {activeTab === "competition_settings" && (
+        <div className="space-y-4">
+          <CompetitionSettings adminEmail={user?.email ?? undefined} />
         </div>
       )}
 
