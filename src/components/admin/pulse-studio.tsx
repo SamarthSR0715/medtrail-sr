@@ -344,12 +344,19 @@ export function PulseStudio() {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      // 1. Await Supabase update using shared persistence function
-      const res = await savePulseSettingsRecord({ results_published: true });
-      if (!res.success) {
-        toast.error(`Publish failed: ${res.error}`);
+      // 1. Direct Supabase update: table pulse_settings, id=1
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ results_published: true, pulse_status: "upcoming" })
+        .eq("id", 1);
+
+      if (error) {
+        toast.error(`Publish failed: ${error.message}`);
         return;
       }
+
+      // Sync settings helper
+      savePulseSettingsRecord({ results_published: true, pulse_status: "upcoming" }).catch(() => {});
 
       // 2. Update React state
       setStatus("published");
@@ -382,6 +389,9 @@ export function PulseStudio() {
         return;
       }
 
+      // Sync settings helper
+      savePulseSettingsRecord({ pulse_status: "live" }).catch(() => {});
+
       // After update succeeds, refresh the local settings state
       setLiveOps((prev) => ({ ...prev, live_status: "live" }));
       setStatus("live");
@@ -399,14 +409,21 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
-      // 1. Await Supabase update using shared persistence function
-      const res = await savePulseSettingsRecord({ pulse_status: "paused" });
-      if (!res.success) {
-        toast.error(`Pause failed: ${res.error}`);
+      // Direct Supabase update: table pulse_settings, id=1, pulse_status='paused'
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: "paused" })
+        .eq("id", 1);
+
+      if (error) {
+        toast.error(`Pause failed: ${error.message}`);
         return;
       }
 
-      // 2. Update React state
+      // Sync settings helper
+      savePulseSettingsRecord({ pulse_status: "paused" }).catch(() => {});
+
+      // Update React state
       setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
       toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
 
@@ -419,14 +436,21 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
-      // 1. Await Supabase update using shared persistence function
-      const res = await savePulseSettingsRecord({ pulse_status: "ended" });
-      if (!res.success) {
-        toast.error(`End Pulse failed: ${res.error}`);
+      // Direct Supabase update: table pulse_settings, id=1, pulse_status='ended'
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: "ended" })
+        .eq("id", 1);
+
+      if (error) {
+        toast.error(`End Pulse failed: ${error.message}`);
         return;
       }
 
-      // 2. Update React state
+      // Sync settings helper
+      savePulseSettingsRecord({ pulse_status: "ended" }).catch(() => {});
+
+      // Update React state
       setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
       toast.info("⏹️ Pulse session officially ended.");
 
