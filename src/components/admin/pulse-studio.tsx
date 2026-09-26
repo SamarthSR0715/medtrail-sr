@@ -389,7 +389,7 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      // Exactly ONE UPDATE to pulse_settings row 1
+      // Exactly ONE UPDATE to pulse_settings: pulse_status = "live"
       const { error } = await patchPulseSettings({ pulse_status: "live" });
 
       if (error) {
@@ -397,6 +397,7 @@ export function PulseStudio() {
         return;
       }
 
+      setLiveOps((prev) => ({ ...prev, live_status: "live" }));
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
 
       sendPushNotification({
@@ -411,7 +412,7 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
-      // Exactly ONE UPDATE to pulse_settings row 1
+      // Exactly ONE UPDATE to pulse_settings: pulse_status = "paused"
       const { error } = await patchPulseSettings({ pulse_status: "paused" });
 
       if (error) {
@@ -419,6 +420,7 @@ export function PulseStudio() {
         return;
       }
 
+      setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
       toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily locked.");
     } catch (err: any) {
       toast.error(err?.message || "Error pausing pulse.");
@@ -427,7 +429,7 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
-      // Exactly ONE UPDATE to pulse_settings row 1
+      // Exactly ONE UPDATE to pulse_settings: pulse_status = "ended"
       const { error } = await patchPulseSettings({ pulse_status: "ended" });
 
       if (error) {
@@ -435,6 +437,7 @@ export function PulseStudio() {
         return;
       }
 
+      setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
       toast.info("⏹️ Pulse session officially ended.");
     } catch (err: any) {
       toast.error(err?.message || "Error ending pulse.");
@@ -443,7 +446,7 @@ export function PulseStudio() {
 
   const handlePublishResults = async () => {
     try {
-      // Exactly ONE UPDATE to pulse_settings row 1
+      // Exactly ONE UPDATE to pulse_settings: results_published = true only (never modify pulse_status)
       const { error } = await patchPulseSettings({ results_published: true });
 
       if (error) {
@@ -451,6 +454,7 @@ export function PulseStudio() {
         return;
       }
 
+      setLiveOps((prev) => ({ ...prev, results_declared: true }));
       toast.success("🏆 Official Results & Leaderboard published! Visible to all students.");
 
       sendPushNotification({

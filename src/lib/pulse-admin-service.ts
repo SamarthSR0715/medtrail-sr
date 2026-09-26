@@ -911,52 +911,9 @@ export async function updateLiveOpsState(
       console.warn("Supabase live ops sync error (local state active):", error.message);
     }
 
-    // Sync app_settings table as single source of truth
-    try {
-      const appSettingsUpserts: { key: string; value: string }[] = [];
-      if (partial.target_date !== undefined) {
-        appSettingsUpserts.push({ key: "competition_date", value: partial.target_date });
-      }
-      if (partial.go_live_time !== undefined) {
-        appSettingsUpserts.push({ key: "start_time", value: partial.go_live_time });
-      }
-      if (partial.end_time !== undefined) {
-        appSettingsUpserts.push({ key: "end_time", value: partial.end_time });
-      }
-      if (
-        partial.live_status !== undefined &&
-        partial.live_status !== ("draft" as any) &&
-        partial.live_status !== ("published" as any)
-      ) {
-        const validStatuses = ["upcoming", "live", "paused", "ended"];
-        if (validStatuses.includes(partial.live_status)) {
-          appSettingsUpserts.push({
-            key: "pulse_status",
-            value: partial.live_status,
-          });
-        }
-      }
-      if (partial.results_declared !== undefined) {
-        appSettingsUpserts.push({
-          key: "results_published",
-          value: String(partial.results_declared),
-        });
-      }
+    // Pulse 2.0: pulse_settings is the SOLE source of truth.
+    // Do NOT overwrite or synchronize pulse_status through legacy app_settings or live ops.
 
-      for (const item of appSettingsUpserts) {
-        if (typeof window !== "undefined") {
-          localStorage.setItem(`medtrail_setting_${item.key}`, item.value);
-          window.dispatchEvent(
-            new CustomEvent("medtrail_setting_updated", { detail: item })
-          );
-        }
-        await (supabase as any)
-          .from("app_settings")
-          .upsert(item, { onConflict: "key" });
-      }
-    } catch {
-      // Ignore app_settings write failure
-    }
 
     return { success: true, data: updated };
   } catch (err: any) {
