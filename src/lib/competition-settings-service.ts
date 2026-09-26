@@ -249,12 +249,12 @@ export async function saveCompetitionSetting(
     );
   }
 
-  // 3. Persist to pulse_settings directly if the key belongs to pulse_settings
+  // 3. Persist to pulse_settings directly if the key belongs to pulse_settings (dates/publish only)
+  // NOTE: pulse_status is strictly managed via Go Live / dedicated pulse controls, never overwritten here.
   const pulseFieldMap: Record<string, string> = {
     competition_date: "competition_date",
     start_time: "start_time",
     end_time: "end_time",
-    pulse_status: "pulse_status",
     results_published: "results_published",
   };
 
@@ -337,7 +337,13 @@ export async function setPulseStatus(
   status: PulseStatus,
   adminEmail?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  return saveCompetitionSetting("pulse_status", status, adminEmail);
+  setCachedSetting("pulse_status", status);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_EVENT, { detail: { key: "pulse_status", value: status } })
+    );
+  }
+  return savePulseSettingsRecord({ pulse_status: status });
 }
 
 export async function setResultsPublished(

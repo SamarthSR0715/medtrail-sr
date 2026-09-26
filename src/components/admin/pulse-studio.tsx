@@ -347,8 +347,6 @@ export function PulseStudio() {
       const res = await savePulseDraft(pulseDate, questions);
       if (res.success) {
         setStatus("draft");
-        await updateLiveOpsState({ live_status: "draft" });
-        await refreshLiveOps();
         toast.success(`Draft saved for ${pulseDate}!`);
       } else {
         toast.error(res.error || "Failed to save draft.");
@@ -370,7 +368,7 @@ export function PulseStudio() {
         return;
       }
 
-      // 2. Direct Supabase PATCH: mark results_published = true on pulse_settings
+      // 2. Direct Supabase PATCH: mark results_published = true on pulse_settings (DO NOT reset pulse_status)
       const { error } = await patchPulseSettings({ results_published: true });
 
       if (error) {
@@ -378,14 +376,14 @@ export function PulseStudio() {
         return;
       }
 
-      // 3. Background: sync caches (fire-and-forget)
+      // 3. Background: sync results_published only, preserving pulse_status
       savePulseSettingsRecord({ results_published: true }).catch(() => { });
-      updateLiveOpsState({ live_status: "published", results_declared: true }).catch(() => { });
+      updateLiveOpsState({ results_declared: true }).catch(() => { });
 
-      // 4. Update React state
+      // 4. Update React state - preserve current live_status
       setStatus("published");
       setPublishedAt(new Date().toISOString());
-      setLiveOps((prev) => ({ ...prev, live_status: "published", results_declared: true }));
+      setLiveOps((prev) => ({ ...prev, results_declared: true }));
 
       toast.success(`Published Pulse for ${pulseDate}! Results visible to students.`);
     } catch (err: any) {
@@ -398,7 +396,7 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      // Direct Supabase PATCH: pulse_settings — use fetched row id, not hard-coded 1
+      // 1. Direct Supabase PATCH: pulse_settings row 1 -> pulse_status = 'live'
       const { error } = await patchPulseSettings({ pulse_status: "live" });
 
       if (error) {
@@ -406,12 +404,12 @@ export function PulseStudio() {
         return;
       }
 
-      // Sync settings helper
-      savePulseSettingsRecord({ pulse_status: "live" }).catch(() => { });
+      // 2. Sync local cache and liveOps state
+      setCachedSetting("pulse_status", "live");
+      updateLiveOpsState({ live_status: "live" }).catch(() => { });
 
-      // After update succeeds, refresh the local settings state
+      // 3. Update React state
       setLiveOps((prev) => ({ ...prev, live_status: "live" }));
-      setStatus("live");
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
 
       sendPushNotification({
@@ -426,7 +424,7 @@ export function PulseStudio() {
 
 const handlePausePulse = async () => {
   try {
-    // Direct Supabase PATCH: pulse_settings — use fetched row id
+    // Direct Supabase PATCH: pulse_settings -> pulse_status = 'paused'
     const { error } = await patchPulseSettings({ pulse_status: "paused" });
 
     if (error) {
@@ -434,12 +432,10 @@ const handlePausePulse = async () => {
       return;
     }
 
-    // Optimistic local state update
+    setCachedSetting("pulse_status", "paused");
     setLiveOps((prev) => ({ ...prev, live_status: "paused" }));
     toast.warning("⏸️ Pulse has been PAUSED. Submissions temporarily suspended.");
 
-    // Background: sync secondary caches (fire-and-forget)
-    savePulseSettingsRecord({ pulse_status: "paused" }).catch(() => { });
     updateLiveOpsState({ live_status: "paused" }).catch(() => { });
   } catch (err: any) {
     toast.error(err?.message || "Error pausing pulse.");
@@ -448,7 +444,7 @@ const handlePausePulse = async () => {
 
 const handleEndPulse = async () => {
   try {
-    // Direct Supabase PATCH: pulse_settings — use fetched row id
+    // Direct Supabase PATCH: pulse_settings -> pulse_status = 'ended'
     const { error } = await patchPulseSettings({ pulse_status: "ended" });
 
     if (error) {
@@ -456,12 +452,10 @@ const handleEndPulse = async () => {
       return;
     }
 
-    // Optimistic local state update
+    setCachedSetting("pulse_status", "ended");
     setLiveOps((prev) => ({ ...prev, live_status: "ended" }));
     toast.info("⏹️ Pulse session officially ended.");
 
-    // Background: sync secondary caches (fire-and-forget)
-    savePulseSettingsRecord({ pulse_status: "ended" }).catch(() => { });
     updateLiveOpsState({ live_status: "ended" }).catch(() => { });
   } catch (err: any) {
     toast.error(err?.message || "Error ending pulse.");
@@ -472,14 +466,14 @@ const handleEndPulse = async () => {
 const handleUpdateCountdown = async (e: React.FormEvent) => {
   e.preventDefault();
   try {
-    // 1. Immediately persist to Supabase pulse_settings (single source of truth)
+    // 1. Immediately persist to Supabase pulse_settings (date and time ONLY, never overwrite pulse_status)
     await savePulseSettingsRecord({
       competition_date: liveOps.target_date,
       start_time: liveOps.go_live_time,
       end_time: liveOps.end_time,
     });
 
-    // 2. Persist to championship_live_ops
+    // 2. Persist to championship_live_ops (date and time ONLY)
     const res = await updateLiveOpsState({
       target_date: liveOps.target_date,
       go_live_time: liveOps.go_live_time,
@@ -487,7 +481,12 @@ const handleUpdateCountdown = async (e: React.FormEvent) => {
     });
 
     if (res.success && res.data) {
-      setLiveOps(res.data);
+      setLiveOps((prev) => ({
+        ...prev,
+        target_date: liveOps.target_date,
+        go_live_time: liveOps.go_live_time,
+        end_time: liveOps.end_time,
+      }));
     }
 
     toast.success("⏱️ Countdown time window synchronized for all students!");

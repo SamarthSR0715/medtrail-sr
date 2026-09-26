@@ -924,18 +924,18 @@ export async function updateLiveOpsState(
       if (partial.end_time !== undefined) {
         appSettingsUpserts.push({ key: "end_time", value: partial.end_time });
       }
-      if (partial.live_status !== undefined) {
-        const statusMap: Record<string, string> = {
-          draft: "upcoming",
-          published: "upcoming",
-          live: "live",
-          paused: "paused",
-          ended: "ended",
-        };
-        appSettingsUpserts.push({
-          key: "pulse_status",
-          value: statusMap[partial.live_status] || partial.live_status,
-        });
+      if (
+        partial.live_status !== undefined &&
+        partial.live_status !== ("draft" as any) &&
+        partial.live_status !== ("published" as any)
+      ) {
+        const validStatuses = ["upcoming", "live", "paused", "ended"];
+        if (validStatuses.includes(partial.live_status)) {
+          appSettingsUpserts.push({
+            key: "pulse_status",
+            value: partial.live_status,
+          });
+        }
       }
       if (partial.results_declared !== undefined) {
         appSettingsUpserts.push({
