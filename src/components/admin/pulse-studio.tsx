@@ -371,20 +371,22 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      // 1. Await Supabase update using shared persistence function
-      const res = await savePulseSettingsRecord({ pulse_status: "live" });
-      if (!res.success) {
-        toast.error(`Go Live failed: ${res.error}`);
+      // Direct Supabase update: table pulse_settings, id=1, pulse_status='live'
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update({ pulse_status: "live" })
+        .eq("id", 1);
+
+      if (error) {
+        toast.error(`Go Live failed: ${error.message}`);
         return;
       }
 
-      // 2. Update React state
+      // After update succeeds, refresh the local settings state
       setLiveOps((prev) => ({ ...prev, live_status: "live" }));
       setStatus("live");
       toast.success("🔥 PULSE IS NOW LIVE FOR ALL PARTICIPANTS!");
 
-      // Background ops & notification
-      updateLiveOpsState({ live_status: "live" }).catch(() => {});
       sendPushNotification({
         templateKey: "pulse_live",
         title: "🔴 CHAMPIONSHIP PULSE IS LIVE!",
@@ -651,7 +653,7 @@ export function PulseStudio() {
           <div className="flex flex-wrap items-center gap-2.5">
             {liveOps.live_status !== "live" ? (
               <button
-                onClick={() => setShowGoLiveModal(true)}
+                onClick={handleConfirmGoLive}
                 className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-white" />
@@ -1376,7 +1378,7 @@ export function PulseStudio() {
 
                 <div className="grid grid-cols-2 gap-2 pt-2">
                   <button
-                    onClick={() => setShowGoLiveModal(true)}
+                    onClick={handleConfirmGoLive}
                     className="py-3 px-4 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
                   >
                     <Play className="w-3.5 h-3.5 fill-white" />
