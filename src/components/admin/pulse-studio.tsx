@@ -65,6 +65,7 @@ import {
 import { getISTDateString } from "@/lib/championship-service";
 import {
   saveCompetitionSetting,
+  savePulseSettingsRecord,
   setPulseStatus,
   setResultsPublished,
   fetchCompetitionSettings,
@@ -312,7 +313,7 @@ export function PulseStudio() {
       if (res.success) {
         setStatus("published");
         setPublishedAt(new Date().toISOString());
-        await setResultsPublished(true);
+        await savePulseSettingsRecord({ results_published: true, pulse_status: "upcoming" });
         await updateLiveOpsState({ live_status: "published", results_declared: true });
         await refreshLiveOps();
         toast.success(`Published Pulse for ${pulseDate}! Ready for scheduled go-live window.`);
@@ -329,7 +330,7 @@ export function PulseStudio() {
   const handleConfirmGoLive = async () => {
     setShowGoLiveModal(false);
     try {
-      await setPulseStatus("live");
+      await savePulseSettingsRecord({ pulse_status: "live" });
       const res = await updateLiveOpsState({ live_status: "live" });
       if (res.success && res.data) {
         setLiveOps(res.data);
@@ -350,7 +351,7 @@ export function PulseStudio() {
 
   const handlePausePulse = async () => {
     try {
-      await setPulseStatus("paused");
+      await savePulseSettingsRecord({ pulse_status: "paused" });
       const res = await updateLiveOpsState({ live_status: "paused" });
       if (res.success && res.data) {
         setLiveOps(res.data);
@@ -365,7 +366,7 @@ export function PulseStudio() {
 
   const handleEndPulse = async () => {
     try {
-      await setPulseStatus("ended");
+      await savePulseSettingsRecord({ pulse_status: "ended" });
       const res = await updateLiveOpsState({ live_status: "ended" });
       if (res.success && res.data) {
         setLiveOps(res.data);
@@ -382,12 +383,12 @@ export function PulseStudio() {
   const handleUpdateCountdown = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // 1. Immediately persist to Supabase app_settings (single source of truth)
-      await Promise.all([
-        saveCompetitionSetting("competition_date", liveOps.target_date),
-        saveCompetitionSetting("start_time", liveOps.go_live_time),
-        saveCompetitionSetting("end_time", liveOps.end_time),
-      ]);
+      // 1. Immediately persist to Supabase pulse_settings (single source of truth)
+      await savePulseSettingsRecord({
+        competition_date: liveOps.target_date,
+        start_time: liveOps.go_live_time,
+        end_time: liveOps.end_time,
+      });
 
       // 2. Persist to championship_live_ops
       const res = await updateLiveOpsState({
@@ -414,8 +415,7 @@ export function PulseStudio() {
     }
     setShowDeclareModal(false);
     try {
-      await setResultsPublished(true);
-      await setPulseStatus("ended");
+      await savePulseSettingsRecord({ results_published: true, pulse_status: "ended" });
       const res = await declareFinalResults();
       if (res.success) {
         toast.success(res.message);

@@ -446,7 +446,7 @@ function RouteComponent() {
     // Supabase Realtime: re-fetch on any pulse_attempts or participants change
     const unsub = subscribeToLeaderboard(fetchBoard);
 
-    // Also keep legacy ops channel for notifications
+    // Live ops channel for notifications
     const opsChannel = supabase
       .channel("championship_live_ops_channel_v2")
       .on(
@@ -464,11 +464,24 @@ function RouteComponent() {
       )
       .subscribe();
 
+    // Pulse Settings Realtime Channel — instant sync for Go Live, Pause, End, Publish, Countdown
+    const pulseSettingsChannel = supabase
+      .channel("championship_pulse_settings_live_v1")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pulse_settings" },
+        () => {
+          loadTodayPulse();
+        }
+      )
+      .subscribe();
+
     return () => {
       unsub();
       supabase.removeChannel(opsChannel);
+      supabase.removeChannel(pulseSettingsChannel);
     };
-  }, [user?.email]);
+  }, [user?.email, loadTodayPulse]);
 
   // Filter leaderboard
   const filteredLeaderboard = useMemo(() => {
