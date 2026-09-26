@@ -234,10 +234,15 @@ export async function savePulseSettingsRecord(params: {
   }
 
   try {
-    const { error } = await (supabase as any)
+    // First, fetch the actual row id (may be integer 1 or text "singleton")
+    const { data: rowData } = await (supabase as any)
       .from("pulse_settings")
-      .update(updatePayload)
-      .eq("id", 1);
+      .select("id")
+      .limit(1);
+    const rowId = rowData && rowData.length > 0 ? rowData[0].id : null;
+
+    const q = (supabase as any).from("pulse_settings").update(updatePayload);
+    const { error } = await (rowId !== null ? q.eq("id", rowId) : q.gt("id", -1));
 
     if (error) {
       console.error("[CompetitionSettings] pulse_settings update error:", error);
@@ -287,10 +292,14 @@ export async function saveCompetitionSetting(
         val = value.split("T")[0];
       }
 
-      await (supabase as any)
+      const { data: psRows } = await (supabase as any)
         .from("pulse_settings")
-        .update({ [field]: val })
-        .eq("id", 1);
+        .select("id")
+        .limit(1);
+      const psRowId = psRows && psRows.length > 0 ? psRows[0].id : null;
+
+      const psQ = (supabase as any).from("pulse_settings").update({ [field]: val });
+      await (psRowId !== null ? psQ.eq("id", psRowId) : psQ.gt("id", -1));
     } catch (err) {
       console.warn("[CompetitionSettings] pulse_settings write notice:", err);
     }
