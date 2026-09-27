@@ -19,7 +19,7 @@ export default defineConfig(({ command }) => ({
       ? nitro({
           preset: "cloudflare-pages",
           prerender: {
-            routes: ["/"],
+            routes: ["/", "/championship"],
             crawlLinks: false,
           },
           output: {

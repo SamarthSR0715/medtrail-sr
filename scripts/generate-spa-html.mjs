@@ -40,6 +40,20 @@ async function main() {
     // Also save to public/index.html so it persists for future builds
     fs.writeFileSync(publicIndexHtml, html, "utf-8");
     console.log(`[build:post] Wrote public/index.html`);
+
+    // Prerender /championship directly so it has exact preloads and instant loading
+    try {
+      const champReq = new Request("http://localhost/championship");
+      const champRes = await worker.fetch(champReq, {}, { waitUntil: () => {} });
+      if (champRes.ok) {
+        const champHtml = await champRes.text();
+        const outputChampionshipHtml = path.resolve(outputPublicDir, "championship.html");
+        fs.writeFileSync(outputChampionshipHtml, champHtml, "utf-8");
+        console.log(`[build:post] Wrote .output/public/championship.html (${champHtml.length} bytes)`);
+      }
+    } catch (champErr) {
+      console.warn("[build:post] Warning: Could not prerender championship.html:", champErr.message);
+    }
     
     // Ensure _redirects exists in .output/public
     fs.writeFileSync(outputRedirects, "/* /index.html 200\n", "utf-8");
