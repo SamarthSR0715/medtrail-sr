@@ -3,13 +3,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
   BookOpen,
-  Dumbbell,
-  FileText,
+  Camera,
+  Compass,
   HeartPulse,
   Lock,
-  Mountain,
   Sparkles,
-  UserRound,
+  Trophy,
 } from "lucide-react";
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
@@ -69,35 +68,28 @@ export const Route = createFileRoute("/")({
 
 const pillars = [
   {
+    to: "/championship",
+    icon: Trophy,
+    title: "Championship",
+    copy: "Daily 60-second high-yield clinical pulses, live student leaderboard, college standings, and season rewards.",
+  },
+  {
     to: "/mbbs",
     icon: BookOpen,
     title: "MBBS Hub",
     copy: "Daily tasks, subject goals, monthly milestones, exam planner and study streaks.",
   },
   {
-    to: "/notes",
-    icon: FileText,
-    title: "Study Notes",
-    copy: "High-yield MBBS revision summaries, clinical pearls, and PDF lecture guides.",
+    to: "/destinations",
+    icon: Compass,
+    title: "Destinations",
+    copy: "Sahyadri treks, fort heritage, monsoon trails, and weekend itineraries curated for medical students.",
   },
   {
-    to: "/travel",
-    icon: Mountain,
-    title: "MedTrail Trips",
-    copy: "One-day Sahyadri treks, fort heritage, and adventures curated for medical students.",
-    locked: true,
-  },
-  {
-    to: "/fitness",
-    icon: Dumbbell,
-    title: "Fitness Tracker",
-    copy: "Workout logs, BMI, hydration and progress charts that stay honest.",
-  },
-  {
-    to: "/portfolio",
-    icon: UserRound,
-    title: "Portfolio",
-    copy: "About, certificates, projects and a direct line to say hello.",
+    to: "/gallery",
+    icon: Camera,
+    title: "Gallery",
+    copy: "Visual expedition chronicles, summit captures, and high-resolution trail photography.",
   },
 ];
 
@@ -168,7 +160,7 @@ function Index() {
 
       <section className="mx-auto mt-20 max-w-6xl">
         <SectionHeading
-          eyebrow="Five spaces"
+          eyebrow="Four spaces"
           title="Everything I build, study and climb"
           description="Each space is self-contained yet shares the same calm design language, so switching context never costs focus."
         />

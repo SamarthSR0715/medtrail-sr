@@ -183,6 +183,12 @@ function RouteComponent() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [myPerformance, setMyPerformance] = useState<LeaderboardStudentEntry | null>(null);
+  const [liveElapsed, setLiveElapsed] = useState({
+    hours: 0,
+    minutes: 0,
+    seconds: 0,
+    formatted: "00:00:00",
+  });
 
   // Modals & Notifications
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
@@ -720,6 +726,19 @@ function RouteComponent() {
       setDynamicPulseStatus(currentStatus);
 
       if (currentStatus === "live") {
+        // 1. Elapsed time during LIVE (counting up since start)
+        const elapsedMs = start ? Math.max(0, now.getTime() - start.getTime()) : 0;
+        const elHours = Math.floor(elapsedMs / (1000 * 60 * 60));
+        const elMinutes = Math.floor((elapsedMs / (1000 * 60)) % 60);
+        const elSeconds = Math.floor((elapsedMs / 1000) % 60);
+        setLiveElapsed({
+          hours: elHours,
+          minutes: elMinutes,
+          seconds: elSeconds,
+          formatted: `${String(elHours).padStart(2, "0")}:${String(elMinutes).padStart(2, "0")}:${String(elSeconds).padStart(2, "0")}`,
+        });
+
+        // 2. Concludes in (counting down until end)
         const diff = end ? Math.max(0, end.getTime() - now.getTime()) : 0;
         const days = Math.floor(diff / (1000 * 60 * 60 * 24));
         const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
@@ -1294,8 +1313,8 @@ function RouteComponent() {
                 </p>
               </div>
 
-              {/* Countdown hero block — uses hook's isLive + seasonRemaining from timer */}
-              {!competitionIsLive ? (
+              {/* Dynamic hero timer block — automatically switches: Upcoming → LIVE → ENDED */}
+              {effectivePulseStatus === "upcoming" ? (
                 /* BEFORE LAUNCH: Show countdown & prominent header */
                 <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-950/70 via-slate-900/80 to-indigo-950/70 border border-blue-500/30 backdrop-blur-md shadow-xl space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-500/20 pb-3">
@@ -1305,7 +1324,7 @@ function RouteComponent() {
                       </div>
                       <div className="text-2xl sm:text-3xl font-black text-white tracking-wide flex items-center gap-2">
                         <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
-                        LIVE PULSE BEGINS
+                        LIVE PULSE BEGINS IN
                       </div>
                     </div>
                     <div className="sm:text-right font-mono">
@@ -1357,25 +1376,115 @@ function RouteComponent() {
                     </div>
                   )}
                 </div>
-              ) : (
-                /* LIVE: Admin set to live OR dates crossed */
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/60 via-slate-900/90 to-blue-950/60 border border-red-500/40 backdrop-blur-md shadow-2xl space-y-3">
-                  <div className="flex items-center justify-between">
+              ) : effectivePulseStatus === "live" ? (
+                /* LIVE: Real-time Elapsed Time & Concludes In */
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/70 via-slate-900/90 to-amber-950/50 border border-red-500/50 backdrop-blur-md shadow-2xl space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-red-500/20 pb-3">
                     <div className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
                       <span className="text-xs font-mono font-black text-red-400 uppercase tracking-wider">
                         CHAMPIONSHIP PULSE IS LIVE
                       </span>
                     </div>
-                    <span className="text-xs font-mono text-slate-300 font-semibold">
-                      {seasonEndDisplay
-                        ? `Ends ${seasonEndDisplay}${seasonEndTimeDisplay ? `, ${seasonEndTimeDisplay}` : ""}`
-                        : "Season in progress"}
+                    <div className="sm:text-right font-mono text-xs text-slate-300">
+                      <span className="text-slate-400">Ends at: </span>
+                      <strong className="text-amber-300 font-bold">
+                        {seasonEndTimeDisplay || "Official Session Close"}
+                      </strong>
+                      <span className="text-slate-400 text-[11px] block sm:inline sm:ml-1">
+                        ({seasonEndDisplay || "Today"}, Asia/Kolkata)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-2xl font-black text-white">Daily Pulses Are Now Active</h3>
+                    <p className="text-sm text-slate-300 mt-1">
+                      The competition is live! Complete your daily 5 challenges (4 MBBS + 1 General) to claim points, elevate your college, and win the 24K Gold &amp; Obsidian Trophy.
+                    </p>
+                  </div>
+
+                  {/* Real-time Tickers: Elapsed Time + Time Remaining */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-lg pt-1">
+                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 shadow-inner">
+                      <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
+                        ELAPSED HRS
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
+                        {String(liveElapsed.hours).padStart(2, "0")}
+                      </span>
+                      <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
+                        HOURS
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 shadow-inner">
+                      <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
+                        ELAPSED MIN
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
+                        {String(liveElapsed.minutes).padStart(2, "0")}
+                      </span>
+                      <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
+                        MINUTES
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 shadow-inner">
+                      <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
+                        ELAPSED SEC
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-extrabold text-amber-300 font-mono tracking-tight">
+                        {String(liveElapsed.seconds).padStart(2, "0")}
+                      </span>
+                      <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
+                        SECONDS
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-amber-500/30 shadow-inner">
+                      <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest">
+                        REMAINING
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-extrabold text-amber-300 font-mono tracking-tight">
+                        {String(seasonRemaining.minutes).padStart(2, "0")}:{String(seasonRemaining.seconds).padStart(2, "0")}
+                      </span>
+                      <span className="text-[9px] font-semibold text-amber-400/80 tracking-widest mt-0.5">
+                        MIN : SEC
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : effectivePulseStatus === "ended" ? (
+                /* ENDED: Dedicated ended state */
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-700/60 backdrop-blur-md shadow-xl space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+                      <span className="text-xs font-mono font-black text-slate-300 uppercase tracking-wider">
+                        CHAMPIONSHIP PULSE CONCLUDED
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-amber-400 font-semibold">
+                      Session Closed &bull; {seasonEndTimeDisplay || "Official Window End"} IST
                     </span>
                   </div>
-                  <h3 className="text-2xl font-black text-white">Daily Pulses Are Now Active</h3>
+                  <div>
+                    <h3 className="text-2xl font-black text-white">Today's Pulse Has Ended</h3>
+                    <p className="text-sm text-slate-300 mt-1">
+                      Submissions for today's championship pulse are now closed. All student attempts have been verified and securely recorded in Supabase. Check the Leaderboard below for current standings.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* PAUSED */
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-950/50 via-slate-900 to-amber-950/30 border border-amber-500/40 backdrop-blur-md shadow-xl space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                    <span className="text-xs font-mono font-black text-amber-300 uppercase tracking-wider">
+                      CHAMPIONSHIP PULSE PAUSED
+                    </span>
+                  </div>
+                  <h3 className="text-2xl font-black text-white">Pulse Paused by Administrator</h3>
                   <p className="text-sm text-slate-300">
-                    The competition is live! Complete your daily 5 challenges (4 MBBS + 1 General) to claim points, elevate your college, and win the 24K Gold & Obsidian Trophy.
+                    The competition pulse is temporarily paused. Real-time standings will resume shortly.
                   </p>
                 </div>
               )}
@@ -1727,14 +1836,26 @@ function RouteComponent() {
             {/* Time window status pill */}
             <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3">
               <span className={`w-2.5 h-2.5 rounded-full ${
-                timeWindowState.status === "active_pulse" ? "bg-emerald-400 animate-ping" : "bg-amber-400"
+                timeWindowState.status === "active_pulse"
+                  ? "bg-emerald-400 animate-ping"
+                  : timeWindowState.status === "day_ended"
+                  ? "bg-slate-500"
+                  : "bg-amber-400"
               }`} />
               <div>
                 <div className="text-xs font-bold text-white">
-                  {timeWindowState.status === "active_pulse" ? "WINDOW IS LIVE" : `LOCKED UNTIL ${seasonStartTimeDisplay || "START TIME"}`}
+                  {timeWindowState.status === "active_pulse"
+                    ? "WINDOW IS LIVE"
+                    : timeWindowState.status === "day_ended"
+                    ? "PULSE CONCLUDED"
+                    : `LOCKED UNTIL ${seasonStartTimeDisplay || "START TIME"}`}
                 </div>
                 <div className="text-[11px] font-mono text-slate-400">
-                  {timeWindowState.status === "active_pulse" ? "Active until session end" : `Opens in ${formatCountdown(timeWindowState.countdownSeconds)}`}
+                  {timeWindowState.status === "active_pulse"
+                    ? `Elapsed: ${liveElapsed.formatted}`
+                    : timeWindowState.status === "day_ended"
+                    ? "Submissions closed"
+                    : `Opens in ${formatCountdown(timeWindowState.countdownSeconds)}`}
                 </div>
               </div>
             </div>
