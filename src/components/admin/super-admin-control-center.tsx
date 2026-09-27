@@ -5,6 +5,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Crown,
   Users,
   Trophy,
   Bell,

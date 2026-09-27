@@ -40,6 +40,11 @@ export default defineConfig(({ command }) => ({
     tailwindcss(),
     tsconfigPaths(),
   ].filter(Boolean),
+  server: {
+    watch: {
+      ignored: ["**/.output/**", "**/.wrangler/**", "**/dist/**"],
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
