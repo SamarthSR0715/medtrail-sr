@@ -275,29 +275,6 @@ function RouteComponent() {
     opensAtIST: "Synchronizing...",
   });
 
-  // Pulse Countdown Timer (Configurable 60s per pulse)
-  const [timerSecondsLeft, setTimerSecondsLeft] = useState<number>(DEFAULT_PULSE_TIMER_SECONDS);
-  const selectedOptionRef = useRef<number | null>(null);
-  const currentQIndexRef = useRef<number>(0);
-  const hasSubmittedAnswerRef = useRef<boolean>(false);
-  const isQuizOpenRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    selectedOptionRef.current = selectedOption;
-  }, [selectedOption]);
-
-  useEffect(() => {
-    currentQIndexRef.current = currentQIndex;
-  }, [currentQIndex]);
-
-  useEffect(() => {
-    hasSubmittedAnswerRef.current = hasSubmittedAnswer;
-  }, [hasSubmittedAnswer]);
-
-  useEffect(() => {
-    isQuizOpenRef.current = isQuizOpen;
-  }, [isQuizOpen]);
-
   // Dynamic Hall of Fame (Loaded safely without 404 network queries)
   const [hallOfFame] = useState<HallOfFameData>(() => {
     try {
@@ -329,6 +306,30 @@ function RouteComponent() {
   const [quizResult, setQuizResult] = useState<{ score: number; accuracy: number; xp: number } | null>(null);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [hasSubmittedAnswer, setHasSubmittedAnswer] = useState(false);
+
+  // Pulse Countdown Timer (Configurable 60s per pulse) - Declared after quiz state to prevent TDZ ReferenceErrors
+  const [timerSecondsLeft, setTimerSecondsLeft] = useState<number>(DEFAULT_PULSE_TIMER_SECONDS);
+  const selectedOptionRef = useRef<number | null>(null);
+  const currentQIndexRef = useRef<number>(0);
+  const hasSubmittedAnswerRef = useRef<boolean>(false);
+  const isQuizOpenRef = useRef<boolean>(false);
+  const handleSubmitQuestionRef = useRef<(autoOption?: number | null) => Promise<void>>(() => Promise.resolve());
+
+  useEffect(() => {
+    selectedOptionRef.current = selectedOption;
+  }, [selectedOption]);
+
+  useEffect(() => {
+    currentQIndexRef.current = currentQIndex;
+  }, [currentQIndex]);
+
+  useEffect(() => {
+    hasSubmittedAnswerRef.current = hasSubmittedAnswer;
+  }, [hasSubmittedAnswer]);
+
+  useEffect(() => {
+    isQuizOpenRef.current = isQuizOpen;
+  }, [isQuizOpen]);
 
   // Overall Season countdown & launch state (Requirement 4 & 5)
   const [seasonRemaining, setSeasonRemaining] = useState({
@@ -931,34 +932,8 @@ function RouteComponent() {
     setIsQuizOpen(true);
   };
 
-  // Reset timer on question switch
-  useEffect(() => {
-    if (!isQuizOpen || quizFinished) return;
-    const limit = todayQuestions[currentQIndex]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
-    setTimerSecondsLeft(limit);
-  }, [currentQIndex, isQuizOpen, quizFinished, todayQuestions]);
-
-  // Pulse Countdown Timer interval (Counts down 1 second at a time; auto-submits on 0)
-  useEffect(() => {
-    if (!isQuizOpen || quizFinished || hasSubmittedAnswer) return;
-    if (adminPulseStatus === "paused") return;
-
-    const interval = setInterval(() => {
-      setTimerSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          handleSubmitQuestion(selectedOptionRef.current);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isQuizOpen, quizFinished, hasSubmittedAnswer, adminPulseStatus, currentQIndex]);
-
   const handleSelectOption = (idx: number) => {
-    if (hasSubmittedAnswer) return;
+    if (hasSubmittedAnswerRef.current) return;
     setSelectedOption(idx);
   };
 
@@ -980,6 +955,7 @@ function RouteComponent() {
 
     // -1 denotes timed out / unanswered question
     const answerToRecord = finalChoice !== null && finalChoice !== undefined ? finalChoice : -1;
+    hasSubmittedAnswerRef.current = true;
     setHasSubmittedAnswer(true);
 
     if (answerToRecord === -1) {
@@ -1068,9 +1044,40 @@ function RouteComponent() {
         setCurrentQIndex((prev) => prev + 1);
         setSelectedOption(null);
         setHasSubmittedAnswer(false);
+        hasSubmittedAnswerRef.current = false;
       }
     }, 1100);
   };
+
+  useEffect(() => {
+    handleSubmitQuestionRef.current = handleSubmitQuestion;
+  });
+
+  // Reset timer on question switch or when quiz opens
+  useEffect(() => {
+    if (!isQuizOpen || quizFinished) return;
+    const limit = todayQuestions[currentQIndex]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+    setTimerSecondsLeft(limit);
+  }, [currentQIndex, isQuizOpen, quizFinished, todayQuestions]);
+
+  // Pulse Countdown Timer interval (Counts down 1 second at a time; auto-submits on 0)
+  useEffect(() => {
+    if (!isQuizOpen || quizFinished || hasSubmittedAnswer) return;
+    if (adminPulseStatus === "paused") return;
+
+    const interval = setInterval(() => {
+      setTimerSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          handleSubmitQuestionRef.current(selectedOptionRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isQuizOpen, quizFinished, hasSubmittedAnswer, adminPulseStatus, currentQIndex]);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -2479,15 +2486,15 @@ function RouteComponent() {
                       </div>
 
                       <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                        {todayQuestions[currentQIndex]?.points} Pts
+                        {todayQuestions[currentQIndex]?.points ?? 50} Pts
                       </span>
                     </div>
                   </div>
 
                   {/* Visual Progress Bar */}
                   {(() => {
-                    const qDuration =
-                      todayQuestions[currentQIndex]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+                    const currentQ = todayQuestions[currentQIndex];
+                    const qDuration = currentQ?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
                     const pct = Math.max(0, Math.min(100, (timerSecondsLeft / qDuration) * 100));
                     return (
                       <div className="w-full space-y-1">
@@ -2516,15 +2523,15 @@ function RouteComponent() {
 
                 <div className="space-y-2">
                   <span className="text-xs font-mono font-bold text-slate-400 uppercase">
-                    {todayQuestions[currentQIndex]?.subject} &bull; {todayQuestions[currentQIndex]?.category}
+                    {todayQuestions[currentQIndex]?.subject || "Medical"} &bull; {todayQuestions[currentQIndex]?.category || "Pulse"}
                   </span>
                   <h3 className="text-lg font-bold text-white leading-relaxed">
-                    {todayQuestions[currentQIndex]?.question}
+                    {todayQuestions[currentQIndex]?.question || "Clinical vignette loading..."}
                   </h3>
                 </div>
 
                 <div className="space-y-2.5">
-                  {todayQuestions[currentQIndex]?.options.map((opt, optIdx) => {
+                  {(todayQuestions[currentQIndex]?.options || []).map((opt, optIdx) => {
                     const isSelected = selectedOption === optIdx;
                     const isCorrect = todayQuestions[currentQIndex]?.correctIndex === optIdx;
 
