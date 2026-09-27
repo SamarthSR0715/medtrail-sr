@@ -268,15 +268,40 @@ export async function fetchPulseLeaderboard(
 }
 
 /**
- * Real-time subscription to leaderboard updates
+ * Real-time subscription to leaderboard, attempt records, college and batch standings
  */
-export function subscribeToPulseLeaderboard(onUpdate: () => void): () => void {
+export function subscribeToPulseLeaderboard(onUpdate: (payload?: any) => void): () => void {
   const channel = supabase
-    .channel("pulse_leaderboard_realtime_channel")
+    .channel(`pulse_leaderboard_realtime_${Math.random().toString(36).substring(2, 9)}`)
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "championship_pulse_attempts" },
-      () => onUpdate()
+      (payload) => onUpdate(payload)
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "championship_leaderboard" },
+      (payload) => onUpdate(payload)
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "championship_college_standings" },
+      (payload) => onUpdate(payload)
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "championship_batch_standings" },
+      (payload) => onUpdate(payload)
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "pulse_settings" },
+      (payload) => onUpdate(payload)
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "championship_live_ops" },
+      (payload) => onUpdate(payload)
     )
     .subscribe();
 

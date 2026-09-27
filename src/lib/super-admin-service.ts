@@ -411,7 +411,7 @@ export async function fetchLeaderboardRankingsData(
   batchRankings: BatchRankItem[];
 }> {
   try {
-    const result = await fetchLeaderboardForCurrentPulse({ pulseSetId, pulseDate });
+    const result = await fetchLeaderboardForCurrentPulse({ pulseSetId, pulseDate, isAdmin: true });
 
     const individuals: IndividualRankItem[] = result.entries.map((entry) => ({
       rank: entry.rank,
@@ -621,13 +621,13 @@ export async function fetchPulseAttemptsAudit(): Promise<PulseAttemptAuditItem[]
         pulse_date: a.pulse_date,
         user_id: a.user_id,
         user_email: a.user_email,
-        student_name: regInfo?.name || (email ? email.split("@")[0] : `Student #${idx + 1}`),
-        college: regInfo?.college || "Medical College",
-        batch: regInfo?.batch || "MBBS Batch",
+        student_name: a.student_name || regInfo?.name || (email ? email.split("@")[0] : `Student #${idx + 1}`),
+        college: a.college || regInfo?.college || "Medical College",
+        batch: a.batch || regInfo?.batch || "MBBS Batch",
         score: Number(a.score ?? 0),
-        xp_earned: Number(a.xp_earned ?? 0),
+        xp_earned: Number(a.xp ?? a.xp_earned ?? 0),
         accuracy: Number(a.accuracy ?? 0),
-        completed_at: a.completed_at || new Date().toISOString(),
+        completed_at: a.submitted_at || a.completed_at || a.created_at || new Date().toISOString(),
       };
     });
   } catch (err) {
@@ -649,12 +649,12 @@ export async function fetchResultControlSummary(): Promise<ResultControlSummary>
   const resultsPublished = Boolean(pulseSettings.results_published || liveOps.results_declared);
   const totalSubmissions = attempts.length;
   const avgScore = totalSubmissions > 0
-    ? Math.round(attempts.reduce((sum, a) => sum + a.score, 0) / totalSubmissions)
+    ? Math.round(attempts.reduce((sum, a) => sum + Number(a.score || 0), 0) / totalSubmissions)
     : 0;
   const avgAccuracy = totalSubmissions > 0
-    ? Math.round(attempts.reduce((sum, a) => sum + a.accuracy, 0) / totalSubmissions)
+    ? Math.round(attempts.reduce((sum, a) => sum + Number(a.accuracy || 0), 0) / totalSubmissions)
     : 0;
-  const topScore = totalSubmissions > 0 ? attempts[0]!.score : 0;
+  const topScore = totalSubmissions > 0 ? Number(attempts[0]!.score || 0) : 0;
 
   const { individuals } = getLeaderboardRankingsData();
   const topCandidate = attempts.length > 0

@@ -46,6 +46,7 @@ export interface DynamicBatchRankItem {
 
 export interface LeaderboardCalculationResult {
   entries: LeaderboardStudentEntry[];
+  currentUserEntry?: LeaderboardStudentEntry | null;
   collegeRankings: DynamicCollegeRankItem[];
   batchRankings: DynamicBatchRankItem[];
   pulseSetId: string | null;
@@ -173,6 +174,8 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
   pulseDate?: string | null;
   currentUserEmail?: string | null;
   currentUserId?: string | null;
+  participantId?: string | null;
+  isAdmin?: boolean;
 }): Promise<LeaderboardCalculationResult> {
   try {
     let resolvedSetId = params?.pulseSetId || null;
@@ -249,8 +252,12 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
 
     // 2. Query championship_pulse_attempts strictly for the current pulse set
     let attemptsQuery = (supabase as any).from("championship_pulse_attempts").select("*");
-    if (resolvedDate) {
-      attemptsQuery = attemptsQuery.eq("pulse_date", resolvedDate);
+    if (resolvedDate && resolvedSetId) {
+      attemptsQuery = attemptsQuery.or(`pulse_date.eq.${resolvedDate},pulse_id.eq.${resolvedSetId}`);
+    } else if (resolvedDate) {
+      attemptsQuery = attemptsQuery.or(`pulse_date.eq.${resolvedDate},pulse_id.eq.${resolvedDate}`);
+    } else if (resolvedSetId) {
+      attemptsQuery = attemptsQuery.eq("pulse_id", resolvedSetId);
     }
     const { data: rawAttempts, error: attemptsError } = await attemptsQuery;
 
@@ -289,6 +296,7 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
     if (attemptsList.length === 0) {
       return {
         entries: [],
+        currentUserEntry: null,
         collegeRankings: [],
         batchRankings: [],
         pulseSetId: resolvedSetId,
@@ -339,7 +347,8 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
 
       const isCurrentUser = Boolean(
         (params?.currentUserEmail && email && email === params.currentUserEmail.toLowerCase()) ||
-        (params?.currentUserId && a.user_id && a.user_id === params.currentUserId)
+        (params?.currentUserId && a.user_id && a.user_id === params.currentUserId) ||
+        (params?.participantId && (a.user_id === params.participantId || a.id === params.participantId))
       );
 
       processedEntries.push({
@@ -494,8 +503,13 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
       .sort((a, b) => b.totalScore - a.totalScore)
       .map((item, idx) => ({ ...item, rank: idx + 1 }));
 
+    // Extract the logged-in student's personal performance
+    const currentUserEntry = uniqueEntries.find((entry) => entry.is_current_user) || null;
+
     return {
-      entries: uniqueEntries,
+      // Public view receives ONLY Top 5. Admin view receives all entries.
+      entries: params?.isAdmin ? uniqueEntries : uniqueEntries.slice(0, 5),
+      currentUserEntry,
       collegeRankings,
       batchRankings,
       pulseSetId: resolvedSetId,
@@ -505,6 +519,7 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
     console.error("[LeaderboardEngine] fetchLeaderboardForCurrentPulse error:", err);
     return {
       entries: [],
+      currentUserEntry: null,
       collegeRankings: [],
       batchRankings: [],
       pulseSetId: null,

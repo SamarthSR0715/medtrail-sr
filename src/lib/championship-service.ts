@@ -318,16 +318,114 @@ export async function getLiveLeaderboard(limit = 50): Promise<LeaderboardEntry[]
   }
 }
 
-// ── Record Pulse Submission ───────────────────────────────────────────────────
-export async function submitPulseAttempt(params: {
-  participantId?: string;
-  userId?: string;
-  slot: number;
+// ── Check if Student has Already Submitted Attempt for Current Pulse ─────────────
+export async function fetchStudentExistingAttempt(params: {
+  userId?: string | null;
+  userEmail?: string | null;
+  pulseId?: string | null;
+  pulseDate?: string | null;
+}): Promise<{ hasSubmitted: boolean; attempt?: any }> {
+  const { userId, userEmail, pulseId, pulseDate } = params;
+  if (!userId && !userEmail) {
+    return { hasSubmitted: false };
+  }
+
+  try {
+    let query = (supabase as any)
+      .from("championship_pulse_attempts")
+      .select("*");
+
+    // Match pulse identity
+    if (pulseId && pulseDate) {
+      query = query.or(`pulse_id.eq.${pulseId},pulse_date.eq.${pulseDate}`);
+    } else if (pulseId) {
+      query = query.or(`pulse_id.eq.${pulseId},pulse_date.eq.${pulseId}`);
+    } else if (pulseDate) {
+      query = query.eq("pulse_date", pulseDate);
+    }
+
+    // Match student identity
+    const conditions: string[] = [];
+    if (userId) conditions.push(`user_id.eq.${userId}`);
+    if (userEmail) conditions.push(`user_email.ilike.${userEmail.trim()}`);
+
+    if (conditions.length > 0) {
+      query = query.or(conditions.join(","));
+    }
+
+    const { data, error } = await query.order("completed_at", { ascending: false }).limit(1);
+
+    if (!error && data && data.length > 0) {
+      const existing = data[0];
+      // Mirror to localStorage for offline cache
+      if (typeof window !== "undefined") {
+        try {
+          const key = `${pulseDate || getISTDateString()}_${userId || userEmail}`;
+          const raw = localStorage.getItem("medtrail_pulse_attempts_v2") || "{}";
+          const parsed = JSON.parse(raw);
+          parsed[key] = existing;
+          localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(parsed));
+        } catch {}
+      }
+      return { hasSubmitted: true, attempt: existing };
+    }
+  } catch (err) {
+    console.warn("[ChampionshipService] fetchStudentExistingAttempt error:", err);
+  }
+
+  // Check localStorage backup
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem("medtrail_pulse_attempts_v2");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const targetDate = pulseDate || getISTDateString();
+        const key = `${targetDate}_${userId || userEmail}`;
+        const local = parsed[key];
+        if (local) {
+          return { hasSubmitted: true, attempt: local };
+        }
+      }
+    } catch {}
+  }
+
+  return { hasSubmitted: false };
+}
+
+// ── Atomic Pulse Submission (One Attempt Only + Standings Recalculation) ────────
+export async function submitPulseAttemptAtomic(params: {
+  pulseId: string;
+  pulseDate?: string;
+  userId: string;
+  userEmail?: string | null;
+  studentName: string;
+  college: string;
+  batch: string;
   answers: number[];
   questions: PulseQuestion[];
   timeTakenSeconds: number;
-}): Promise<{ score: number; accuracy: number; xp: number; correctCount: number }> {
-  const { slot, answers, questions, timeTakenSeconds, participantId, userId } = params;
+}): Promise<{
+  success: boolean;
+  alreadySubmitted: boolean;
+  score: number;
+  accuracy: number;
+  xp: number;
+  correctCount: number;
+  attemptId?: string;
+  message?: string;
+}> {
+  const {
+    pulseId,
+    pulseDate = getISTDateString(),
+    userId,
+    userEmail,
+    studentName,
+    college,
+    batch,
+    answers,
+    questions,
+    timeTakenSeconds,
+  } = params;
 
   let correctCount = 0;
   questions.forEach((q, i) => {
@@ -336,33 +434,171 @@ export async function submitPulseAttempt(params: {
     }
   });
 
-  const accuracy = Math.round((correctCount / questions.length) * 100);
+  const accuracy = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
   // Scoring formula: 20 pts per question + time bonus up to 20 pts
   const timeBonus = Math.max(0, 20 - Math.floor(timeTakenSeconds / 5));
   const score = correctCount * 20 + timeBonus;
   const xp = correctCount * 50 + 50;
 
-  const dateStr = getISTDateString();
-  const idempotencyKey = `S1:${dateStr}:slot${slot}:${userId || "anon"}`;
-
-  // If user is authenticated and registered, submit to Supabase
-  if (participantId && userId) {
-    try {
-      await (supabase as any).rpc("record_pulse_completion", {
-        p_idempotency_key: idempotencyKey,
-        p_participant_id: participantId,
-        p_pulse_slot: slot,
-        p_pulse_type: slot === 5 ? "general" : "mbbs",
-        p_pulse_category: questions[0]?.subject || "Medical",
+  // 1. Attempt atomic submission via database RPC function
+  try {
+    const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
+      "submit_pulse_attempt_atomic",
+      {
+        p_pulse_id: pulseId,
+        p_pulse_date: pulseDate,
+        p_user_id: userId,
+        p_user_email: userEmail || null,
+        p_student_name: studentName || "Doctor",
+        p_college: college || "Medical College",
+        p_batch: batch || "2026 Batch → Freshers",
+        p_score: score,
+        p_accuracy: accuracy,
         p_time_taken_seconds: timeTakenSeconds,
-        p_score_awarded: score,
-        p_answers_correct: correctCount,
-        p_answers_total: questions.length,
-      });
-    } catch (e) {
-      console.warn("Supabase record_pulse_completion skipped or unconfigured:", e);
+        p_xp: xp,
+        p_answers: answers,
+      }
+    );
+
+    if (!rpcError && rpcData) {
+      if (rpcData.already_submitted) {
+        return {
+          success: false,
+          alreadySubmitted: true,
+          score,
+          accuracy,
+          xp,
+          correctCount,
+          attemptId: rpcData.attempt_id,
+          message: "You have already submitted this Pulse.",
+        };
+      }
+
+      return {
+        success: true,
+        alreadySubmitted: false,
+        score,
+        accuracy,
+        xp,
+        correctCount,
+        attemptId: rpcData.attempt_id,
+        message: "Attempt submitted successfully.",
+      };
     }
+
+    if (rpcError) {
+      console.warn("[ChampionshipService] submit_pulse_attempt_atomic RPC warning:", rpcError);
+      // Check if error is due to unique violation
+      if (
+        rpcError.code === "23505" ||
+        rpcError.message?.toLowerCase().includes("unique") ||
+        rpcError.message?.toLowerCase().includes("already")
+      ) {
+        return {
+          success: false,
+          alreadySubmitted: true,
+          score,
+          accuracy,
+          xp,
+          correctCount,
+          message: "You have already submitted this Pulse.",
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn("[ChampionshipService] submit_pulse_attempt_atomic exception:", err);
   }
+
+  // 2. Direct Fallback insert into championship_pulse_attempts (stores all 8 permanent fields)
+  try {
+    const submittedAt = new Date().toISOString();
+    const { data: insertData, error: insertError } = await (supabase as any)
+      .from("championship_pulse_attempts")
+      .insert({
+        pulse_id: pulseId,
+        pulse_date: pulseDate,
+        user_id: userId,
+        user_email: userEmail || null,
+        student_name: studentName || "Doctor",
+        college: college || "Medical College",
+        batch: batch || "2026 Batch → Freshers",
+        score,
+        accuracy,
+        time_taken_seconds: timeTakenSeconds,
+        completion_time: timeTakenSeconds,
+        submitted_at: submittedAt,
+        completed_at: submittedAt,
+        xp,
+        answers,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      if (
+        insertError.code === "23505" ||
+        insertError.message?.toLowerCase().includes("unique") ||
+        insertError.message?.toLowerCase().includes("already")
+      ) {
+        return {
+          success: false,
+          alreadySubmitted: true,
+          score,
+          accuracy,
+          xp,
+          correctCount,
+          message: "You have already submitted this Pulse.",
+        };
+      }
+      throw insertError;
+    }
+
+    return {
+      success: true,
+      alreadySubmitted: false,
+      score,
+      accuracy,
+      xp,
+      correctCount,
+      attemptId: insertData?.id,
+      message: "Attempt submitted successfully.",
+    };
+  } catch (err: any) {
+    console.error("[ChampionshipService] Fallback insert attempt error:", err);
+    return {
+      success: false,
+      alreadySubmitted: false,
+      score,
+      accuracy,
+      xp,
+      correctCount,
+      message: err?.message || "Failed to submit attempt.",
+    };
+  }
+}
+
+// ── Legacy Record Pulse Submission (Maintained for Backward Compatibility) ─────
+export async function submitPulseAttempt(params: {
+  participantId?: string;
+  userId?: string;
+  slot: number;
+  answers: number[];
+  questions: PulseQuestion[];
+  timeTakenSeconds: number;
+}): Promise<{ score: number; accuracy: number; xp: number; correctCount: number }> {
+  const { answers, questions, timeTakenSeconds } = params;
+
+  let correctCount = 0;
+  questions.forEach((q, i) => {
+    if (answers[i] === q.correctIndex) {
+      correctCount++;
+    }
+  });
+
+  const accuracy = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+  const timeBonus = Math.max(0, 20 - Math.floor(timeTakenSeconds / 5));
+  const score = correctCount * 20 + timeBonus;
+  const xp = correctCount * 50 + 50;
 
   return { score, accuracy, xp, correctCount };
 }

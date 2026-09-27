@@ -10,6 +10,7 @@ import {
 } from "@/lib/competition-settings-service";
 import { toast } from "sonner";
 import {
+  AlertCircle,
   Award,
   BookOpen,
   Calendar,
@@ -55,6 +56,8 @@ import {
   getISTDateString,
   registerChampionshipParticipant,
   submitPulseAttempt,
+  submitPulseAttemptAtomic,
+  fetchStudentExistingAttempt,
   DEFAULT_PULSE_TIMER_SECONDS,
   type LiveOpsState,
   type PulseSetRecord,
@@ -67,12 +70,13 @@ import {
 import {
   fetchTodayPublishedPulse,
   convertToQuizQuestions,
+  fetchLiveOpsState,
 } from "@/lib/pulse-admin-service";
 import {
   DEFAULT_HALL_OF_FAME,
   type HallOfFameData,
 } from "@/lib/super-admin-service";
-import { fetchLeaderboardForCurrentPulse } from "@/lib/leaderboard-engine";
+import { fetchLeaderboardForCurrentPulse, type LeaderboardStudentEntry } from "@/lib/leaderboard-engine";
 import { subscribeToPulseLeaderboard } from "@/lib/pulse-service";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
@@ -126,8 +130,20 @@ function RouteComponent() {
   });
 
   const adminPulseStatus = pulseSettings.pulse_status;
-  const competitionIsLive = adminPulseStatus === "live";
+  const [dynamicPulseStatus, setDynamicPulseStatus] = useState<PulseStatus>("upcoming");
+  const effectivePulseStatus: PulseStatus = dynamicPulseStatus;
+  const competitionIsLive = effectivePulseStatus === "live";
   const resultsPublished = pulseSettings.results_published;
+
+  const [currentISTTime, setCurrentISTTime] = useState<string>(() => {
+    return new Date().toLocaleTimeString("en-IN", {
+      timeZone: EVENT_TZ,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    }) + " IST";
+  });
 
   const seasonStartUTC = useMemo(
     () => combineDateAndTime(pulseSettings.competition_date, pulseSettings.start_time),
@@ -166,6 +182,7 @@ function RouteComponent() {
   );
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [myPerformance, setMyPerformance] = useState<LeaderboardStudentEntry | null>(null);
 
   // Modals & Notifications
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
@@ -242,7 +259,34 @@ function RouteComponent() {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   // Admin-managed Daily Pulse State
-  const [liveOps] = useState<LiveOpsState | null>(null);
+  const [liveOps, setLiveOps] = useState<LiveOpsState | null>(null);
+
+  useEffect(() => {
+    async function syncLiveOps() {
+      try {
+        const ops = await fetchLiveOpsState();
+        setLiveOps(ops);
+      } catch {}
+    }
+    syncLiveOps();
+
+    const channel = supabase
+      .channel("live_ops_student_channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_live_ops" },
+        (payload: any) => {
+          if (payload?.new) {
+            setLiveOps(payload.new as LiveOpsState);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
   const [publishedPulseSet, setPublishedPulseSet] = useState<PulseSetRecord | null>(null);
   const [isLoadingPulse] = useState(false);
   const [hasAttemptedToday, setHasAttemptedToday] = useState(false);
@@ -470,37 +514,64 @@ function RouteComponent() {
       setPublishedPulseSet(setRecord);
       setTodayQuestions(questionsToUse);
 
-      // Check student's single daily attempt
+      // Check student's single daily attempt in Supabase (Enforce One Attempt Only)
       const studentId = getEffectiveStudentId();
-      if (studentId) {
+      if (studentId || user?.id || user?.email || regEmail) {
         try {
-          const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
-          if (rawAttempts) {
-            const attempts = JSON.parse(rawAttempts);
-            const key = `${targetDate}_${studentId}`;
-            const attempt = attempts[key] || attempts[`${getISTDateString()}_${studentId}`];
-            if (attempt) {
-              setHasAttemptedToday(true);
-              setTodayAttempt(attempt);
-              if (attempt.answers && Array.isArray(attempt.answers)) {
-                setUserAnswers(attempt.answers);
+          const remoteCheck = await fetchStudentExistingAttempt({
+            userId: user?.id || studentId,
+            userEmail: user?.email || regEmail,
+            pulseId: setRecord?.id,
+            pulseDate: targetDate,
+          });
+
+          if (remoteCheck.hasSubmitted && remoteCheck.attempt) {
+            const attempt = remoteCheck.attempt;
+            setHasAttemptedToday(true);
+            setTodayAttempt(attempt);
+            if (attempt.answers && Array.isArray(attempt.answers)) {
+              setUserAnswers(attempt.answers);
+            }
+            setQuizResult({
+              score: Number(attempt.score ?? 0),
+              accuracy: Number(attempt.accuracy ?? 0),
+              xp: Number(attempt.xp ?? attempt.xp_earned ?? 0),
+            });
+          } else {
+            // Local fallback check
+            const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
+            if (rawAttempts) {
+              const attempts = JSON.parse(rawAttempts);
+              const key = `${targetDate}_${studentId}`;
+              const attempt = attempts[key] || attempts[`${getISTDateString()}_${studentId}`];
+              if (attempt) {
+                setHasAttemptedToday(true);
+                setTodayAttempt(attempt);
+                if (attempt.answers && Array.isArray(attempt.answers)) {
+                  setUserAnswers(attempt.answers);
+                }
+                setQuizResult({
+                  score: Number(attempt.score ?? 0),
+                  accuracy: Number(attempt.accuracy ?? 0),
+                  xp: Number(attempt.xp ?? attempt.xp_earned ?? 0),
+                });
+              } else {
+                setHasAttemptedToday(false);
+                setTodayAttempt(null);
               }
-              setQuizResult({
-                score: attempt.score,
-                accuracy: attempt.accuracy,
-                xp: attempt.xp,
-              });
             } else {
               setHasAttemptedToday(false);
               setTodayAttempt(null);
             }
           }
-        } catch {}
+        } catch (checkErr) {
+          console.warn("[Student Pulse] Check attempt error:", checkErr);
+        }
       }
     } catch (err) {
       console.warn("[Student Pulse] loadTodayPulse warning:", err);
     }
-  }, [pulseSettings.competition_date, getEffectiveStudentId, DEFAULT_PULSE_QUESTIONS]);
+  }, [pulseSettings.competition_date, getEffectiveStudentId, DEFAULT_PULSE_QUESTIONS, user?.id, user?.email, regEmail]);
 
   // Load pulse questions on mount
   useEffect(() => {
@@ -578,14 +649,20 @@ function RouteComponent() {
   const loadLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
     try {
+      const studentId = getEffectiveStudentId();
       const res = await fetchLeaderboardForCurrentPulse({
         pulseSetId: publishedPulseSet?.id,
         pulseDate: pulseSettings.competition_date,
         currentUserEmail: user?.email || regEmail,
-        currentUserId: user?.id,
+        currentUserId: user?.id || studentId,
+        participantId: studentId,
+        isAdmin: false, // Student Public view strictly receives Top 5
       });
 
-      setLeaderboard(res.entries);
+      // Requirement 1 & 5: Public leaderboard contains only Top 5
+      setLeaderboard(res.entries.slice(0, 5));
+      // Requirement 2: Private personal rank card data for the logged-in student
+      setMyPerformance(res.currentUserEntry || null);
       setCollegeRankings(res.collegeRankings);
       setBatchRankings(res.batchRankings);
     } catch (err) {
@@ -593,7 +670,7 @@ function RouteComponent() {
     } finally {
       setLoadingLeaderboard(false);
     }
-  }, [publishedPulseSet?.id, pulseSettings.competition_date, user?.email, user?.id, regEmail]);
+  }, [publishedPulseSet?.id, pulseSettings.competition_date, user?.email, user?.id, regEmail, getEffectiveStudentId]);
 
   useEffect(() => {
     loadLeaderboard();
@@ -608,26 +685,53 @@ function RouteComponent() {
     };
   }, [loadLeaderboard]);
 
-  // Watch synchronized countdown without status polling
+  // Watch dynamic synchronized countdown and current IST clock every second
   useEffect(() => {
     const updateTimeState = () => {
       const now = new Date();
       const start = seasonStartUTC;
       const end = seasonEndUTC;
 
-      if (adminPulseStatus === "live") {
-        setTimeWindowState({
-          status: "active_pulse",
-          countdownSeconds: 0,
-          label: "Pulse Active & Live Now",
-          opensAtIST: "LIVE NOW",
-        });
+      // Dynamic Live IST Clock updating every second
+      const formattedIST =
+        now.toLocaleTimeString("en-IN", {
+          timeZone: EVENT_TZ,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: true,
+        }) + " IST";
+      setCurrentISTTime(formattedIST);
 
+      // Dynamic automatic status transition without refresh: Upcoming → LIVE → ENDED
+      let currentStatus: PulseStatus = "upcoming";
+      if (adminPulseStatus === "paused") {
+        currentStatus = "paused";
+      } else if (adminPulseStatus === "ended") {
+        currentStatus = "ended";
+      } else if (end && now.getTime() >= end.getTime()) {
+        currentStatus = "ended";
+      } else if (adminPulseStatus === "live" || (start && now.getTime() >= start.getTime())) {
+        currentStatus = "live";
+      } else {
+        currentStatus = "upcoming";
+      }
+
+      setDynamicPulseStatus(currentStatus);
+
+      if (currentStatus === "live") {
         const diff = end ? Math.max(0, end.getTime() - now.getTime()) : 0;
         const days = Math.floor(diff / (1000 * 60 * 60 * 24));
         const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
         const minutes = Math.floor((diff / (1000 * 60)) % 60);
         const seconds = Math.floor((diff / 1000) % 60);
+
+        setTimeWindowState({
+          status: "active_pulse",
+          countdownSeconds: Math.floor(diff / 1000),
+          label: "Pulse Active & Live Now",
+          opensAtIST: "LIVE NOW",
+        });
 
         setSeasonRemaining({
           days,
@@ -641,7 +745,7 @@ function RouteComponent() {
         return;
       }
 
-      if (adminPulseStatus === "paused") {
+      if (currentStatus === "paused") {
         setTimeWindowState({
           status: "before_7pm",
           countdownSeconds: 0,
@@ -660,7 +764,7 @@ function RouteComponent() {
         return;
       }
 
-      if (adminPulseStatus === "ended") {
+      if (currentStatus === "ended") {
         setTimeWindowState({
           status: "day_ended",
           countdownSeconds: 0,
@@ -726,11 +830,12 @@ function RouteComponent() {
     return () => clearInterval(interval);
   }, [adminPulseStatus, seasonStartUTC, seasonEndUTC, seasonStartTimeDisplay]);
 
-  // Filter leaderboard
+  // Filter public leaderboard (strictly limited to Top 5)
   const filteredLeaderboard = useMemo(() => {
-    if (!searchQuery.trim()) return leaderboard;
+    const top5 = leaderboard.slice(0, 5);
+    if (!searchQuery.trim()) return top5;
     const q = searchQuery.toLowerCase();
-    return leaderboard.filter(
+    return top5.filter(
       (p) =>
         (p.display_name && p.display_name.toLowerCase().includes(q)) ||
         (p.institution && p.institution.toLowerCase().includes(q))
@@ -864,11 +969,15 @@ function RouteComponent() {
   };
 
   const handleSelectOption = (idx: number) => {
-    if (hasSubmittedAnswerRef.current) return;
+    if (hasSubmittedAnswerRef.current || hasAttemptedToday) return;
     setSelectedOption(idx);
   };
 
   const handleSubmitQuestion = async (autoOption?: number | null) => {
+    if (hasAttemptedToday) {
+      toast.error("You have already submitted this Pulse. Only 1 attempt is permitted.");
+      return;
+    }
     if (adminPulseStatus === "paused") {
       toast.warning("Pulse is currently paused by Administration. Submissions on hold.");
       return;
@@ -914,24 +1023,60 @@ function RouteComponent() {
 
         const accuracy = Math.round((correctCount / todayQuestions.length) * 100);
         const timeTaken = Math.round((Date.now() - quizStartTime) / 1000);
-        const todayStr = getISTDateString();
+        const todayStr = publishedPulseSet?.pulse_date || getISTDateString();
         const studentId = getEffectiveStudentId();
+        const effectiveUserId = user?.id || studentId;
+        const pulseId = publishedPulseSet?.id || `pulse_${todayStr}`;
+        const studentEmail = user?.email || regEmail || null;
+        const studentName = regName || user?.user_metadata?.full_name || "Doctor";
+        const studentCollege = regCollege || "Medical College";
+        const studentBatch = regBatch || "2026 Batch → Freshers";
 
-        setQuizResult({ score: earnedScore, accuracy, xp: earnedXP });
-        setQuizFinished(true);
+        // Atomic submission to Supabase: enforces One Attempt Only & triggers standings recalculation
+        const atomicRes = await submitPulseAttemptAtomic({
+          pulseId,
+          pulseDate: todayStr,
+          userId: effectiveUserId,
+          userEmail: studentEmail,
+          studentName,
+          college: studentCollege,
+          batch: studentBatch,
+          answers: newAnswers,
+          questions: todayQuestions,
+          timeTakenSeconds: timeTaken,
+        });
+
         setHasAttemptedToday(true);
+        setQuizFinished(true);
 
+        const finalScore = atomicRes.score ?? earnedScore;
+        const finalAccuracy = atomicRes.accuracy ?? accuracy;
+        const finalXP = atomicRes.xp ?? earnedXP;
+
+        setQuizResult({
+          score: finalScore,
+          accuracy: finalAccuracy,
+          xp: finalXP,
+        });
+
+        if (atomicRes.alreadySubmitted) {
+          toast.error("You have already submitted this Pulse. Only 1 attempt is permitted.");
+        } else {
+          toast.success("Pulse submitted successfully! Leaderboard & standings updated.");
+        }
+
+        // Cache attempt record locally for instant UI restoration across reloads
         try {
           const attemptRecord: PulseAttemptRecord = {
-            id: `att-${todayStr}-${studentId}`,
-            pulse_set_id: publishedPulseSet?.id || `pub-${todayStr}`,
+            id: atomicRes.attemptId || `att-${todayStr}-${studentId}`,
+            pulse_set_id: pulseId,
             pulse_date: todayStr,
-            user_id: studentId,
-            user_email: user?.email || regEmail || undefined,
+            user_id: effectiveUserId,
+            user_email: studentEmail || undefined,
             participant_id: studentId,
-            score: earnedScore,
-            accuracy,
-            xp: earnedXP,
+            score: finalScore,
+            accuracy: finalAccuracy,
+            xp: finalXP,
             time_taken_seconds: timeTaken,
             answers: newAnswers,
             completed_at: new Date().toISOString(),
@@ -944,28 +1089,10 @@ function RouteComponent() {
           localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(localAttempts));
           setTodayAttempt(attemptRecord);
         } catch (e) {
-          console.error("Failed to record student pulse attempt:", e);
+          console.error("Failed to record student pulse attempt locally:", e);
         }
 
-        // Save attempt directly into championship_pulse_attempts
-        try {
-          await (supabase as any).from("championship_pulse_attempts").insert({
-            pulse_date: publishedPulseSet?.pulse_date || todayStr,
-            user_id: user?.id || studentId,
-            user_email: user?.email || regEmail || null,
-            student_name: regName || user?.user_metadata?.full_name || "Doctor",
-            college: regCollege || "Medical College",
-            score: earnedScore,
-            accuracy,
-            xp: earnedXP,
-            answers: newAnswers,
-            time_taken_seconds: timeTaken,
-            completed_at: new Date().toISOString(),
-          });
-        } catch (e) {
-          console.warn("Supabase pulse attempt save note:", e);
-        }
-
+        // Also notify client pulse service state
         await submitPulseAttempt({
           slot: 1,
           answers: newAnswers,
@@ -973,6 +1100,7 @@ function RouteComponent() {
           timeTakenSeconds: timeTaken,
         });
 
+        // Immediately refetch leaderboard & standings
         await loadLeaderboard();
       } else {
         setCurrentQIndex((prev) => prev + 1);
@@ -1128,30 +1256,32 @@ function RouteComponent() {
                   SEASON 1
                 </span>
 
-                {/* Status badge — driven by hook (auto-computed + admin override) */}
-                {competitionIsLive ? (
+                {/* Status badge — driven by dynamic status (auto-computed + admin override) */}
+                {effectivePulseStatus === "live" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-black tracking-wider uppercase shadow-lg shadow-red-500/20 animate-pulse">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                     🔴 CHAMPIONSHIP LIVE
                   </span>
-                ) : adminPulseStatus === "ended" ? (
+                ) : effectivePulseStatus === "ended" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-slate-700/60 border border-slate-600 text-slate-300 text-xs font-black tracking-wider uppercase">
                     🏁 SEASON ENDED
                   </span>
-                ) : adminPulseStatus === "paused" ? (
+                ) : effectivePulseStatus === "paused" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-black tracking-wider uppercase">
                     ⏸️ PULSE PAUSED
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-black tracking-wider uppercase shadow-lg shadow-emerald-500/20">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    🟢 REGISTRATION OPEN
+                    🟢 UPCOMING / REGISTRATION OPEN
                   </span>
                 )}
 
-                <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
-                  <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  {EVENT_TZ_OFFSET} ({EVENT_TZ_ABBR})
+                {/* Dynamic Live IST Clock */}
+                <span className="text-xs text-slate-300 flex items-center gap-1.5 font-mono px-3 py-1 rounded-full bg-slate-900/80 border border-slate-700/60">
+                  <Clock className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                  <span className="text-amber-300 font-bold">{currentISTTime}</span>
+                  <span className="text-slate-400 hidden sm:inline">&bull; Asia/Kolkata (IST)</span>
                 </span>
               </div>
 
@@ -1261,7 +1391,7 @@ function RouteComponent() {
                     <span>VIEW EXPLANATIONS & RESULTS</span>
                     <Sparkles className="w-4 h-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
                   </button>
-                ) : adminPulseStatus === "live" ? (
+                ) : effectivePulseStatus === "live" ? (
                   <button
                     onClick={startPulseQuiz}
                     className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
@@ -1270,7 +1400,7 @@ function RouteComponent() {
                     <span>JOIN PULSE NOW</span>
                     <Sparkles className="w-4 h-4 text-amber-200 group-hover:rotate-12 transition-transform" />
                   </button>
-                ) : adminPulseStatus === "paused" ? (
+                ) : effectivePulseStatus === "paused" ? (
                   <button
                     onClick={startPulseQuiz}
                     className="inline-flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-amber-950/40 text-amber-300 border border-amber-500/40 font-bold text-sm cursor-pointer"
@@ -1278,7 +1408,7 @@ function RouteComponent() {
                     <Pause className="w-4 h-4 text-amber-400" />
                     <span>PULSE PAUSED</span>
                   </button>
-                ) : adminPulseStatus === "ended" ? (
+                ) : effectivePulseStatus === "ended" ? (
                   <button
                     onClick={startPulseQuiz}
                     className="inline-flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-slate-800 text-slate-400 border border-slate-700 font-bold text-sm cursor-pointer"
@@ -1819,187 +1949,318 @@ function RouteComponent() {
             })}
           </div>
 
-          {/* TAB 1: INDIVIDUAL RANKING */}
+          {/* TAB 1: INDIVIDUAL RANKING (TOP 5 PUBLIC + PRIVATE PERSONAL PERFORMANCE) */}
           {activeTab === "global" && (
-            <div className="space-y-4">
-              {/* Results Hidden State - When results not published */}
-              {!resultsPublished ? (
-                <div className="p-8 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-700/60 text-center space-y-3">
-                  <div className="w-14 h-14 rounded-2xl bg-slate-800/60 border border-slate-700 flex items-center justify-center mx-auto">
-                    <Trophy className="w-7 h-7 text-amber-400" />
-                  </div>
-                  <h3 className="text-xl font-black text-white">Results & Standings</h3>
-                  <p className="text-sm text-slate-400 max-w-md mx-auto">
-                    {adminPulseStatus === "live"
-                      ? "The competition is currently LIVE! Submissions are in progress. Official rankings and leaderboard will appear after results are published."
-                      : adminPulseStatus === "paused"
-                      ? "Pulse competition is currently paused. Submissions on hold."
-                      : adminPulseStatus === "ended"
-                      ? "The competition has concluded. Final results and leaderboard will be published by the admin shortly."
-                      : "Pulse competition is scheduled. Official leaderboard will appear once results are published."}
+            <div className="space-y-6">
+              {/* Leaderboard loading */}
+              {loadingLeaderboard && (
+                <div className="flex items-center justify-center gap-3 py-8 text-slate-400 text-sm">
+                  <Clock className="w-5 h-5 animate-spin text-blue-400" />
+                  Loading live leaderboard…
+                </div>
+              )}
+
+              {/* No entries yet */}
+              {!loadingLeaderboard && filteredLeaderboard.length === 0 && (
+                <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+                  <div className="text-4xl">🏆</div>
+                  <h3 className="text-base font-bold text-white">No Submissions Recorded</h3>
+                  <p className="text-xs text-slate-400">
+                    Official rankings will compute and appear dynamically as verified pulse submissions are recorded.
                   </p>
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-amber-300">
-                    <Clock className="w-3.5 h-3.5" />
-                    Awaiting admin result publication
+                </div>
+              )}
+
+              {/* Top 5 Leaderboard header & Real-time Indicator */}
+              {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
+                <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>Top 5 Public Leaderboard &bull; Realtime updates</span>
+                  </div>
+                  <span className="text-[10px] text-amber-400 font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                    Showing Top 5 Ranked Students
+                  </span>
+                </div>
+              )}
+
+              {/* Top 3 Podium Cards */}
+              {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                  {filteredLeaderboard.slice(0, 3).map((student, idx) => {
+                    const medalColors = [
+                      "from-amber-500/20 via-yellow-500/10 to-transparent border-amber-500/40 text-amber-300",
+                      "from-slate-400/20 via-slate-400/10 to-transparent border-slate-400/40 text-slate-200",
+                      "from-amber-700/20 via-amber-700/10 to-transparent border-amber-700/40 text-amber-500",
+                    ];
+                    return (
+                      <div
+                        key={student.participant_id}
+                        className={`p-5 rounded-2xl border bg-gradient-to-b ${medalColors[idx]} relative overflow-hidden backdrop-blur-md ${
+                          student.is_current_user ? "ring-2 ring-blue-500/60 ring-offset-1 ring-offset-slate-950" : ""
+                        }`}
+                      >
+                        {student.is_current_user && (
+                          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-blue-500/30 border border-blue-500/50 text-blue-300 text-[9px] font-bold uppercase tracking-wider">You</div>
+                        )}
+                        <div className="flex items-start justify-between">
+                          <div className="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 flex items-center justify-center font-mono font-black text-base">
+                            #{idx + 1}
+                          </div>
+                          <span className="text-[11px] font-mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                            {(student.score ?? 0).toLocaleString()} PTS
+                          </span>
+                        </div>
+
+                        <div className="mt-4 space-y-1">
+                          <h4 className="text-base font-bold text-white truncate">{student.display_name}</h4>
+                          <p className="text-xs text-slate-300 truncate">{student.institution}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-center text-xs">
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-mono">Accuracy</div>
+                            <div className="font-bold text-emerald-400 mt-0.5">{student.accuracy}%</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-mono">Time</div>
+                            <div className="font-bold text-blue-300 mt-0.5">{formatTimeTaken(student.time_taken_seconds ?? 0)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Requirement 1: Top 5 Public Standings Table */}
+              {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
+                <div className="space-y-2">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-xl">
+                    <div className="p-3.5 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <Crown className="w-4 h-4 text-amber-400" />
+                        <span className="font-mono font-bold text-white uppercase tracking-wider text-[11px]">
+                          TOP 5 OFFICIAL PUBLIC STANDINGS
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Showing Top 5 Only &bull; Ranks Below #5 Hidden
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
+                          <tr>
+                            <th className="py-3 px-4">Rank</th>
+                            <th className="py-3 px-4">Participant</th>
+                            <th className="py-3 px-4">Medical College</th>
+                            <th className="py-3 px-4 text-center">Accuracy</th>
+                            <th className="py-3 px-4 text-center">Time Taken</th>
+                            <th className="py-3 px-4 text-right">Score</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60 font-sans">
+                          {filteredLeaderboard.slice(0, 5).map((student) => (
+                            <tr
+                              key={student.participant_id}
+                              className={`transition-colors ${
+                                student.is_current_user
+                                  ? "bg-blue-500/10 border-l-2 border-blue-500 hover:bg-blue-500/15"
+                                  : "hover:bg-slate-800/40"
+                              }`}
+                            >
+                              <td className="py-3 px-4 font-mono font-bold text-slate-300">
+                                <span className={`inline-block w-6 text-center ${
+                                  student.rank === 1
+                                    ? "text-amber-400 font-black"
+                                    : student.rank === 2
+                                    ? "text-slate-300 font-black"
+                                    : student.rank === 3
+                                    ? "text-amber-600 font-black"
+                                    : "text-slate-400"
+                                }`}>
+                                  #{student.rank}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="font-semibold text-white">{student.display_name}</div>
+                                  {student.is_current_user && (
+                                    <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-blue-300 text-[9px] font-bold">YOU</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-500 sm:hidden">{student.institution}</div>
+                              </td>
+                              <td className="py-3 px-4 text-slate-300">{student.institution ?? "—"}</td>
+                              <td className="py-3 px-4 text-center font-mono text-emerald-400 font-semibold">{student.accuracy}%</td>
+                              <td className="py-3 px-4 text-center font-mono text-blue-300 font-semibold">{formatTimeTaken(student.time_taken_seconds ?? 0)}</td>
+                              <td className="py-3 px-4 text-right font-mono font-bold text-white">{(student.score ?? 0).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="text-center py-1">
+                    <span className="text-[11px] font-mono text-slate-500">
+                      🔒 Under Championship Privacy Rules, only the Top 5 ranked students are displayed publicly. All ranks below #5 remain private.
+                    </span>
                   </div>
                 </div>
-              ) : (
-                <>
-                  {/* Leaderboard loading */}
-                  {loadingLeaderboard && (
-                    <div className="flex items-center justify-center gap-3 py-8 text-slate-400 text-sm">
-                      <Clock className="w-5 h-5 animate-spin text-blue-400" />
-                      Loading live leaderboard…
-                    </div>
-                  )}
+              )}
 
-                  {/* No entries yet */}
-                  {!loadingLeaderboard && filteredLeaderboard.length === 0 && (
-                    <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-                      <div className="text-4xl">🏆</div>
-                      <h3 className="text-base font-bold text-white">No Submissions Recorded</h3>
-                      <p className="text-xs text-slate-400">No attempts were recorded during this pulse session.</p>
-                    </div>
-                  )}
-
-                  {/* Real-time Leaderboard indicator */}
-                  {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                      Live leaderboard — updates automatically
-                    </div>
-                  )}
-
-                  {/* Top 3 Podium Cards */}
-                  {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                      {filteredLeaderboard.slice(0, 3).map((student, idx) => {
-                        const medalColors = [
-                          "from-amber-500/20 via-yellow-500/10 to-transparent border-amber-500/40 text-amber-300",
-                          "from-slate-400/20 via-slate-400/10 to-transparent border-slate-400/40 text-slate-200",
-                          "from-amber-700/20 via-amber-700/10 to-transparent border-amber-700/40 text-amber-500",
-                        ];
-                        return (
-                          <div
-                            key={student.participant_id}
-                            className={`p-5 rounded-2xl border bg-gradient-to-b ${medalColors[idx]} relative overflow-hidden backdrop-blur-md ${
-                              student.is_current_user ? "ring-2 ring-blue-500/60 ring-offset-1 ring-offset-slate-950" : ""
-                            }`}
-                          >
-                            {student.is_current_user && (
-                              <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-blue-500/30 border border-blue-500/50 text-blue-300 text-[9px] font-bold uppercase tracking-wider">You</div>
-                            )}
-                            <div className="flex items-start justify-between">
-                              <div className="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 flex items-center justify-center font-mono font-black text-base">
-                                #{idx + 1}
-                              </div>
-                              <span className="text-[11px] font-mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                                {(student.score ?? 0).toLocaleString()} PTS
-                              </span>
-                            </div>
-
-                            <div className="mt-4 space-y-1">
-                              <h4 className="text-base font-bold text-white truncate">{student.display_name}</h4>
-                              <p className="text-xs text-slate-300 truncate">{student.institution}</p>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-center text-xs">
-                              <div>
-                                <div className="text-[10px] text-slate-400 font-mono">Accuracy</div>
-                                <div className="font-bold text-emerald-400 mt-0.5">{student.accuracy}%</div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-slate-400 font-mono">Time</div>
-                                <div className="font-bold text-blue-300 mt-0.5">{formatTimeTaken(student.time_taken_seconds ?? 0)}</div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Full Standings Table */}
-                  {!loadingLeaderboard && filteredLeaderboard.length > 0 && (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-xl">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
-                            <tr>
-                              <th className="py-3 px-4">Rank</th>
-                              <th className="py-3 px-4">Participant</th>
-                              <th className="py-3 px-4">Medical College</th>
-                              <th className="py-3 px-4 text-center">Accuracy</th>
-                              <th className="py-3 px-4 text-center">Time Taken</th>
-                              <th className="py-3 px-4 text-right">Score</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800/60 font-sans">
-                            {filteredLeaderboard.map((student) => (
-                              <tr
-                                key={student.participant_id}
-                                className={`transition-colors ${
-                                  student.is_current_user
-                                    ? "bg-blue-500/10 border-l-2 border-blue-500 hover:bg-blue-500/15"
-                                    : "hover:bg-slate-800/40"
-                                }`}
-                              >
-                                <td className="py-3 px-4 font-mono font-bold text-slate-300">
-                                  <span className={`inline-block w-6 text-center ${
-                                    student.rank === 1
-                                      ? "text-amber-400 font-black"
-                                      : student.rank === 2
-                                      ? "text-slate-300 font-black"
-                                      : student.rank === 3
-                                      ? "text-amber-600 font-black"
-                                      : "text-slate-500"
-                                  }`}>
-                                    #{student.rank}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-2">
-                                    <div className="font-semibold text-white">{student.display_name}</div>
-                                    {student.is_current_user && (
-                                      <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-blue-300 text-[9px] font-bold">YOU</span>
-                                    )}
-                                  </div>
-                                  <div className="text-[10px] text-slate-500 sm:hidden">{student.institution}</div>
-                                </td>
-                                <td className="py-3 px-4 text-slate-300">{student.institution ?? "—"}</td>
-                                <td className="py-3 px-4 text-center font-mono text-emerald-400 font-semibold">{student.accuracy}%</td>
-                                <td className="py-3 px-4 text-center font-mono text-blue-300 font-semibold">{formatTimeTaken(student.time_taken_seconds ?? 0)}</td>
-                                <td className="py-3 px-4 text-right font-mono font-bold text-white">{(student.score ?? 0).toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+              {/* ── REQUIREMENT 2: PERSONAL RANK CARD (PRIVATE) ── */}
+              {(user || regEmail || hasAttemptedToday) && (
+                <div className="mt-6 p-6 rounded-2xl bg-gradient-to-r from-blue-950/60 via-slate-900/90 to-indigo-950/60 border border-blue-500/40 shadow-xl backdrop-blur-md relative overflow-hidden">
+                  <div className="absolute top-0 right-0 -mr-10 -mt-10 w-36 h-36 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
+                  
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-500/20 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold shrink-0">
+                        <User className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-base font-black text-white">Your Performance</h4>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 border border-blue-500/40 text-blue-300">
+                            PRIVATE
+                          </span>
+                          {myPerformance && myPerformance.rank <= 5 && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                              ⭐ TOP 5 QUALIFIER
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {myPerformance?.display_name || regName || user?.user_metadata?.full_name || "Doctor"} &bull; Verified Championship Participant
+                        </p>
                       </div>
                     </div>
+
+                    {(myPerformance || hasAttemptedToday) && (
+                      <div className="flex items-center gap-2 self-start sm:self-center">
+                        <span className="text-xs text-slate-400 font-mono">Your Rank:</span>
+                        <span className="text-xl sm:text-2xl font-black font-mono text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/30">
+                          {myPerformance ? `#${myPerformance.rank}` : "Recorded"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {myPerformance ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4 pt-1 font-mono text-center">
+                      {/* 1. Your Rank */}
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Your Rank</div>
+                        <div className="text-lg font-black text-amber-400 mt-1">
+                          #{myPerformance.rank}
+                        </div>
+                      </div>
+
+                      {/* 2. Your Score */}
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Your Score</div>
+                        <div className="text-lg font-black text-white mt-1">
+                          {(myPerformance.score ?? 0).toLocaleString()} <span className="text-xs text-amber-300 font-normal">PTS</span>
+                        </div>
+                      </div>
+
+                      {/* 3. Accuracy */}
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Accuracy</div>
+                        <div className="text-lg font-black text-emerald-400 mt-1">
+                          {myPerformance.accuracy}%
+                        </div>
+                      </div>
+
+                      {/* 4. Completion Time */}
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Completion Time</div>
+                        <div className="text-lg font-black text-blue-300 mt-1">
+                          {formatTimeTaken(myPerformance.time_taken_seconds ?? 0)}
+                        </div>
+                      </div>
+
+                      {/* 5. College */}
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-2 lg:col-span-1 text-left sm:text-center">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">College</div>
+                        <div className="text-xs font-bold text-slate-200 mt-1 truncate" title={myPerformance.institution}>
+                          {myPerformance.institution || "Medical College"}
+                        </div>
+                      </div>
+
+                      {/* 6. Batch */}
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-1 text-left sm:text-center">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Batch</div>
+                        <div className="text-xs font-bold text-blue-300 mt-1 truncate" title={myPerformance.batch}>
+                          {myPerformance.batch || "MBBS Batch"}
+                        </div>
+                      </div>
+                    </div>
+                  ) : hasAttemptedToday && todayAttempt ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4 pt-1 font-mono text-center">
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Your Rank</div>
+                        <div className="text-lg font-black text-amber-400 mt-1">
+                          Recorded
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Your Score</div>
+                        <div className="text-lg font-black text-white mt-1">
+                          {todayAttempt.score} <span className="text-xs text-amber-300 font-normal">PTS</span>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Accuracy</div>
+                        <div className="text-lg font-black text-emerald-400 mt-1">
+                          {todayAttempt.accuracy}%
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Completion Time</div>
+                        <div className="text-lg font-black text-blue-300 mt-1">
+                          {formatTimeTaken(todayAttempt.time_taken_seconds ?? 0)}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-2 lg:col-span-1 text-left sm:text-center">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">College</div>
+                        <div className="text-xs font-bold text-slate-200 mt-1 truncate">
+                          {regCollege || "Medical College"}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-1 text-left sm:text-center">
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Batch</div>
+                        <div className="text-xs font-bold text-blue-300 mt-1 truncate">
+                          {regBatch || "2026 Batch → Freshers"}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                      <span className="text-slate-400 text-center sm:text-left">
+                        You haven't submitted today's Pulse yet. Complete today's pulse to receive your rank, official score, accuracy, and completion metrics.
+                      </span>
+                      <button
+                        onClick={startPulseQuiz}
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shrink-0 cursor-pointer"
+                      >
+                        Take Today's Pulse
+                      </button>
+                    </div>
                   )}
-                </>
+                </div>
               )}
             </div>
           )}
 
-          {/* TAB 2: COLLEGE RANKINGS */}
+          {/* TAB 2: COLLEGE RANKINGS (FULLY VISIBLE) */}
           {activeTab === "college" && (
             <div className="space-y-4">
-              {!resultsPublished ? (
-                <div className="p-8 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-700/60 text-center space-y-3">
-                  <div className="w-14 h-14 rounded-2xl bg-slate-800/60 border border-slate-700 flex items-center justify-center mx-auto">
-                    <GraduationCap className="w-7 h-7 text-amber-400" />
-                  </div>
-                  <h3 className="text-xl font-black text-white">College Standings</h3>
-                  <p className="text-sm text-slate-400 max-w-md mx-auto">
-                    Institutional rankings are computed from verified student scores and will be released when official results are published by the admin.
-                  </p>
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-amber-300">
-                    <Clock className="w-3.5 h-3.5" />
-                    Awaiting admin result publication
-                  </div>
-                </div>
-              ) : collegeRankings.length === 0 ? (
+              {collegeRankings.length === 0 ? (
                 <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
                   <div className="text-4xl">🏛️</div>
                   <h3 className="text-base font-bold text-white">No College Submissions Recorded</h3>
@@ -2033,12 +2294,12 @@ function RouteComponent() {
                           <div className="font-mono text-xs font-bold text-white mt-0.5">{c.activeStudents || c.participantsCount || 0}</div>
                         </div>
                         <div className="p-2 rounded-xl bg-slate-950/60">
-                          <div className="text-[10px] text-slate-400">Accuracy</div>
-                          <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{c.avgAccuracy}</div>
+                          <div className="text-[10px] text-slate-400">Avg Score</div>
+                          <div className="font-mono text-xs font-bold text-amber-400 mt-0.5">{c.avgScore || 0}</div>
                         </div>
                         <div className="p-2 rounded-xl bg-slate-950/60">
-                          <div className="text-[10px] text-slate-400">Total Score</div>
-                          <div className="font-mono text-xs font-bold text-amber-400 mt-0.5">{(c.avgScore ?? 0).toLocaleString()}</div>
+                          <div className="text-[10px] text-slate-400">Accuracy</div>
+                          <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{c.avgAccuracy || "0%"}</div>
                         </div>
                       </div>
                     </div>
@@ -2478,6 +2739,13 @@ function RouteComponent() {
                   </h3>
                 </div>
 
+                {hasAttemptedToday && (
+                  <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center gap-2.5 text-amber-300 text-xs font-medium">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                    <span>You have already submitted this Pulse.</span>
+                  </div>
+                )}
+
                 <div className="space-y-2.5">
                   {(todayQuestions[currentQIndex]?.options || []).map((opt, optIdx) => {
                     const isSelected = selectedOption === optIdx;
@@ -2497,8 +2765,11 @@ function RouteComponent() {
                     return (
                       <button
                         key={optIdx}
+                        disabled={hasAttemptedToday || hasSubmittedAnswer}
                         onClick={() => handleSelectOption(optIdx)}
-                        className={`w-full p-4 rounded-xl border text-left text-xs sm:text-sm font-medium transition cursor-pointer flex items-center justify-between ${btnClass}`}
+                        className={`w-full p-4 rounded-xl border text-left text-xs sm:text-sm font-medium transition flex items-center justify-between ${
+                          hasAttemptedToday ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                        } ${btnClass}`}
                       >
                         <span>{opt}</span>
                         {hasSubmittedAnswer && isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
@@ -2509,11 +2780,15 @@ function RouteComponent() {
 
                 <div className="pt-2">
                   <button
-                    disabled={selectedOption === null || hasSubmittedAnswer}
+                    disabled={hasAttemptedToday || selectedOption === null || hasSubmittedAnswer}
                     onClick={handleSubmitQuestion}
-                    className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+                    className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider transition"
                   >
-                    {currentQIndex === todayQuestions.length - 1 ? "Submit Final Pulse" : "Confirm Answer &rarr;"}
+                    {hasAttemptedToday
+                      ? "You have already submitted this Pulse"
+                      : currentQIndex === todayQuestions.length - 1
+                      ? "Submit Final Pulse"
+                      : "Confirm Answer &rarr;"}
                   </button>
                 </div>
               </div>

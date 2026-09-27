@@ -21,6 +21,7 @@ import {
   Building,
   GraduationCap,
   Layers,
+  Download,
 } from "lucide-react";
 import {
   fetchResultControlSummary,
@@ -75,7 +76,7 @@ export function ResultControl() {
   useEffect(() => {
     loadData();
 
-    // Subscribe to pulse_settings and live_ops for instant sync
+    // Subscribe to pulse_settings, live_ops, attempts, and standings for instant sync
     const channel = supabase
       .channel("result_control_realtime_sync")
       .on(
@@ -86,6 +87,21 @@ export function ResultControl() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "championship_pulse_attempts" },
+        () => loadData()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_leaderboard" },
+        () => loadData()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_college_standings" },
+        () => loadData()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_batch_standings" },
         () => loadData()
       )
       .on(
@@ -173,6 +189,46 @@ export function ResultControl() {
       toast.error(err?.message || "Declaration failed.");
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (activePreviewTab === "attempts") {
+      if (attempts.length === 0) {
+        toast.info("No attempts recorded to export.");
+        return;
+      }
+      const headers = ["Rank,Student Name,Email,College,Batch,Score,Accuracy,Submitted At"];
+      const rows = attempts.map((a, idx) =>
+        `"${idx + 1}","${a.student_name.replace(/"/g, '""')}","${(a.user_email || "").replace(/"/g, '""')}","${a.college.replace(/"/g, '""')}","${a.batch.replace(/"/g, '""')}","${a.score}","${a.accuracy}%","${a.completed_at}"`
+      );
+      const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `medtrail_pulse_attempts_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success(`Exported all ${attempts.length} attempts for prize distribution!`);
+    } else {
+      if (rankingsData.individuals.length === 0) {
+        toast.info("No rankings data available to export.");
+        return;
+      }
+      const headers = ["Rank,Doctor Name,Medical College,Batch,Score,Accuracy,Correct Answers,Wrong Answers,Time Taken (s)"];
+      const rows = rankingsData.individuals.map((ind) =>
+        `"${ind.rank}","${ind.name.replace(/"/g, '""')}","${ind.college.replace(/"/g, '""')}","${ind.batch.replace(/"/g, '""')}","${ind.totalScore}","${ind.accuracy}%","${ind.correctAnswers}","${ind.wrongAnswers}","${ind.timeTakenSeconds}"`
+      );
+      const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `medtrail_full_leaderboard_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success(`Exported complete leaderboard with ${rankingsData.individuals.length} participants!`);
     }
   };
 
@@ -481,18 +537,29 @@ export function ResultControl() {
             })}
           </div>
 
-          {activePreviewTab === "attempts" && (
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search student or college..."
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExportCSV}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 hover:border-slate-600 transition cursor-pointer shrink-0"
+              title="Export complete participant data for Season 1 Prize Distribution"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-400" />
+              <span>Export CSV</span>
+            </button>
+
+            {activePreviewTab === "attempts" && (
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search student or college..."
+                  className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* TAB A: ATTEMPTS AUDIT LIST */}
