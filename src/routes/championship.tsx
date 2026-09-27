@@ -50,7 +50,6 @@ import {
   EVENT_TZ_OFFSET,
   HALL_OF_FAME_RECORDS,
   SEASON_ID,
-  SEED_LEADERBOARD,
   formatIST,
   getDailyPulseTimeState,
   getISTDateString,
@@ -73,6 +72,8 @@ import {
   DEFAULT_HALL_OF_FAME,
   type HallOfFameData,
 } from "@/lib/super-admin-service";
+import { fetchLeaderboardForCurrentPulse } from "@/lib/leaderboard-engine";
+import { subscribeToPulseLeaderboard } from "@/lib/pulse-service";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import trophyImg from "@/assets/championship-trophy.jpg";
@@ -82,29 +83,6 @@ export const Route = createFileRoute("/championship")({
   component: RouteComponent,
 });
 
-// College rankings derived from aggregate data
-const COLLEGE_RANKINGS = [
-  { rank: 1, name: "MIMER Medical College", city: "Talegaon Dabhade, Pune", activeStudents: 312, totalPulses: 2840, avgScore: 8940, avgAccuracy: "96.4%", movement: "▲ +1" },
-  { rank: 2, name: "BJ Government Medical College (BJGMC)", city: "Pune", activeStudents: 285, totalPulses: 2610, avgScore: 8890, avgAccuracy: "95.8%", movement: "▼ -1" },
-  { rank: 3, name: "Seth GS Medical College & KEM Hospital", city: "Mumbai", activeStudents: 264, totalPulses: 2450, avgScore: 8810, avgAccuracy: "95.2%", movement: "• 0" },
-  { rank: 4, name: "Armed Forces Medical College (AFMC)", city: "Pune", activeStudents: 198, totalPulses: 2190, avgScore: 8760, avgAccuracy: "94.9%", movement: "▲ +2" },
-  { rank: 5, name: "Grant Government Medical College (JJ Hospital)", city: "Mumbai", activeStudents: 182, totalPulses: 1980, avgScore: 8640, avgAccuracy: "94.1%", movement: "▼ -1" },
-  { rank: 6, name: "Government Medical College (GMC)", city: "Nagpur", activeStudents: 146, totalPulses: 1620, avgScore: 8490, avgAccuracy: "93.5%", movement: "• 0" },
-  { rank: 7, name: "Dr. DY Patil Medical College", city: "Pimpri, Pune", activeStudents: 134, totalPulses: 1470, avgScore: 8380, avgAccuracy: "92.8%", movement: "▲ +1" },
-  { rank: 8, name: "Government Medical College", city: "Miraj", activeStudents: 110, totalPulses: 1250, avgScore: 8210, avgAccuracy: "91.9%", movement: "▼ -1" },
-];
-
-// Requirement 2: Batch Mapping consistently across website:
-// 2026 Batch → Freshers
-// 2025 Batch → 1st Year MBBS
-// 2024 Batch → 2nd Year MBBS
-// 2023 Batch → 3rd Year MBBS
-const BATCH_RANKINGS = [
-  { rank: 1, batch: "2024 Batch → 2nd Year MBBS", enrolled: 486, pulseCompletionRate: "88.4%", avgStreak: 8.4, totalScore: 382400, topSubject: "Pathology" },
-  { rank: 2, batch: "2023 Batch → 3rd Year MBBS", enrolled: 420, pulseCompletionRate: "84.1%", avgStreak: 7.9, totalScore: 324100, topSubject: "Pharmacology" },
-  { rank: 3, batch: "2025 Batch → 1st Year MBBS", enrolled: 394, pulseCompletionRate: "79.8%", avgStreak: 6.8, totalScore: 298500, topSubject: "Physiology" },
-  { rank: 4, batch: "2026 Batch → Freshers", enrolled: 268, pulseCompletionRate: "71.2%", avgStreak: 5.2, totalScore: 184300, topSubject: "Anatomy" },
-];
 
 const RULES = [
   {
@@ -257,9 +235,11 @@ function RouteComponent() {
     checkServerRegistration();
   }, [user?.email, regEmail]);
 
-  // Live Leaderboard Data
+  // Live Leaderboard Data strictly from championship_pulse_attempts
   const [leaderboard, setLeaderboard] = useState<LiveLeaderboardEntry[]>([]);
-  const [loadingLeaderboard] = useState(false);
+  const [collegeRankings, setCollegeRankings] = useState<any[]>([]);
+  const [batchRankings, setBatchRankings] = useState<any[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   // Admin-managed Daily Pulse State
   const [liveOps] = useState<LiveOpsState | null>(null);
@@ -594,88 +574,39 @@ function RouteComponent() {
     };
   }, []);
 
-  // Leaderboard data loaded from championship_registrations and student attempt
-  useEffect(() => {
-    let isMounted = true;
-    async function loadRegistrations() {
-      try {
-        const { data, error } = await supabase
-          .from("championship_registrations")
-          .select("id, full_name, email, medical_college, batch, created_at")
-          .order("created_at", { ascending: false })
-          .limit(50);
+  // Synchronized dynamic leaderboard loaded strictly from championship_pulse_attempts
+  const loadLeaderboard = useCallback(async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const res = await fetchLeaderboardForCurrentPulse({
+        pulseSetId: publishedPulseSet?.id,
+        pulseDate: pulseSettings.competition_date,
+        currentUserEmail: user?.email || regEmail,
+        currentUserId: user?.id,
+      });
 
-        if (!error && data && data.length > 0 && isMounted) {
-          const mapped: LiveLeaderboardEntry[] = data.map((r: any, idx: number) => ({
-            rank: idx + 1,
-            participant_id: r.id,
-            display_name: r.full_name || "Doctor",
-            institution: r.medical_college || "Medical College",
-            score: 0,
-            time_taken_seconds: 0,
-            submitted_at: r.created_at ?? null,
-            accuracy: 100,
-            is_current_user: Boolean(
-              user?.email && r.email && r.email.toLowerCase() === user.email.toLowerCase()
-            ),
-          }));
-
-          if (todayAttempt && resultsPublished) {
-            const studentEntry: LiveLeaderboardEntry = {
-              rank: 1,
-              participant_id: todayAttempt.user_id,
-              display_name: regName || user?.user_metadata?.full_name || "You",
-              institution: regCollege || "Medical College",
-              score: todayAttempt.score,
-              time_taken_seconds: todayAttempt.time_taken_seconds,
-              submitted_at: todayAttempt.completed_at || new Date().toISOString(),
-              accuracy: todayAttempt.accuracy,
-              is_current_user: true,
-            };
-            setLeaderboard([studentEntry, ...mapped.map((m) => ({ ...m, rank: m.rank + 1 }))]);
-          } else {
-            setLeaderboard(mapped);
-          }
-          return;
-        }
-      } catch (err) {
-        console.warn("[Student Registrations] load warning:", err);
-      }
-
-      if (isMounted) {
-        const mapped: LiveLeaderboardEntry[] = SEED_LEADERBOARD.map((d) => ({
-          rank: d.rank,
-          participant_id: d.participant_id,
-          display_name: d.display_name,
-          institution: d.institution || "Medical College",
-          score: d.total_score,
-          time_taken_seconds: 45,
-          submitted_at: d.last_active_at,
-          accuracy: d.total_accuracy_pct,
-          is_current_user: false,
-        }));
-
-        if (todayAttempt && resultsPublished) {
-          const studentEntry: LiveLeaderboardEntry = {
-            rank: 1,
-            participant_id: todayAttempt.user_id,
-            display_name: regName || user?.user_metadata?.full_name || "You",
-            institution: regCollege || "Medical College",
-            score: todayAttempt.score,
-            time_taken_seconds: todayAttempt.time_taken_seconds,
-            submitted_at: todayAttempt.completed_at || new Date().toISOString(),
-            accuracy: todayAttempt.accuracy,
-            is_current_user: true,
-          };
-          setLeaderboard([studentEntry, ...mapped.map((m) => ({ ...m, rank: m.rank + 1 }))]);
-        } else {
-          setLeaderboard(mapped);
-        }
-      }
+      setLeaderboard(res.entries);
+      setCollegeRankings(res.collegeRankings);
+      setBatchRankings(res.batchRankings);
+    } catch (err) {
+      console.warn("[Student Leaderboard] load warning:", err);
+    } finally {
+      setLoadingLeaderboard(false);
     }
+  }, [publishedPulseSet?.id, pulseSettings.competition_date, user?.email, user?.id, regEmail]);
 
-    loadRegistrations();
-  }, [todayAttempt, regName, regCollege, user?.email, resultsPublished]);
+  useEffect(() => {
+    loadLeaderboard();
+
+    // Real-time subscription to championship_pulse_attempts updates
+    const unsubscribe = subscribeToPulseLeaderboard(() => {
+      loadLeaderboard();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [loadLeaderboard]);
 
   // Watch synchronized countdown without status polling
   useEffect(() => {
@@ -1016,6 +947,25 @@ function RouteComponent() {
           console.error("Failed to record student pulse attempt:", e);
         }
 
+        // Save attempt directly into championship_pulse_attempts
+        try {
+          await (supabase as any).from("championship_pulse_attempts").insert({
+            pulse_date: publishedPulseSet?.pulse_date || todayStr,
+            user_id: user?.id || studentId,
+            user_email: user?.email || regEmail || null,
+            student_name: regName || user?.user_metadata?.full_name || "Doctor",
+            college: regCollege || "Medical College",
+            score: earnedScore,
+            accuracy,
+            xp: earnedXP,
+            answers: newAnswers,
+            time_taken_seconds: timeTaken,
+            completed_at: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.warn("Supabase pulse attempt save note:", e);
+        }
+
         await submitPulseAttempt({
           slot: 1,
           answers: newAnswers,
@@ -1023,23 +973,7 @@ function RouteComponent() {
           timeTakenSeconds: timeTaken,
         });
 
-        if (resultsPublished) {
-          const studentEntry: LiveLeaderboardEntry = {
-            rank: 1,
-            participant_id: studentId,
-            display_name: regName || user?.user_metadata?.full_name || "You",
-            institution: regCollege || "Medical College",
-            score: earnedScore,
-            time_taken_seconds: timeTaken,
-            submitted_at: new Date().toISOString(),
-            accuracy,
-            is_current_user: true,
-          };
-          setLeaderboard((prev) => [
-            studentEntry,
-            ...prev.filter((p) => !p.is_current_user).map((m, idx) => ({ ...m, rank: idx + 2 })),
-          ]);
-        }
+        await loadLeaderboard();
       } else {
         setCurrentQIndex((prev) => prev + 1);
         setSelectedOption(null);
@@ -2065,11 +1999,17 @@ function RouteComponent() {
                     Awaiting admin result publication
                   </div>
                 </div>
+              ) : collegeRankings.length === 0 ? (
+                <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+                  <div className="text-4xl">🏛️</div>
+                  <h3 className="text-base font-bold text-white">No College Submissions Recorded</h3>
+                  <p className="text-xs text-slate-400">Institutional standings will calculate dynamically once verified pulse attempts are recorded.</p>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {COLLEGE_RANKINGS.map((c) => (
+                  {collegeRankings.map((c) => (
                     <div
-                      key={c.name}
+                      key={c.name || c.college}
                       className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
                     >
                       <div className="flex items-start justify-between">
@@ -2080,17 +2020,17 @@ function RouteComponent() {
                             #{c.rank}
                           </span>
                           <div>
-                            <h4 className="text-base font-bold text-white">{c.name}</h4>
-                            <span className="text-xs text-slate-400">{c.city}</span>
+                            <h4 className="text-base font-bold text-white">{c.name || c.college}</h4>
+                            <span className="text-xs text-slate-400">{c.city || "Medical Institution"}</span>
                           </div>
                         </div>
-                        <span className="font-mono text-xs font-bold text-emerald-400">{c.movement}</span>
+                        <span className="font-mono text-xs font-bold text-emerald-400">{c.movement || "• 0"}</span>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
                         <div className="p-2 rounded-xl bg-slate-950/60">
                           <div className="text-[10px] text-slate-400">Enrolled</div>
-                          <div className="font-mono text-xs font-bold text-white mt-0.5">{c.activeStudents}</div>
+                          <div className="font-mono text-xs font-bold text-white mt-0.5">{c.activeStudents || c.participantsCount || 0}</div>
                         </div>
                         <div className="p-2 rounded-xl bg-slate-950/60">
                           <div className="text-[10px] text-slate-400">Accuracy</div>
@@ -2098,7 +2038,7 @@ function RouteComponent() {
                         </div>
                         <div className="p-2 rounded-xl bg-slate-950/60">
                           <div className="text-[10px] text-slate-400">Total Score</div>
-                          <div className="font-mono text-xs font-bold text-amber-400 mt-0.5">{c.avgScore}</div>
+                          <div className="font-mono text-xs font-bold text-amber-400 mt-0.5">{(c.avgScore ?? 0).toLocaleString()}</div>
                         </div>
                       </div>
                     </div>
@@ -2134,46 +2074,54 @@ function RouteComponent() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {BATCH_RANKINGS.map((b) => (
-                      <div
-                        key={b.batch}
-                        className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <span className={`w-8 h-8 rounded-xl font-mono text-sm font-black flex items-center justify-center ${
-                              b.rank === 1 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
-                            }`}>
-                              #{b.rank}
+                  {batchRankings.length === 0 ? (
+                    <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+                      <div className="text-4xl">📚</div>
+                      <h3 className="text-base font-bold text-white">No Batch Submissions Recorded</h3>
+                      <p className="text-xs text-slate-400">MBBS cohort standings will calculate dynamically once verified pulse attempts are recorded.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {batchRankings.map((b) => (
+                        <div
+                          key={b.batch || b.batchName}
+                          className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className={`w-8 h-8 rounded-xl font-mono text-sm font-black flex items-center justify-center ${
+                                b.rank === 1 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
+                              }`}>
+                                #{b.rank}
+                              </span>
+                              <div>
+                                <h4 className="text-base font-bold text-white">{b.batch || b.batchName}</h4>
+                                <span className="text-xs text-blue-400 font-medium">{(b.enrolled || b.participantsCount || 0)} Doctors Enrolled</span>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-mono font-bold">
+                              {b.pulseCompletionRate || "100%"}
                             </span>
-                            <div>
-                              <h4 className="text-base font-bold text-white">{b.batch}</h4>
-                              <span className="text-xs text-blue-400 font-medium">{b.enrolled} Doctors Enrolled</span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
+                            <div className="p-2 rounded-xl bg-slate-950/60">
+                              <div className="text-[10px] text-slate-400">Total Score</div>
+                              <div className="font-mono text-xs font-bold text-white mt-0.5">{(b.totalScore ?? 0).toLocaleString()}</div>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-950/60">
+                              <div className="text-[10px] text-slate-400">Avg Accuracy</div>
+                              <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{b.avgAccuracy || "—"}</div>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-950/60">
+                              <div className="text-[10px] text-slate-400">Avg Score</div>
+                              <div className="font-mono text-xs font-bold text-amber-400 mt-0.5 truncate">{(b.avgScore ?? 0).toLocaleString()}</div>
                             </div>
                           </div>
-                          <span className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-mono font-bold">
-                            {b.pulseCompletionRate}
-                          </span>
                         </div>
-
-                        <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
-                          <div className="p-2 rounded-xl bg-slate-950/60">
-                            <div className="text-[10px] text-slate-400">Total Score</div>
-                            <div className="font-mono text-xs font-bold text-white mt-0.5">{b.totalScore.toLocaleString()}</div>
-                          </div>
-                          <div className="p-2 rounded-xl bg-slate-950/60">
-                            <div className="text-[10px] text-slate-400">Avg Streak</div>
-                            <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{b.avgStreak} Days</div>
-                          </div>
-                          <div className="p-2 rounded-xl bg-slate-950/60">
-                            <div className="text-[10px] text-slate-400">Top Subject</div>
-                            <div className="font-mono text-xs font-bold text-amber-400 mt-0.5 truncate">{b.topSubject}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>

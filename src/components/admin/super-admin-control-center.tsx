@@ -51,6 +51,7 @@ import {
   deleteRegistrationRecord,
   exportRegistrationsToCSV,
   getLeaderboardRankingsData,
+  fetchLeaderboardRankingsData,
   toggleLeaderboardFreeze,
   declareSuperAdminFinalResults,
   fetchAllNotifications,
@@ -220,10 +221,13 @@ export function SuperAdminControlCenter() {
 
   const loadLeaderboardLiveOps = useCallback(async () => {
     try {
-      const ops = await fetchLiveOpsState();
+      const [ops, rankings] = await Promise.all([
+        fetchLiveOpsState(),
+        fetchLeaderboardRankingsData(),
+      ]);
       setIsLeaderboardFrozen(ops.is_leaderboard_frozen);
       setIsResultsDeclared(ops.results_declared);
-      setRankingsData(getLeaderboardRankingsData());
+      setRankingsData(rankings);
     } catch {
       // ignore
     }
@@ -231,6 +235,19 @@ export function SuperAdminControlCenter() {
 
   useEffect(() => {
     loadLeaderboardLiveOps();
+
+    const channel = supabase
+      .channel("super_admin_leaderboard_sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_pulse_attempts" },
+        () => loadLeaderboardLiveOps()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [loadLeaderboardLiveOps]);
 
   const handleToggleFreeze = async () => {

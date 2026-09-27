@@ -29,6 +29,7 @@ import {
   declareSuperAdminFinalResults,
   fetchPulseAttemptsAudit,
   getLeaderboardRankingsData,
+  fetchLeaderboardRankingsData,
   type PulseAttemptAuditItem,
   type ResultControlSummary,
   type IndividualRankItem,
@@ -40,6 +41,7 @@ import { supabase } from "@/integrations/supabase/client";
 export function ResultControl() {
   const [summary, setSummary] = useState<ResultControlSummary | null>(null);
   const [attempts, setAttempts] = useState<PulseAttemptAuditItem[]>([]);
+  const [rankingsData, setRankingsData] = useState(() => getLeaderboardRankingsData());
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,12 +56,14 @@ export function ResultControl() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [sumData, attData] = await Promise.all([
+      const [sumData, attData, rankData] = await Promise.all([
         fetchResultControlSummary(),
         fetchPulseAttemptsAudit(),
+        fetchLeaderboardRankingsData(),
       ]);
       setSummary(sumData);
       setAttempts(attData);
+      setRankingsData(rankData);
     } catch (err) {
       console.error("[ResultControl] load error:", err);
       toast.error("Failed to load result telemetry.");
@@ -95,9 +99,6 @@ export function ResultControl() {
       supabase.removeChannel(channel);
     };
   }, [loadData]);
-
-  // Rankings preview data
-  const rankingsData = useMemo(() => getLeaderboardRankingsData(), []);
 
   // Filtered attempts
   const filteredAttempts = useMemo(() => {

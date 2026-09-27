@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { fetchLeaderboardForCurrentPulse } from "./leaderboard-engine";
 
 export type PulseStatus = "upcoming" | "live" | "paused" | "ended";
 
@@ -19,6 +20,9 @@ export interface PulseAttemptLeaderboardEntry {
   student_name: string;
   college: string;
   score: number;
+  total_score?: number;
+  correct_answers?: number;
+  wrong_answers?: number;
   accuracy: number;
   time_taken_seconds: number;
   completed_at: string | null;
@@ -222,93 +226,41 @@ export function subscribeToPulseStatus(
 
 /**
  * Fetch dynamic live leaderboard from championship_pulse_attempts
+ * filtered by the current pulse_set_id only.
  * Ranking order:
  * 1) Highest score (score DESC)
- * 2) Lowest completion time (time_taken_seconds ASC)
- * 3) Earliest submission (completed_at ASC)
+ * 2) Highest accuracy (accuracy DESC)
+ * 3) Lowest completion time (time_taken_seconds ASC)
+ * 4) Earliest submission (completed_at ASC)
  */
 export async function fetchPulseLeaderboard(
   currentUserEmail?: string | null,
-  limit = 50
+  limit = 50,
+  pulseSetId?: string | null,
+  pulseDate?: string | null
 ): Promise<PulseAttemptLeaderboardEntry[]> {
   try {
-    const { data: attempts, error } = await (supabase as any)
-      .from("championship_pulse_attempts")
-      .select("*")
-      .order("score", { ascending: false })
-      .order("time_taken_seconds", { ascending: true })
-      .order("completed_at", { ascending: true })
-      .limit(limit);
-
-    if (error || !attempts || attempts.length === 0) {
-      return [];
-    }
-
-    // Enrich with names/colleges from registrations if available
-    const emails = attempts.map((a: any) => a.user_email).filter(Boolean);
-    const regMap = new Map<string, { name: string; college: string }>();
-
-    if (emails.length > 0) {
-      try {
-        const { data: regs } = await (supabase as any)
-          .from("championship_registrations")
-          .select("email, full_name, medical_college")
-          .in("email", emails);
-
-        if (regs) {
-          for (const r of regs) {
-            if (r.email) {
-              regMap.set(r.email.toLowerCase(), {
-                name: r.full_name,
-                college: r.medical_college,
-              });
-            }
-          }
-        }
-      } catch {
-        // ignore registration enrich errors
-      }
-    }
-
-    // Deduplicate by student identity keeping their best sorted attempt
-    const seen = new Set<string>();
-    const uniqueAttempts: any[] = [];
-    for (const a of attempts) {
-      const key = a.user_id || a.user_email || a.id;
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueAttempts.push(a);
-      }
-    }
-
-    return uniqueAttempts.map((row, idx) => {
-      const email = (row.user_email || "").toLowerCase();
-      const regInfo = email ? regMap.get(email) : null;
-      const displayName =
-        row.student_name ||
-        regInfo?.name ||
-        (email ? email.split("@")[0] : `Participant #${idx + 1}`);
-
-      const college = row.college || regInfo?.college || "Medical College";
-
-      const isCurrentUser =
-        currentUserEmail && email
-          ? email === currentUserEmail.toLowerCase()
-          : false;
-
-      return {
-        rank: idx + 1,
-        id: row.id,
-        user_id: row.user_id || row.id,
-        student_name: displayName,
-        college,
-        score: Number(row.score ?? 0),
-        accuracy: Number(row.accuracy ?? 0),
-        time_taken_seconds: Number(row.time_taken_seconds ?? 0),
-        completed_at: row.completed_at || row.created_at || null,
-        is_current_user: isCurrentUser,
-      };
+    const result = await fetchLeaderboardForCurrentPulse({
+      currentUserEmail,
+      pulseSetId,
+      pulseDate,
     });
+
+    return result.entries.slice(0, limit).map((entry) => ({
+      rank: entry.rank,
+      id: entry.participant_id,
+      user_id: entry.participant_id,
+      student_name: entry.display_name,
+      college: entry.institution,
+      score: entry.score,
+      total_score: entry.total_score,
+      correct_answers: entry.correct_answers,
+      wrong_answers: entry.wrong_answers,
+      accuracy: entry.accuracy,
+      time_taken_seconds: entry.time_taken_seconds,
+      completed_at: entry.submitted_at,
+      is_current_user: entry.is_current_user,
+    }));
   } catch (err) {
     console.error("[pulse-service] fetchPulseLeaderboard error:", err);
     return [];

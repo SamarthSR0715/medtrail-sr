@@ -289,222 +289,32 @@ export const BATCH_MAP = [
 ] as const;
 
 // ── Seed Leaderboard Data (Fallback & Baseline) ───────────────────────────────
-export const SEED_LEADERBOARD: LeaderboardEntry[] = [
-  {
-    participant_id: "p-01",
-    display_name: "Dr. Samarth Rautrao",
-    institution: "MIMER Medical College, Pune",
-    country: "India",
-    batch: "2024 Batch (2nd Year MBBS)",
-    total_score: 9850,
-    total_pulses_done: 28,
-    total_accuracy_pct: 98.5,
-    current_streak: 14,
-    xp: 3200,
-    movement: "same",
-    movement_val: 0,
-    last_active_at: new Date().toISOString(),
-    rank: 1,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-02",
-    display_name: "Ananya Deshmukh",
-    institution: "BJ Government Medical College, Pune",
-    country: "India",
-    batch: "2023 Batch (3rd Year MBBS)",
-    total_score: 9620,
-    total_pulses_done: 27,
-    total_accuracy_pct: 97.2,
-    current_streak: 13,
-    xp: 2950,
-    movement: "up",
-    movement_val: 1,
-    last_active_at: new Date().toISOString(),
-    rank: 2,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-03",
-    display_name: "Rohan Varma",
-    institution: "Seth GS Medical College & KEM, Mumbai",
-    country: "India",
-    batch: "2024 Batch (2nd Year MBBS)",
-    total_score: 9490,
-    total_pulses_done: 27,
-    total_accuracy_pct: 96.4,
-    current_streak: 12,
-    xp: 2820,
-    movement: "down",
-    movement_val: 1,
-    last_active_at: new Date().toISOString(),
-    rank: 3,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-04",
-    display_name: "Pooja Kulkarni",
-    institution: "Grant Government Medical College, Mumbai",
-    country: "India",
-    batch: "2025 Batch (1st Year MBBS)",
-    total_score: 9280,
-    total_pulses_done: 26,
-    total_accuracy_pct: 95.8,
-    current_streak: 11,
-    xp: 2650,
-    movement: "up",
-    movement_val: 2,
-    last_active_at: new Date().toISOString(),
-    rank: 4,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-05",
-    display_name: "Aditya Patil",
-    institution: "Armed Forces Medical College (AFMC), Pune",
-    country: "India",
-    batch: "2023 Batch (3rd Year MBBS)",
-    total_score: 9140,
-    total_pulses_done: 25,
-    total_accuracy_pct: 95.1,
-    current_streak: 10,
-    xp: 2500,
-    movement: "down",
-    movement_val: 1,
-    last_active_at: new Date().toISOString(),
-    rank: 5,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-06",
-    display_name: "Tanvi Joshi",
-    institution: "Dr. DY Patil Medical College, Navi Mumbai",
-    country: "India",
-    batch: "2024 Batch (2nd Year MBBS)",
-    total_score: 8960,
-    total_pulses_done: 24,
-    total_accuracy_pct: 94.3,
-    current_streak: 9,
-    xp: 2380,
-    movement: "same",
-    movement_val: 0,
-    last_active_at: new Date().toISOString(),
-    rank: 6,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-07",
-    display_name: "Kunal Shinde",
-    institution: "Government Medical College, Nagpur",
-    country: "India",
-    batch: "2025 Batch (1st Year MBBS)",
-    total_score: 8810,
-    total_pulses_done: 24,
-    total_accuracy_pct: 93.9,
-    current_streak: 8,
-    xp: 2240,
-    movement: "up",
-    movement_val: 1,
-    last_active_at: new Date().toISOString(),
-    rank: 7,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-08",
-    display_name: "Sneha Nair",
-    institution: "MIMER Medical College, Pune",
-    country: "India",
-    batch: "2026 Batch (Freshers)",
-    total_score: 8690,
-    total_pulses_done: 23,
-    total_accuracy_pct: 93.2,
-    current_streak: 8,
-    xp: 2150,
-    movement: "down",
-    movement_val: 1,
-    last_active_at: new Date().toISOString(),
-    rank: 8,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-09",
-    display_name: "Vikram Malhotra",
-    institution: "Government Medical College, Miraj",
-    country: "India",
-    batch: "2024 Batch (2nd Year MBBS)",
-    total_score: 8540,
-    total_pulses_done: 23,
-    total_accuracy_pct: 92.8,
-    current_streak: 7,
-    xp: 2020,
-    movement: "same",
-    movement_val: 0,
-    last_active_at: new Date().toISOString(),
-    rank: 9,
-    season_id: "S1",
-  },
-  {
-    participant_id: "p-10",
-    display_name: "Ishaan Mehta",
-    institution: "Terna Medical College, Navi Mumbai",
-    country: "India",
-    batch: "2026 Batch (Freshers)",
-    total_score: 8410,
-    total_pulses_done: 22,
-    total_accuracy_pct: 92.1,
-    current_streak: 6,
-    xp: 1910,
-    movement: "up",
-    movement_val: 2,
-    last_active_at: new Date().toISOString(),
-    rank: 10,
-    season_id: "S1",
-  },
-];
+export const SEED_LEADERBOARD: LeaderboardEntry[] = [];
 
 // ── Live Supabase Leaderboard Query with Fallback ──────────────────────────────
 export async function getLiveLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
   try {
-    const { data, error } = await (supabase as any)
-      .from("championship_participants")
-      .select(
-        "id, display_name, institution, country, total_score, total_pulses_done, " +
-        "total_accuracy_pct, current_streak, last_active_at, show_institution, " +
-        "show_country, show_score, season_id, registered_at"
-      )
-      .eq("season_id", SEASON_ID)
-      .eq("status", "active")
-      .order("total_score", { ascending: false })
-      .order("total_pulses_done", { ascending: false })
-      .order("total_accuracy_pct", { ascending: false })
-      .order("registered_at", { ascending: true })
-      .limit(limit);
-
-    if (error || !data || data.length === 0) {
-      return SEED_LEADERBOARD;
-    }
-
-    type Row = Database["public"]["Tables"]["championship_participants"]["Row"];
-    const entries: LeaderboardEntry[] = (data as Row[]).map((p, idx) => ({
-      participant_id: p.id,
-      display_name: p.show_score ? p.display_name : "—",
-      institution: p.show_institution ? p.institution : null,
-      country: p.show_country ? p.country : null,
-      total_score: p.total_score ?? 0,
-      total_pulses_done: p.total_pulses_done ?? 0,
-      total_accuracy_pct: Number(p.total_accuracy_pct ?? 0),
-      current_streak: p.current_streak ?? 0,
-      xp: Math.round((p.total_score ?? 0) * 0.35),
-      movement: idx % 3 === 0 ? "up" : idx % 3 === 1 ? "same" : "down",
-      movement_val: idx % 3 === 0 ? 1 : 0,
-      last_active_at: p.last_active_at,
-      rank: idx + 1,
-      season_id: p.season_id,
+    const { fetchLeaderboardForCurrentPulse } = await import("./leaderboard-engine");
+    const result = await fetchLeaderboardForCurrentPulse(limit);
+    return result.entries.map((e) => ({
+      participant_id: e.user_id,
+      display_name: e.student_name,
+      institution: e.college,
+      country: "India",
+      batch: e.batch,
+      total_score: e.total_score,
+      total_pulses_done: 1,
+      total_accuracy_pct: e.accuracy,
+      current_streak: 1,
+      xp: e.xp,
+      movement: "same" as const,
+      movement_val: 0,
+      last_active_at: e.submitted_at || new Date().toISOString(),
+      rank: e.rank,
+      season_id: "S1",
     }));
-
-    return entries;
   } catch {
-    return SEED_LEADERBOARD;
+    return [];
   }
 }
 

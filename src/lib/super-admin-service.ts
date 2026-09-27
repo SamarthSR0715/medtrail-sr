@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { SEED_LEADERBOARD } from "@/lib/championship-service";
+import { fetchLeaderboardForCurrentPulse } from "./leaderboard-engine";
 import { fetchLiveOpsState, updateLiveOpsState } from "@/lib/pulse-admin-service";
 import { sendRealFCMPush } from "@/lib/fcm-client";
 import { setResultsPublished, getPulseSettings } from "@/lib/pulse-service";
@@ -60,6 +60,9 @@ export interface IndividualRankItem {
   batch: string;
   totalScore: number;
   accuracy: number;
+  correctAnswers?: number;
+  wrongAnswers?: number;
+  timeTakenSeconds?: number;
   pulsesDone: number;
   streak: number;
   badges: string[];
@@ -68,19 +71,23 @@ export interface IndividualRankItem {
 export interface CollegeRankItem {
   rank: number;
   collegeName: string;
+  college?: string;
   totalScore: number;
   participantsCount: number;
   topScorer: string;
   avgScore: number;
+  avgAccuracy?: string;
 }
 
 export interface BatchRankItem {
   rank: number;
   batchYear: string;
   batchName: string;
+  batch?: string;
   totalScore: number;
   participantsCount: number;
   avgScore: number;
+  avgAccuracy?: string;
 }
 
 export interface NotificationRecord {
@@ -377,75 +384,88 @@ export function exportRegistrationsToCSV(registrations: ChampionshipRegistration
 }
 
 // ── 3. Live Leaderboard Control ───────────────────────────────────────────────
-export function getLeaderboardRankingsData() {
-  // Individual Rankings
-  const individuals: IndividualRankItem[] = SEED_LEADERBOARD.map((item, index) => ({
-    rank: index + 1,
-    participantId: item.participant_id,
-    name: item.display_name,
-    college: item.institution,
-    batch: item.batch,
-    totalScore: item.total_score,
-    accuracy: item.accuracy_pct,
-    pulsesDone: item.pulses_completed,
-    streak: item.current_streak,
-    badges: item.badges,
-  }));
+let cachedRankingsData: {
+  individuals: IndividualRankItem[];
+  collegeRankings: CollegeRankItem[];
+  batchRankings: BatchRankItem[];
+} = {
+  individuals: [],
+  collegeRankings: [],
+  batchRankings: [],
+};
 
-  // College Aggregation
-  const collegeMap = new Map<string, { totalScore: number; count: number; topScorer: string; topScore: number }>();
-  individuals.forEach((ind) => {
-    const college = ind.college;
-    const existing = collegeMap.get(college) || { totalScore: 0, count: 0, topScorer: ind.name, topScore: 0 };
-    existing.totalScore += ind.totalScore;
-    existing.count += 1;
-    if (ind.totalScore > existing.topScore) {
-      existing.topScore = ind.totalScore;
-      existing.topScorer = ind.name;
-    }
-    collegeMap.set(college, existing);
-  });
+export function getLeaderboardRankingsData(): {
+  individuals: IndividualRankItem[];
+  collegeRankings: CollegeRankItem[];
+  batchRankings: BatchRankItem[];
+} {
+  return cachedRankingsData;
+}
 
-  const collegeRankings: CollegeRankItem[] = Array.from(collegeMap.entries())
-    .map(([collegeName, stat]) => ({
-      rank: 0,
-      collegeName,
-      totalScore: stat.totalScore,
-      participantsCount: stat.count,
-      topScorer: stat.topScorer,
-      avgScore: Math.round(stat.totalScore / stat.count),
-    }))
-    .sort((a, b) => b.totalScore - a.totalScore)
-    .map((c, idx) => ({ ...c, rank: idx + 1 }));
+export async function fetchLeaderboardRankingsData(
+  pulseSetId?: string | null,
+  pulseDate?: string | null
+): Promise<{
+  individuals: IndividualRankItem[];
+  collegeRankings: CollegeRankItem[];
+  batchRankings: BatchRankItem[];
+}> {
+  try {
+    const result = await fetchLeaderboardForCurrentPulse({ pulseSetId, pulseDate });
 
-  // Batch Aggregation
-  const batchMapAgg = new Map<string, { totalScore: number; count: number }>();
-  individuals.forEach((ind) => {
-    let matchedBatch = "2024 Batch";
-    if (ind.batch.includes("2026") || ind.batch.includes("Freshers")) matchedBatch = "2026 Batch (Freshers)";
-    else if (ind.batch.includes("2025") || ind.batch.includes("1st Year")) matchedBatch = "2025 Batch (1st Year)";
-    else if (ind.batch.includes("2024") || ind.batch.includes("2nd Year")) matchedBatch = "2024 Batch (2nd Year)";
-    else if (ind.batch.includes("2023") || ind.batch.includes("3rd Year")) matchedBatch = "2023 Batch (3rd Year)";
+    const individuals: IndividualRankItem[] = result.entries.map((entry) => ({
+      rank: entry.rank,
+      participantId: entry.participant_id,
+      name: entry.display_name,
+      college: entry.institution,
+      batch: entry.batch,
+      totalScore: entry.score,
+      accuracy: entry.accuracy,
+      correctAnswers: entry.correct_answers,
+      wrongAnswers: entry.wrong_answers,
+      timeTakenSeconds: entry.time_taken_seconds,
+      pulsesDone: 1,
+      streak: 1,
+      badges:
+        entry.rank === 1
+          ? ["Gold Champion", "Top Scorer"]
+          : entry.rank === 2
+          ? ["Silver Medalist"]
+          : entry.rank === 3
+          ? ["Bronze Podium"]
+          : entry.rank <= 10
+          ? ["Top 10 Finalist"]
+          : ["Official Qualifier"],
+    }));
 
-    const existing = batchMapAgg.get(matchedBatch) || { totalScore: 0, count: 0 };
-    existing.totalScore += ind.totalScore;
-    existing.count += 1;
-    batchMapAgg.set(matchedBatch, existing);
-  });
+    const collegeRankings: CollegeRankItem[] = result.collegeRankings.map((c) => ({
+      rank: c.rank,
+      collegeName: c.collegeName,
+      college: c.college,
+      totalScore: c.totalScore,
+      participantsCount: c.participantsCount,
+      topScorer: c.topScorer,
+      avgScore: c.avgScore,
+      avgAccuracy: c.avgAccuracy,
+    }));
 
-  const batchRankings: BatchRankItem[] = Array.from(batchMapAgg.entries())
-    .map(([batchName, stat]) => ({
-      rank: 0,
-      batchYear: batchName.slice(0, 4),
-      batchName,
-      totalScore: stat.totalScore,
-      participantsCount: stat.count,
-      avgScore: Math.round(stat.totalScore / stat.count),
-    }))
-    .sort((a, b) => b.totalScore - a.totalScore)
-    .map((b, idx) => ({ ...b, rank: idx + 1 }));
+    const batchRankings: BatchRankItem[] = result.batchRankings.map((b) => ({
+      rank: b.rank,
+      batchYear: b.batchYear,
+      batchName: b.batchName,
+      batch: b.batch,
+      totalScore: b.totalScore,
+      participantsCount: b.participantsCount,
+      avgScore: b.avgScore,
+      avgAccuracy: b.avgAccuracy,
+    }));
 
-  return { individuals, collegeRankings, batchRankings };
+    cachedRankingsData = { individuals, collegeRankings, batchRankings };
+    return cachedRankingsData;
+  } catch (err) {
+    console.error("[SuperAdmin] fetchLeaderboardRankingsData error:", err);
+    return cachedRankingsData;
+  }
 }
 
 export async function toggleLeaderboardFreeze(freeze: boolean): Promise<boolean> {
@@ -639,7 +659,9 @@ export async function fetchResultControlSummary(): Promise<ResultControlSummary>
   const { individuals } = getLeaderboardRankingsData();
   const topCandidate = attempts.length > 0
     ? { name: attempts[0]!.student_name, college: attempts[0]!.college }
-    : { name: individuals[0]?.name || "Dr. Samarth Rautrao", college: individuals[0]?.college || "MIMER Medical College" };
+    : individuals.length > 0
+    ? { name: individuals[0]!.name, college: individuals[0]!.college }
+    : { name: "No submissions yet", college: "—" };
 
   return {
     resultsPublished,

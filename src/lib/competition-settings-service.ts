@@ -37,12 +37,18 @@ export type SettingKey =
   | "results_published"
   | "leaderboard_reset_at";
 
+import { fetchLeaderboardForCurrentPulse, type LeaderboardStudentEntry } from "./leaderboard-engine";
+
 export interface LiveLeaderboardEntry {
   rank: number;
   participant_id: string;
   display_name: string;
   institution: string | null;
+  batch?: string;
   score: number;
+  total_score?: number;
+  correct_answers?: number;
+  wrong_answers?: number;
   time_taken_seconds: number;
   submitted_at: string | null;
   accuracy: number;
@@ -264,209 +270,46 @@ export async function resetLeaderboard(
 // ── Real-time leaderboard ─────────────────────────────────────────────────────
 
 /**
- * Fetches live leaderboard from championship_pulse_attempts with enrichment from
- * championship_participants and championship_registrations.
+ * Fetches live leaderboard strictly from championship_pulse_attempts
+ * filtered by the current pulse_set_id only.
  * Ranking order:
  *  1) Highest score (score DESC)
- *  2) Lowest completion time (time_taken_seconds ASC)
- *  3) Earliest submission (completed_at ASC)
+ *  2) Highest accuracy (accuracy DESC)
+ *  3) Lowest time taken (time_taken_seconds ASC)
+ *  4) Earliest submission (submitted_at ASC)
  */
 export async function fetchLiveLeaderboard(
   currentUserEmail?: string | null,
-  limit = 50
+  limit = 50,
+  pulseSetId?: string | null,
+  pulseDate?: string | null
 ): Promise<LiveLeaderboardEntry[]> {
   try {
-    // 1. Query pulse attempts
-    const { data: attempts, error: attemptsError } = await (supabase as any)
-      .from("championship_pulse_attempts")
-      .select("*")
-      .order("score", { ascending: false })
-      .order("time_taken_seconds", { ascending: true })
-      .order("completed_at", { ascending: true })
-      .limit(limit);
+    const result = await fetchLeaderboardForCurrentPulse({
+      currentUserEmail,
+      pulseSetId,
+      pulseDate,
+    });
 
-    if (!attemptsError && attempts && attempts.length > 0) {
-      // Collect user_ids and emails to enrich names/colleges
-      const userIds = attempts.map((a: any) => a.user_id).filter(Boolean);
-      const emails = attempts.map((a: any) => a.user_email).filter(Boolean);
-
-      // Fetch participants and registrations for name/college mapping
-      const participantMap = new Map<string, { name: string; college: string }>();
-      if (userIds.length > 0) {
-        try {
-          const { data: pData } = await (supabase as any)
-            .from("championship_participants")
-            .select("user_id, display_name, institution")
-            .in("user_id", userIds);
-
-          if (pData) {
-            for (const p of pData) {
-              if (p.user_id) {
-                participantMap.set(p.user_id, {
-                  name: p.display_name,
-                  college: p.institution,
-                });
-              }
-            }
-          }
-        } catch {
-          // ignore lookup errors
-        }
-      }
-
-      const registrationMap = new Map<string, { name: string; college: string }>();
-      if (emails.length > 0) {
-        try {
-          const { data: rData } = await (supabase as any)
-            .from("championship_registrations")
-            .select("email, full_name, medical_college")
-            .in("email", emails);
-
-          if (rData) {
-            for (const r of rData) {
-              if (r.email) {
-                registrationMap.set(r.email.toLowerCase(), {
-                  name: r.full_name,
-                  college: r.medical_college,
-                });
-              }
-            }
-          }
-        } catch {
-          // ignore lookup errors
-        }
-      }
-
-      // Deduplicate by user_id or user_email (keep best attempt)
-      const seen = new Set<string>();
-      const uniqueAttempts: any[] = [];
-      for (const a of attempts) {
-        const key = a.user_id || a.user_email || a.id;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniqueAttempts.push(a);
-        }
-      }
-
-      // Strict ranking: 1) score DESC, 2) time_taken_seconds ASC, 3) completed_at ASC
-      uniqueAttempts.sort((a, b) => {
-        const scoreDiff = Number(b.score ?? 0) - Number(a.score ?? 0);
-        if (scoreDiff !== 0) return scoreDiff;
-        const timeA = Number(a.time_taken_seconds ?? 0);
-        const timeB = Number(b.time_taken_seconds ?? 0);
-        if (timeA > 0 && timeB > 0 && timeA !== timeB) return timeA - timeB;
-        const dateA = new Date(a.completed_at || a.created_at || 0).getTime();
-        const dateB = new Date(b.completed_at || b.created_at || 0).getTime();
-        return dateA - dateB;
-      });
-
-      return uniqueAttempts.map((row, idx) => {
-        const email = row.user_email?.toLowerCase();
-        const regInfo = email ? registrationMap.get(email) : null;
-        const partInfo = row.user_id ? participantMap.get(row.user_id) : null;
-
-        const displayName =
-          row.student_name ||
-          partInfo?.name ||
-          regInfo?.name ||
-          (email ? email.split("@")[0] : `Participant #${idx + 1}`);
-
-        const college =
-          row.college ||
-          partInfo?.college ||
-          regInfo?.college ||
-          "Medical College";
-
-        const isCurrentUser =
-          currentUserEmail && email
-            ? email === currentUserEmail.toLowerCase()
-            : false;
-
-        return {
-          rank: idx + 1,
-          participant_id: row.participant_id || row.user_id || row.id,
-          display_name: displayName,
-          institution: college,
-          score: Number(row.score ?? 0),
-          time_taken_seconds: Number(row.time_taken_seconds ?? 0),
-          submitted_at: row.completed_at || null,
-          accuracy: Number(row.accuracy ?? 0),
-          is_current_user: isCurrentUser,
-        };
-      });
-    }
-
-    return fetchLeaderboardFromParticipants(currentUserEmail, limit);
-  } catch {
-    return fetchLeaderboardFromParticipants(currentUserEmail, limit);
-  }
-}
-
-/** Fallback 1: read from championship_participants table */
-async function fetchLeaderboardFromParticipants(
-  currentUserEmail?: string | null,
-  limit = 50
-): Promise<LiveLeaderboardEntry[]> {
-  try {
-    const { data, error } = await (supabase as any)
-      .from("championship_participants")
-      .select(
-        "id, user_id, display_name, full_name, institution, total_score, total_accuracy_pct, registered_at"
-      )
-      .eq("season_id", "S1")
-      .eq("status", "active")
-      .order("total_score", { ascending: false })
-      .order("total_accuracy_pct", { ascending: false })
-      .order("registered_at", { ascending: true })
-      .limit(limit);
-
-    if (error || !data || data.length === 0) {
-      return fetchLeaderboardFromRegistrations(currentUserEmail, limit);
-    }
-
-    return (data as any[]).map((p, idx) => ({
-      rank: idx + 1,
-      participant_id: p.id,
-      display_name: p.display_name || p.full_name || `Doctor #${idx + 1}`,
-      institution: p.institution ?? "Medical College",
-      score: Number(p.total_score ?? 0),
-      time_taken_seconds: 0,
-      submitted_at: p.registered_at ?? null,
-      accuracy: Number(p.total_accuracy_pct ?? 0),
-      is_current_user: false,
+    const entries = result.entries.slice(0, limit).map((entry) => ({
+      rank: entry.rank,
+      participant_id: entry.participant_id,
+      display_name: entry.display_name,
+      institution: entry.institution,
+      batch: entry.batch,
+      score: entry.score,
+      total_score: entry.total_score,
+      correct_answers: entry.correct_answers,
+      wrong_answers: entry.wrong_answers,
+      accuracy: entry.accuracy,
+      time_taken_seconds: entry.time_taken_seconds,
+      submitted_at: entry.submitted_at,
+      is_current_user: entry.is_current_user,
     }));
-  } catch {
-    return fetchLeaderboardFromRegistrations(currentUserEmail, limit);
-  }
-}
 
-/** Fallback 2: read from championship_registrations table */
-async function fetchLeaderboardFromRegistrations(
-  currentUserEmail?: string | null,
-  limit = 50
-): Promise<LiveLeaderboardEntry[]> {
-  try {
-    const { data, error } = await (supabase as any)
-      .from("championship_registrations")
-      .select("id, full_name, email, medical_college, created_at")
-      .limit(limit);
-
-    if (error || !data || data.length === 0) return [];
-
-    return (data as any[]).map((r, idx) => ({
-      rank: idx + 1,
-      participant_id: r.id,
-      display_name: r.full_name || "Doctor",
-      institution: r.medical_college || "Medical College",
-      score: 0,
-      time_taken_seconds: 0,
-      submitted_at: r.created_at ?? null,
-      accuracy: 0,
-      is_current_user: currentUserEmail
-        ? (r.email ?? "").toLowerCase() === currentUserEmail.toLowerCase()
-        : false,
-    }));
-  } catch {
+    return entries;
+  } catch (err) {
+    console.error("[competition-settings-service] fetchLiveLeaderboard error:", err);
     return [];
   }
 }
