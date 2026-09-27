@@ -128,14 +128,16 @@ function RouteComponent() {
   // Dynamic Pulse Settings — single source of truth strictly from pulse_settings table
   const [pulseSettings, setPulseSettings] = useState<{
     competition_date: string | null;
+    competition_end_date?: string | null;
     start_time: string | null;
     end_time: string | null;
     pulse_status: PulseStatus;
     results_published: boolean;
   }>({
     competition_date: null,
-    start_time: "19:00",
-    end_time: "23:59",
+    competition_end_date: null,
+    start_time: null,
+    end_time: null,
     pulse_status: "upcoming",
     results_published: false,
   });
@@ -149,16 +151,27 @@ function RouteComponent() {
     [pulseSettings.competition_date, pulseSettings.start_time]
   );
   const seasonEndUTC = useMemo(
-    () => combineDateAndTime(pulseSettings.competition_date, pulseSettings.end_time),
-    [pulseSettings.competition_date, pulseSettings.end_time]
+    () =>
+      combineDateAndTime(
+        pulseSettings.competition_end_date || pulseSettings.competition_date,
+        pulseSettings.end_time
+      ),
+    [
+      pulseSettings.competition_end_date,
+      pulseSettings.competition_date,
+      pulseSettings.end_time,
+    ]
   );
   const seasonStartDisplay = useMemo(
     () => formatCompetitionDate(pulseSettings.competition_date),
     [pulseSettings.competition_date]
   );
   const seasonEndDisplay = useMemo(
-    () => formatCompetitionDate(pulseSettings.competition_date),
-    [pulseSettings.competition_date]
+    () =>
+      formatCompetitionDate(
+        pulseSettings.competition_end_date || pulseSettings.competition_date
+      ),
+    [pulseSettings.competition_end_date, pulseSettings.competition_date]
   );
   const seasonStartTimeDisplay = useMemo(
     () => formatCompetitionTime(pulseSettings.start_time),
@@ -471,15 +484,16 @@ function RouteComponent() {
       try {
         const { data, error } = await supabase
           .from("pulse_settings")
-          .select("competition_date, start_time, end_time, pulse_status, results_published")
+          .select("competition_date, competition_end_date, start_time, end_time, pulse_status, results_published")
           .limit(1)
           .maybeSingle();
 
         if (isMounted && !error && data) {
           setPulseSettings({
             competition_date: data.competition_date ?? null,
-            start_time: data.start_time ?? "19:00",
-            end_time: data.end_time ?? "23:59",
+            competition_end_date: (data as any).competition_end_date ?? null,
+            start_time: data.start_time ?? null,
+            end_time: data.end_time ?? null,
             pulse_status: (data.pulse_status as PulseStatus) || "upcoming",
             results_published: Boolean(data.results_published),
           });
@@ -507,8 +521,9 @@ function RouteComponent() {
             const row = payload.new;
             setPulseSettings({
               competition_date: row.competition_date ?? null,
-              start_time: row.start_time ?? "19:00",
-              end_time: row.end_time ?? "23:59",
+              competition_end_date: row.competition_end_date ?? null,
+              start_time: row.start_time ?? null,
+              end_time: row.end_time ?? null,
               pulse_status: (row.pulse_status as PulseStatus) || "upcoming",
               results_published: Boolean(row.results_published),
             });

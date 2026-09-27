@@ -57,8 +57,8 @@ export const SETTINGS_EVENT = "medtrail_setting_updated";
 const DEFAULTS: CompetitionSettings = {
   competition_date: null,
   competition_end_date: null,
-  start_time: "19:00",
-  end_time: "23:59",
+  start_time: null,
+  end_time: null,
   pulse_status: "upcoming",
   results_published: false,
   leaderboard_reset_at: null,
@@ -70,10 +70,10 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
   try {
     const pulse = await getPulseSettings();
     return {
-      competition_date: pulse.competition_date,
-      competition_end_date: null,
-      start_time: pulse.start_time ?? "19:00",
-      end_time: pulse.end_time ?? "23:59",
+      competition_date: pulse.competition_date ?? null,
+      competition_end_date: pulse.competition_end_date ?? null,
+      start_time: pulse.start_time ?? null,
+      end_time: pulse.end_time ?? null,
       pulse_status: pulse.pulse_status,
       results_published: pulse.results_published,
       leaderboard_reset_at: null,
@@ -88,6 +88,7 @@ export async function fetchCompetitionSettings(): Promise<CompetitionSettings> {
 
 export async function savePulseSettingsRecord(params: {
   competition_date?: string | null;
+  competition_end_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
   pulse_status?: PulseStatus;
@@ -107,6 +108,11 @@ export async function savePulseSettingsRecord(params: {
         ? params.competition_date.split("T")[0]
         : null;
     }
+    if (params.competition_end_date !== undefined) {
+      payload.competition_end_date = params.competition_end_date
+        ? params.competition_end_date.split("T")[0]
+        : null;
+    }
     if (params.start_time !== undefined) {
       payload.start_time = params.start_time ? params.start_time.trim().slice(0, 8) : null;
     }
@@ -119,17 +125,22 @@ export async function savePulseSettingsRecord(params: {
     }
 
     // Direct update to existing pulse_settings row
-    const { data: existing } = await (supabase as any)
+    const { data: existing, error: fetchErr } = await (supabase as any)
       .from("pulse_settings")
       .select("id")
       .limit(1)
       .maybeSingle();
 
-    const targetId = existing?.id ?? "singleton";
+    if (fetchErr || !existing || existing.id === undefined || existing.id === null) {
+      const msg = fetchErr?.message || "No pulse_settings record found in database.";
+      console.error("[CompetitionSettings] Could not find pulse_settings row:", msg);
+      return { success: false, error: msg };
+    }
+
     const { error } = await (supabase as any)
       .from("pulse_settings")
       .update(payload)
-      .eq("id", targetId);
+      .eq("id", existing.id);
 
     if (error) {
       console.error("[CompetitionSettings] pulse_settings save error:", error);
@@ -173,20 +184,19 @@ export async function saveCompetitionSetting(
       }
     }
   } else if (key === "competition_end_date") {
+    payload.competition_end_date = value
+      ? (value.includes("T") ? value.split("T")[0] : value.trim().slice(0, 10))
+      : null;
     if (value && value.includes("T")) {
       const timePart = value.split("T")[1]?.trim().slice(0, 5);
       if (timePart) {
         payload.end_time = timePart;
       }
-    } else if (value) {
-      payload.end_time = value.trim().slice(0, 5);
-    } else {
-      payload.end_time = "23:59";
     }
   } else if (key === "start_time") {
-    payload.start_time = value ? value.trim().slice(0, 8) : "19:00";
+    payload.start_time = value ? value.trim().slice(0, 8) : null;
   } else if (key === "end_time") {
-    payload.end_time = value ? value.trim().slice(0, 8) : "23:59";
+    payload.end_time = value ? value.trim().slice(0, 8) : null;
   } else if (key === "pulse_status") {
     payload.pulse_status = (value as PulseStatus) || "upcoming";
   } else if (key === "results_published") {
@@ -195,17 +205,22 @@ export async function saveCompetitionSetting(
 
   if (Object.keys(payload).length > 0) {
     try {
-      const { data: existing } = await (supabase as any)
+      const { data: existing, error: fetchErr } = await (supabase as any)
         .from("pulse_settings")
         .select("id")
         .limit(1)
         .maybeSingle();
 
-      const targetId = existing?.id ?? "singleton";
+      if (fetchErr || !existing || existing.id === undefined || existing.id === null) {
+        const msg = fetchErr?.message || "No pulse_settings record found in database.";
+        console.error("[CompetitionSettings] Could not find pulse_settings row:", msg);
+        return { success: false, error: msg };
+      }
+
       const { error } = await (supabase as any)
         .from("pulse_settings")
         .update(payload)
-        .eq("id", targetId);
+        .eq("id", existing.id);
 
       if (error) {
         console.error("[CompetitionSettings] pulse_settings save error:", error);
@@ -472,8 +487,8 @@ export function subscribeToCompetitionSettings(
           const newSettings: CompetitionSettings = {
             competition_date: row.competition_date ?? null,
             competition_end_date: row.competition_end_date ?? null,
-            start_time: row.start_time ?? "19:00",
-            end_time: row.end_time ?? "23:59",
+            start_time: row.start_time ?? null,
+            end_time: row.end_time ?? null,
             pulse_status: (row.pulse_status as PulseStatus) ?? "upcoming",
             results_published: row.results_published === true || row.results_published === "true",
             leaderboard_reset_at: row.leaderboard_reset_at ?? null,
@@ -541,8 +556,11 @@ export function subscribeToLeaderboard(
 export function formatCompetitionDate(dateStr: string | null): string | null {
   if (!dateStr) return null;
   try {
-    return new Date(dateStr).toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
+    const ymd = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr.trim().slice(0, 10);
+    const [y, m, d] = ymd.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    const date = new Date(y, m - 1, d);
+    return date.toLocaleDateString("en-IN", {
       day: "numeric",
       month: "long",
       year: "numeric",
@@ -573,7 +591,7 @@ export function formatCompetitionTime(timeOrDateStr: string | null): string | nu
   if (!timeOrDateStr) return null;
   try {
     const trimmed = timeOrDateStr.trim();
-    if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+    if (/^\d{1,2}:\d{2}/.test(trimmed)) {
       const [hStr, mStr] = trimmed.split(":");
       let h = parseInt(hStr!, 10);
       const m = parseInt(mStr!, 10);
@@ -601,14 +619,14 @@ export function combineDateAndTime(
 ): Date | null {
   if (!dateStr) return null;
   try {
-    if (dateStr.includes("T")) {
+    if (!timeStr && dateStr.includes("T")) {
       const d = new Date(dateStr);
       if (!isNaN(d.getTime())) return d;
     }
     const ymd = dateStr.trim().slice(0, 10);
-    const time = timeStr && timeStr.trim() ? timeStr.trim() : "19:00";
+    const time = timeStr && timeStr.trim() ? timeStr.trim() : "00:00";
     const [hh, mm] = time.split(":").map(Number);
-    const hour = isNaN(hh!) ? 19 : hh!;
+    const hour = isNaN(hh!) ? 0 : hh!;
     const minute = isNaN(mm!) ? 0 : mm!;
     const pad = (n: number) => String(n).padStart(2, "0");
     const istISO = `${ymd}T${pad(hour)}:${pad(minute)}:00+05:30`;

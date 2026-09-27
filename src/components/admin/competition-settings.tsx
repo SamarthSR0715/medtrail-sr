@@ -38,10 +38,9 @@ import {
   setPulseStatus,
   setResultsPublished,
   resetLeaderboard,
-  utcToISTLocal,
-  istLocalToUTC,
   formatCompetitionDate,
   formatCompetitionDateTime,
+  formatCompetitionTime,
   type CompetitionSettings,
   type PulseStatus,
 } from "@/lib/competition-settings-service";
@@ -60,15 +59,17 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   const [settings, setSettings] = useState<CompetitionSettings>({
     competition_date: null,
     competition_end_date: null,
-    start_time: "19:00",
-    end_time: "23:59",
+    start_time: null,
+    end_time: null,
     pulse_status: "upcoming",
     results_published: false,
     leaderboard_reset_at: null,
   });
 
-  const [startLocal, setStartLocal] = useState("");
-  const [endLocal, setEndLocal] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingStart, setIsSavingStart] = useState(false);
   const [isSavingEnd, setIsSavingEnd] = useState(false);
@@ -80,13 +81,19 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
 
+  const applySettingsToInputs = (data: CompetitionSettings) => {
+    setSettings(data);
+    setStartDate(data.competition_date ? data.competition_date.split("T")[0] : "");
+    setStartTime(data.start_time ? data.start_time.trim().slice(0, 5) : "");
+    setEndDate(data.competition_end_date ? data.competition_end_date.split("T")[0] : "");
+    setEndTime(data.end_time ? data.end_time.trim().slice(0, 5) : "");
+  };
+
   const loadSettings = async () => {
     setIsLoading(true);
     try {
       const data = await fetchCompetitionSettings();
-      setSettings(data);
-      setStartLocal(utcToISTLocal(data.competition_date));
-      setEndLocal(utcToISTLocal(data.competition_end_date));
+      applySettingsToInputs(data);
     } finally {
       setIsLoading(false);
     }
@@ -95,9 +102,7 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   useEffect(() => {
     loadSettings();
     const unsub = subscribeToCompetitionSettings((newSettings) => {
-      setSettings(newSettings);
-      setStartLocal(utcToISTLocal(newSettings.competition_date));
-      setEndLocal(utcToISTLocal(newSettings.competition_end_date));
+      applySettingsToInputs(newSettings);
     });
 
     return () => {
@@ -108,98 +113,110 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
   // ── Date saving ─────────────────────────────────────────────────────────────
   const handleSaveStart = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!startLocal) { toast.error("Select a start date & time."); return; }
+    if (!startDate) {
+      toast.error("Please select a competition start date.");
+      return;
+    }
     setIsSavingStart(true);
     try {
-      const utcISO = istLocalToUTC(startLocal);
-      const [datePart, timePart] = startLocal.split("T");
-
-      // Direct update to pulse_settings row 1 / singleton
-      await savePulseSettingsRecord({
-        competition_date: datePart,
-        start_time: timePart || "19:00",
+      const res = await savePulseSettingsRecord({
+        competition_date: startDate,
+        start_time: startTime || null,
       });
 
-      const res = await saveCompetitionSetting("competition_date", utcISO, adminEmail);
       if (res.success) {
-        toast.success("Competition date updated");
-        setLastAction(`Competition date set to ${formatCompetitionDateTime(utcISO)}`);
-        // Use local updated state immediately
+        toast.success("Competition start date & time updated");
+        setLastAction(`Start set to ${startDate}${startTime ? ` at ${formatCompetitionTime(startTime)}` : ""}`);
         setSettings((prev) => ({
           ...prev,
-          competition_date: utcISO,
-          start_time: timePart || "19:00",
+          competition_date: startDate,
+          start_time: startTime || null,
         }));
       } else {
         toast.error(`Save failed: ${res.error}`);
       }
-    } finally { setIsSavingStart(false); }
+    } finally {
+      setIsSavingStart(false);
+    }
   };
 
   const handleSaveEnd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!endLocal) { toast.error("Select an end date & time."); return; }
+    if (!endDate) {
+      toast.error("Please select a competition end date.");
+      return;
+    }
     setIsSavingEnd(true);
     try {
-      const utcISO = istLocalToUTC(endLocal);
-      const [, timePart] = endLocal.split("T");
-
-      // Direct update to pulse_settings
-      await savePulseSettingsRecord({
-        end_time: timePart || "23:59",
+      const res = await savePulseSettingsRecord({
+        competition_end_date: endDate,
+        end_time: endTime || null,
       });
 
-      const res = await saveCompetitionSetting("competition_end_date", utcISO, adminEmail);
       if (res.success) {
-        toast.success("✅ End date saved — all student views updated instantly.");
-        setLastAction(`End date set to ${formatCompetitionDateTime(utcISO)}`);
-        // Use local updated state immediately
+        toast.success("✅ End date & time saved — all student views updated instantly.");
+        setLastAction(`End set to ${endDate}${endTime ? ` at ${formatCompetitionTime(endTime)}` : ""}`);
         setSettings((prev) => ({
           ...prev,
-          competition_end_date: utcISO,
-          end_time: timePart || "23:59",
+          competition_end_date: endDate,
+          end_time: endTime || null,
         }));
       } else {
         toast.error(`Save failed: ${res.error}`);
       }
-    } finally { setIsSavingEnd(false); }
+    } finally {
+      setIsSavingEnd(false);
+    }
   };
 
   const handleClearStart = async () => {
-    if (!window.confirm("Clear start date? Students will see 'Competition date will be announced.'")) return;
+    if (!window.confirm("Clear start date and time? Students will see 'Competition date will be announced.'")) return;
     setIsClearingStart(true);
     try {
-      await savePulseSettingsRecord({ competition_date: null });
-      const res = await saveCompetitionSetting("competition_date", null, adminEmail);
+      const res = await savePulseSettingsRecord({
+        competition_date: null,
+        start_time: null,
+      });
       if (res.success) {
-        toast.info("Start date cleared. Site shows 'TBA'.");
-        setStartLocal("");
-        // Use local updated state immediately
+        toast.info("Start date & time cleared. Site shows 'TBA'.");
+        setStartDate("");
+        setStartTime("");
         setSettings((prev) => ({
           ...prev,
           competition_date: null,
+          start_time: null,
         }));
+      } else {
+        toast.error(`Clear failed: ${res.error}`);
       }
-    } finally { setIsClearingStart(false); }
+    } finally {
+      setIsClearingStart(false);
+    }
   };
 
   const handleClearEnd = async () => {
-    if (!window.confirm("Clear end date?")) return;
+    if (!window.confirm("Clear end date and time?")) return;
     setIsClearingEnd(true);
     try {
-      await savePulseSettingsRecord({ end_time: "23:59" });
-      const res = await saveCompetitionSetting("competition_end_date", null, adminEmail);
+      const res = await savePulseSettingsRecord({
+        competition_end_date: null,
+        end_time: null,
+      });
       if (res.success) {
-        toast.info("End date cleared.");
-        setEndLocal("");
-        // Use local updated state immediately
+        toast.info("End date & time cleared.");
+        setEndDate("");
+        setEndTime("");
         setSettings((prev) => ({
           ...prev,
           competition_end_date: null,
-          end_time: "23:59",
+          end_time: null,
         }));
+      } else {
+        toast.error(`Clear failed: ${res.error}`);
       }
-    } finally { setIsClearingEnd(false); }
+    } finally {
+      setIsClearingEnd(false);
+    }
   };
 
   // ── Pulse status controls ───────────────────────────────────────────────────
@@ -299,7 +316,9 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const startDisplay = formatCompetitionDate(settings.competition_date);
+  const startTimeDisplay = formatCompetitionTime(settings.start_time);
   const endDisplay = formatCompetitionDate(settings.competition_end_date);
+  const endTimeDisplay = formatCompetitionTime(settings.end_time);
 
   const statusConfig: Record<PulseStatus, { label: string; color: string; bg: string; border: string }> = {
     upcoming: { label: "Upcoming", color: "text-blue-300", bg: "bg-blue-500/10", border: "border-blue-500/40" },
@@ -333,8 +352,8 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30">
         <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
         <div className="text-xs text-blue-200 leading-relaxed">
-          <strong className="text-blue-300">Times are entered in IST (UTC+5:30)</strong> and stored as UTC.
-          The countdown, hero section, leaderboard, and quiz lock/unlock all read from these settings in real time.
+          <strong className="text-blue-300">Times are configured in IST (UTC+5:30)</strong>.
+          The countdown, hero section, leaderboard, and quiz window all read dynamically from these settings in real time.
           {lastAction && <span className="ml-2 text-emerald-400 font-semibold">Last: {lastAction}</span>}
         </div>
       </div>
@@ -342,23 +361,27 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
       {/* Current Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-amber-500/30 space-y-1.5">
-          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">Start Date</div>
+          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">Start Date & Time</div>
           {startDisplay
-            ? <div className="text-sm font-black text-white">{startDisplay}</div>
+            ? <div className="text-sm font-black text-white">{startDisplay} {startTimeDisplay ? `· ${startTimeDisplay}` : ""}</div>
             : <div className="text-xs text-slate-500 italic">Not set (TBA)</div>
           }
           {settings.competition_date && (
-            <div className="text-[10px] text-slate-500 font-mono">{settings.competition_date}</div>
+            <div className="text-[10px] text-slate-500 font-mono">
+              {settings.competition_date} {settings.start_time ? `(${settings.start_time} IST)` : ""}
+            </div>
           )}
         </div>
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-indigo-500/30 space-y-1.5">
-          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-400">End Date</div>
+          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-400">End Date & Time</div>
           {endDisplay
-            ? <div className="text-sm font-black text-white">{endDisplay}</div>
+            ? <div className="text-sm font-black text-white">{endDisplay} {endTimeDisplay ? `· ${endTimeDisplay}` : ""}</div>
             : <div className="text-xs text-slate-500 italic">Not set</div>
           }
           {settings.competition_end_date && (
-            <div className="text-[10px] text-slate-500 font-mono">{settings.competition_end_date}</div>
+            <div className="text-[10px] text-slate-500 font-mono">
+              {settings.competition_end_date} {settings.end_time ? `(${settings.end_time} IST)` : ""}
+            </div>
           )}
         </div>
         <div className={`p-4 rounded-2xl space-y-1.5 border ${current.bg} ${current.border}`}>
@@ -520,30 +543,50 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
           </div>
           <div>
             <h3 className="text-base font-bold text-white">Season Start Date & Time</h3>
-            <p className="text-xs text-slate-400">When countdown hits zero and daily pulses begin.</p>
+            <p className="text-xs text-slate-400">Manually select when countdown hits zero and daily pulses begin.</p>
           </div>
         </div>
 
         <form onSubmit={handleSaveStart} className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              Date & Time (IST — Asia/Kolkata, UTC+5:30)
-            </label>
-            <input
-              type="datetime-local"
-              value={startLocal}
-              onChange={(e) => setStartLocal(e.target.value)}
-              className="w-full rounded-xl bg-slate-950/80 border border-slate-700 text-white text-sm px-4 py-3 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full rounded-xl bg-slate-950/80 border border-slate-700 text-white text-sm px-4 py-3 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition cursor-pointer"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                Start Time (IST — UTC+5:30)
+              </label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full rounded-xl bg-slate-950/80 border border-slate-700 text-white text-sm px-4 py-3 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition cursor-pointer"
+              />
+            </div>
           </div>
           <div className="flex gap-3">
-            <button type="submit" disabled={isSavingStart || !startLocal}
-              className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider transition shadow-lg shadow-amber-500/25 cursor-pointer">
+            <button
+              type="submit"
+              disabled={isSavingStart || !startDate}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider transition shadow-lg shadow-amber-500/25 cursor-pointer"
+            >
               {isSavingStart ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              {isSavingStart ? "Saving…" : "Save Start Date"}
+              {isSavingStart ? "Saving…" : "Save Start Date & Time"}
             </button>
-            <button type="button" onClick={handleClearStart} disabled={isClearingStart || !settings.competition_date}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500/50 disabled:opacity-40 text-slate-300 hover:text-red-300 text-xs font-bold transition cursor-pointer">
+            <button
+              type="button"
+              onClick={handleClearStart}
+              disabled={isClearingStart || !settings.competition_date}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500/50 disabled:opacity-40 text-slate-300 hover:text-red-300 text-xs font-bold transition cursor-pointer"
+            >
               {isClearingStart ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
               Clear
             </button>
@@ -559,30 +602,50 @@ export function CompetitionSettings({ adminEmail }: CompetitionSettingsProps) {
           </div>
           <div>
             <h3 className="text-base font-bold text-white">Season End Date & Time</h3>
-            <p className="text-xs text-slate-400">When the season closes and the countdown switches to "Season Ends In".</p>
+            <p className="text-xs text-slate-400">Manually select when the season closes and countdown switches to "Season Ends In".</p>
           </div>
         </div>
 
         <form onSubmit={handleSaveEnd} className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              Date & Time (IST — Asia/Kolkata, UTC+5:30)
-            </label>
-            <input
-              type="datetime-local"
-              value={endLocal}
-              onChange={(e) => setEndLocal(e.target.value)}
-              className="w-full rounded-xl bg-slate-950/80 border border-slate-700 text-white text-sm px-4 py-3 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                End Date
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded-xl bg-slate-950/80 border border-slate-700 text-white text-sm px-4 py-3 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition cursor-pointer"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                End Time (IST — UTC+5:30)
+              </label>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full rounded-xl bg-slate-950/80 border border-slate-700 text-white text-sm px-4 py-3 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition cursor-pointer"
+              />
+            </div>
           </div>
           <div className="flex gap-3">
-            <button type="submit" disabled={isSavingEnd || !endLocal}
-              className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-xs uppercase tracking-wider transition shadow-lg shadow-indigo-500/25 cursor-pointer">
+            <button
+              type="submit"
+              disabled={isSavingEnd || !endDate}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-xs uppercase tracking-wider transition shadow-lg shadow-indigo-500/25 cursor-pointer"
+            >
               {isSavingEnd ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              {isSavingEnd ? "Saving…" : "Save End Date"}
+              {isSavingEnd ? "Saving…" : "Save End Date & Time"}
             </button>
-            <button type="button" onClick={handleClearEnd} disabled={isClearingEnd || !settings.competition_end_date}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500/50 disabled:opacity-40 text-slate-300 hover:text-red-300 text-xs font-bold transition cursor-pointer">
+            <button
+              type="button"
+              onClick={handleClearEnd}
+              disabled={isClearingEnd || !settings.competition_end_date}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500/50 disabled:opacity-40 text-slate-300 hover:text-red-300 text-xs font-bold transition cursor-pointer"
+            >
               {isClearingEnd ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
               Clear
             </button>

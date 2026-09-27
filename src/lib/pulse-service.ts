@@ -5,6 +5,7 @@ export type PulseStatus = "upcoming" | "live" | "paused" | "ended";
 export interface PulseSettings {
   id?: number;
   competition_date: string | null;
+  competition_end_date?: string | null;
   start_time: string | null;
   end_time: string | null;
   pulse_status: PulseStatus;
@@ -34,56 +35,43 @@ export interface PulseAttemptLeaderboardEntry {
  */
 
 /**
- * Fetch current pulse settings from pulse_settings (id = 1)
+ * Fetch current pulse settings from pulse_settings
  */
 export async function getPulseSettings(): Promise<PulseSettings> {
   try {
     const { data, error } = await (supabase as any)
       .from("pulse_settings")
-      .select("competition_date, start_time, end_time, pulse_status, results_published")
-      .eq("id", 1)
+      .select("id, competition_date, competition_end_date, start_time, end_time, pulse_status, results_published")
+      .limit(1)
       .maybeSingle();
 
-    if (error || !data) {
-      // Fallback query if id is not 1
-      const { data: fallback } = await (supabase as any)
-        .from("pulse_settings")
-        .select("competition_date, start_time, end_time, pulse_status, results_published")
-        .limit(1)
-        .maybeSingle();
-
-      if (fallback) {
-        return {
-          competition_date: fallback.competition_date ?? null,
-          start_time: fallback.start_time ?? "19:00",
-          end_time: fallback.end_time ?? "23:59",
-          pulse_status: (fallback.pulse_status as PulseStatus) ?? "upcoming",
-          results_published: Boolean(fallback.results_published),
-        };
-      }
-
+    if (!error && data) {
       return {
-        competition_date: null,
-        start_time: "19:00",
-        end_time: "23:59",
-        pulse_status: "upcoming",
-        results_published: false,
+        id: data.id,
+        competition_date: data.competition_date ?? null,
+        competition_end_date: data.competition_end_date ?? null,
+        start_time: data.start_time ?? null,
+        end_time: data.end_time ?? null,
+        pulse_status: (data.pulse_status as PulseStatus) ?? "upcoming",
+        results_published: Boolean(data.results_published),
       };
     }
 
     return {
-      competition_date: data.competition_date ?? null,
-      start_time: data.start_time ?? "19:00",
-      end_time: data.end_time ?? "23:59",
-      pulse_status: (data.pulse_status as PulseStatus) ?? "upcoming",
-      results_published: Boolean(data.results_published),
+      competition_date: null,
+      competition_end_date: null,
+      start_time: null,
+      end_time: null,
+      pulse_status: "upcoming",
+      results_published: false,
     };
   } catch (err) {
     console.error("[pulse-service] getPulseSettings error:", err);
     return {
       competition_date: null,
-      start_time: "19:00",
-      end_time: "23:59",
+      competition_end_date: null,
+      start_time: null,
+      end_time: null,
       pulse_status: "upcoming",
       results_published: false,
     };
@@ -91,7 +79,7 @@ export async function getPulseSettings(): Promise<PulseSettings> {
 }
 
 /**
- * Helper to execute UPDATE on pulse_settings id = 1
+ * Helper to execute UPDATE on pulse_settings
  * Strips 'id' field and prevents any INSERT/UPSERT.
  */
 async function updatePulseSettingsRow(payload: Partial<PulseSettings>): Promise<{ success: boolean; error?: string }> {
@@ -99,35 +87,27 @@ async function updatePulseSettingsRow(payload: Partial<PulseSettings>): Promise<
     const cleanPayload: Record<string, any> = { ...payload };
     delete cleanPayload.id;
 
-    // First attempt UPDATE on id = 1
-    const { error, count } = await (supabase as any)
+    // Find the single record and update by its actual id
+    const { data: existing, error: fetchErr } = await (supabase as any)
       .from("pulse_settings")
-      .update(cleanPayload, { count: "exact" })
-      .eq("id", 1);
+      .select("id")
+      .limit(1)
+      .maybeSingle();
 
-    if (error) {
-      console.error("[pulse-service] update error on id=1:", error);
-      return { success: false, error: error.message };
+    if (fetchErr || !existing || existing.id === undefined || existing.id === null) {
+      const msg = fetchErr?.message || "No pulse_settings record found in database.";
+      console.error("[pulse-service] Could not find pulse_settings row:", msg);
+      return { success: false, error: msg };
     }
 
-    // If 0 rows were updated, find the single record and update by its actual id
-    if (count === 0) {
-      const { data: existing } = await (supabase as any)
-        .from("pulse_settings")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
+    const { error } = await (supabase as any)
+      .from("pulse_settings")
+      .update(cleanPayload)
+      .eq("id", existing.id);
 
-      if (existing?.id !== undefined && existing?.id !== null) {
-        const { error: retryErr } = await (supabase as any)
-          .from("pulse_settings")
-          .update(cleanPayload)
-          .eq("id", existing.id);
-
-        if (retryErr) {
-          return { success: false, error: retryErr.message };
-        }
-      }
+    if (error) {
+      console.error(`[pulse-service] update error on id=${existing.id}:`, error);
+      return { success: false, error: error.message };
     }
 
     return { success: true };
@@ -138,18 +118,28 @@ async function updatePulseSettingsRow(payload: Partial<PulseSettings>): Promise<
 }
 
 /**
- * Save schedule: competition_date, start_time, end_time
+ * Save schedule: competition_date, competition_end_date, start_time, end_time
  */
 export async function saveSchedule(params: {
-  competition_date: string | null;
-  start_time: string | null;
-  end_time: string | null;
+  competition_date?: string | null;
+  competition_end_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
 }): Promise<{ success: boolean; error?: string }> {
-  return updatePulseSettingsRow({
-    competition_date: params.competition_date ? params.competition_date.split("T")[0] : null,
-    start_time: params.start_time ? params.start_time.trim().slice(0, 8) : null,
-    end_time: params.end_time ? params.end_time.trim().slice(0, 8) : null,
-  });
+  const updatePayload: Partial<PulseSettings> = {};
+  if (params.competition_date !== undefined) {
+    updatePayload.competition_date = params.competition_date ? params.competition_date.split("T")[0] : null;
+  }
+  if (params.competition_end_date !== undefined) {
+    updatePayload.competition_end_date = params.competition_end_date ? params.competition_end_date.split("T")[0] : null;
+  }
+  if (params.start_time !== undefined) {
+    updatePayload.start_time = params.start_time ? params.start_time.trim().slice(0, 8) : null;
+  }
+  if (params.end_time !== undefined) {
+    updatePayload.end_time = params.end_time ? params.end_time.trim().slice(0, 8) : null;
+  }
+  return updatePulseSettingsRow(updatePayload);
 }
 
 /**
@@ -195,9 +185,11 @@ export function subscribeToPulseStatus(
         if (payload?.new) {
           const row = payload.new;
           onUpdate({
+            id: row.id,
             competition_date: row.competition_date ?? null,
-            start_time: row.start_time ?? "19:00",
-            end_time: row.end_time ?? "23:59",
+            competition_end_date: row.competition_end_date ?? null,
+            start_time: row.start_time ?? null,
+            end_time: row.end_time ?? null,
             pulse_status: (row.pulse_status as PulseStatus) ?? "upcoming",
             results_published: Boolean(row.results_published),
           });
