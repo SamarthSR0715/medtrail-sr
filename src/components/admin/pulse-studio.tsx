@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   Sparkles,
   Save,
@@ -175,6 +176,7 @@ export function PulseStudio() {
               subject: existing.subject || DEFAULT_PULSE_SUBJECTS[idx] || "General",
               difficulty: existing.difficulty || (slotNum === 5 ? "Easy" : "Medium"),
               xp_value: Number(existing.xp_value) || 50,
+              time_limit_seconds: Number(existing.time_limit_seconds) || 60,
             };
           }
           return {
@@ -189,6 +191,7 @@ export function PulseStudio() {
             subject: DEFAULT_PULSE_SUBJECTS[idx] || "General",
             difficulty: slotNum === 5 ? "Easy" : "Medium",
             xp_value: 50,
+            time_limit_seconds: 60,
           };
         });
         setQuestions(filled);
@@ -351,7 +354,7 @@ export function PulseStudio() {
 
       setStatus("published");
       setPublishedAt(new Date().toISOString());
-      toast.success(`Published official question set for ${pulseDate}!`);
+      toast.success(`Published official question set for ${pulseDate}! Results & leaderboard remain hidden until published in Result Control.`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to publish pulse.");
     } finally {
@@ -673,13 +676,13 @@ return (
             <span>END PULSE</span>
           </button>
 
-          <button
-            onClick={handlePublishResults}
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+          <Link
+            to="/result-control"
+            className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-500/20"
           >
-            <Send className="w-4 h-4" />
-            <span>PUBLISH RESULTS</span>
-          </button>
+            <Trophy className="w-4 h-4 text-slate-950" />
+            <span>RESULT CONTROL DECK</span>
+          </Link>
 
           {/* Requirement 1: Registration Lock / Unlock Buttons */}
           {liveOps.registration_open ? (
@@ -872,6 +875,10 @@ return (
                   <span className="text-slate-400">{currentQ.subject} &bull; {currentQ.difficulty}</span>
                   <span className="px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold">
                     +{currentQ.xp_value} XP
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-emerald-400" />
+                    {currentQ.time_limit_seconds || 60}s Limit
                   </span>
                 </div>
               </div>
@@ -1077,6 +1084,21 @@ return (
                     onChange={(e) => handleUpdateCurrentQuestion({ xp_value: Number(e.target.value) || 50 })}
                     className="w-24 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
                   />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-mono text-slate-400">Timer Limit</label>
+                  <select
+                    value={currentQ.time_limit_seconds || 60}
+                    onChange={(e) => handleUpdateCurrentQuestion({ time_limit_seconds: Number(e.target.value) || 60 })}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
+                  >
+                    <option value={30}>30s (Rapid)</option>
+                    <option value={45}>45s (Sprint)</option>
+                    <option value={60}>60s (Standard)</option>
+                    <option value={90}>90s (Extended)</option>
+                    <option value={120}>120s (Case Study)</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -1397,13 +1419,13 @@ return (
                   <span>End Pulse</span>
                 </button>
 
-                <button
-                  onClick={handlePublishResults}
-                  className="py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2"
+                <Link
+                  to="/result-control"
+                  className="py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-amber-500/20"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Publish Results</span>
-                </button>
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span>Result Control Deck</span>
+                </Link>
               </div>
             </div>
 

@@ -61,7 +61,10 @@ export interface PulseQuestion {
   explanation: string;
   xp: number;
   points: number;
+  time_limit_seconds?: number;
 }
+
+export const DEFAULT_PULSE_TIMER_SECONDS = 60;
 
 export interface DailyPulseDay {
   dayNumber: number;

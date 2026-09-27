@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   combineDateAndTime,
   formatCompetitionDate,
@@ -56,6 +56,7 @@ import {
   getISTDateString,
   registerChampionshipParticipant,
   submitPulseAttempt,
+  DEFAULT_PULSE_TIMER_SECONDS,
   type LiveOpsState,
   type PulseSetRecord,
   type PulseAttemptRecord,
@@ -274,6 +275,29 @@ function RouteComponent() {
     opensAtIST: "Synchronizing...",
   });
 
+  // Pulse Countdown Timer (Configurable 60s per pulse)
+  const [timerSecondsLeft, setTimerSecondsLeft] = useState<number>(DEFAULT_PULSE_TIMER_SECONDS);
+  const selectedOptionRef = useRef<number | null>(null);
+  const currentQIndexRef = useRef<number>(0);
+  const hasSubmittedAnswerRef = useRef<boolean>(false);
+  const isQuizOpenRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    selectedOptionRef.current = selectedOption;
+  }, [selectedOption]);
+
+  useEffect(() => {
+    currentQIndexRef.current = currentQIndex;
+  }, [currentQIndex]);
+
+  useEffect(() => {
+    hasSubmittedAnswerRef.current = hasSubmittedAnswer;
+  }, [hasSubmittedAnswer]);
+
+  useEffect(() => {
+    isQuizOpenRef.current = isQuizOpen;
+  }, [isQuizOpen]);
+
   // Dynamic Hall of Fame (Loaded safely without 404 network queries)
   const [hallOfFame] = useState<HallOfFameData>(() => {
     try {
@@ -351,6 +375,7 @@ function RouteComponent() {
       explanation: "The radial nerve runs directly in the spiral (radial) groove on the posterior surface of the humerus and is most commonly injured in mid-shaft fractures, causing wrist drop.",
       xp: 50,
       points: 50,
+      time_limit_seconds: 60,
     },
     {
       id: "pulse-default-2",
@@ -363,6 +388,7 @@ function RouteComponent() {
       explanation: "In healthy adults, approximately 85-90% of erythropoietin is produced by interstitial cells in the peritubular capillary bed of the renal cortex in response to hypoxia.",
       xp: 50,
       points: 50,
+      time_limit_seconds: 60,
     },
     {
       id: "pulse-default-3",
@@ -375,6 +401,7 @@ function RouteComponent() {
       explanation: "Phosphofructokinase-1 (PFK-1) converts fructose-6-phosphate to fructose-1,6-bisphosphate and serves as the key rate-limiting regulatory enzyme in glycolysis.",
       xp: 50,
       points: 50,
+      time_limit_seconds: 60,
     },
     {
       id: "pulse-default-4",
@@ -392,6 +419,7 @@ function RouteComponent() {
       explanation: "Caseous necrosis (classically seen in tuberculosis) appears as friable, cheese-like debris microscopically composed of amorphous granular debris surrounded by epithelioid histiocytes and Langhans giant cells.",
       xp: 50,
       points: 50,
+      time_limit_seconds: 60,
     },
     {
       id: "pulse-default-5",
@@ -404,6 +432,7 @@ function RouteComponent() {
       explanation: "Non-maleficence requires clinicians to avoid inflicting harm on patients, historically summarized as 'primum non nocere' (first, do no harm).",
       xp: 50,
       points: 50,
+      time_limit_seconds: 60,
     },
   ], []);
 
@@ -590,7 +619,7 @@ function RouteComponent() {
             ),
           }));
 
-          if (todayAttempt) {
+          if (todayAttempt && resultsPublished) {
             const studentEntry: LiveLeaderboardEntry = {
               rank: 1,
               participant_id: todayAttempt.user_id,
@@ -625,7 +654,7 @@ function RouteComponent() {
           is_current_user: false,
         }));
 
-        if (todayAttempt) {
+        if (todayAttempt && resultsPublished) {
           const studentEntry: LiveLeaderboardEntry = {
             rank: 1,
             participant_id: todayAttempt.user_id,
@@ -645,7 +674,7 @@ function RouteComponent() {
     }
 
     loadRegistrations();
-  }, [todayAttempt, regName, regCollege, user?.email]);
+  }, [todayAttempt, regName, regCollege, user?.email, resultsPublished]);
 
   // Watch synchronized countdown without status polling
   useEffect(() => {
@@ -890,6 +919,8 @@ function RouteComponent() {
       return;
     }
 
+    const initialLimit = todayQuestions[0]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+    setTimerSecondsLeft(initialLimit);
     setCurrentQIndex(0);
     setUserAnswers([]);
     setQuizFinished(false);
@@ -900,12 +931,38 @@ function RouteComponent() {
     setIsQuizOpen(true);
   };
 
+  // Reset timer on question switch
+  useEffect(() => {
+    if (!isQuizOpen || quizFinished) return;
+    const limit = todayQuestions[currentQIndex]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+    setTimerSecondsLeft(limit);
+  }, [currentQIndex, isQuizOpen, quizFinished, todayQuestions]);
+
+  // Pulse Countdown Timer interval (Counts down 1 second at a time; auto-submits on 0)
+  useEffect(() => {
+    if (!isQuizOpen || quizFinished || hasSubmittedAnswer) return;
+    if (adminPulseStatus === "paused") return;
+
+    const interval = setInterval(() => {
+      setTimerSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          handleSubmitQuestion(selectedOptionRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isQuizOpen, quizFinished, hasSubmittedAnswer, adminPulseStatus, currentQIndex]);
+
   const handleSelectOption = (idx: number) => {
     if (hasSubmittedAnswer) return;
     setSelectedOption(idx);
   };
 
-  const handleSubmitQuestion = async () => {
+  const handleSubmitQuestion = async (autoOption?: number | null) => {
     if (adminPulseStatus === "paused") {
       toast.warning("Pulse is currently paused by Administration. Submissions on hold.");
       return;
@@ -915,10 +972,21 @@ function RouteComponent() {
       return;
     }
 
-    if (selectedOption === null) return;
+    if (hasSubmittedAnswerRef.current) return;
+
+    // Determine final choice (autoOption on timeout or manual selectedOption)
+    const finalChoice = autoOption !== undefined ? autoOption : selectedOption;
+    if (finalChoice === null && autoOption === undefined) return;
+
+    // -1 denotes timed out / unanswered question
+    const answerToRecord = finalChoice !== null && finalChoice !== undefined ? finalChoice : -1;
     setHasSubmittedAnswer(true);
 
-    const newAnswers = [...userAnswers, selectedOption];
+    if (answerToRecord === -1) {
+      toast.warning(`Time expired on Pulse Slot ${currentQIndex + 1}! Advancing...`, { duration: 2500 });
+    }
+
+    const newAnswers = [...userAnswers, answerToRecord];
     setUserAnswers(newAnswers);
 
     const isLast = currentQIndex === todayQuestions.length - 1;
@@ -979,21 +1047,23 @@ function RouteComponent() {
           timeTakenSeconds: timeTaken,
         });
 
-        const studentEntry: LiveLeaderboardEntry = {
-          rank: 1,
-          participant_id: studentId,
-          display_name: regName || user?.user_metadata?.full_name || "You",
-          institution: regCollege || "Medical College",
-          score: earnedScore,
-          time_taken_seconds: timeTaken,
-          submitted_at: new Date().toISOString(),
-          accuracy,
-          is_current_user: true,
-        };
-        setLeaderboard((prev) => [
-          studentEntry,
-          ...prev.filter((p) => !p.is_current_user).map((m, idx) => ({ ...m, rank: idx + 2 })),
-        ]);
+        if (resultsPublished) {
+          const studentEntry: LiveLeaderboardEntry = {
+            rank: 1,
+            participant_id: studentId,
+            display_name: regName || user?.user_metadata?.full_name || "You",
+            institution: regCollege || "Medical College",
+            score: earnedScore,
+            time_taken_seconds: timeTaken,
+            submitted_at: new Date().toISOString(),
+            accuracy,
+            is_current_user: true,
+          };
+          setLeaderboard((prev) => [
+            studentEntry,
+            ...prev.filter((p) => !p.is_current_user).map((m, idx) => ({ ...m, rank: idx + 2 })),
+          ]);
+        }
       } else {
         setCurrentQIndex((prev) => prev + 1);
         setSelectedOption(null);
@@ -1633,17 +1703,32 @@ function RouteComponent() {
                     <div>
                       <div className="font-bold text-white text-sm">Today's Pulse Completed!</div>
                       <div className="text-emerald-300/90 text-xs">
-                        Attempt officially recorded. Score: <strong className="text-amber-300 font-mono">+{todayAttempt?.score ?? quizResult?.score ?? 0} Pts</strong> &bull; Accuracy: <strong className="text-white font-mono">{todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%</strong> &bull; XP: <strong className="text-blue-300 font-mono">+{todayAttempt?.xp ?? quizResult?.xp ?? 0}</strong>
+                        {resultsPublished ? (
+                          <>
+                            Attempt officially recorded. Score: <strong className="text-amber-300 font-mono">+{todayAttempt?.score ?? quizResult?.score ?? 0} Pts</strong> &bull; Accuracy: <strong className="text-white font-mono">{todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%</strong> &bull; XP: <strong className="text-blue-300 font-mono">+{todayAttempt?.xp ?? quizResult?.xp ?? 0}</strong>
+                          </>
+                        ) : (
+                          <>
+                            Attempt officially recorded & verified with anti-tamper telemetry. Official scores, rankings, and faculty solutions will be published once results are released by the admin.
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setIsReviewModalOpen(true)}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer shrink-0 inline-flex items-center gap-2 shadow-md shadow-emerald-600/30"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    <span>View Explanations & Solutions</span>
-                  </button>
+                  {resultsPublished ? (
+                    <button
+                      onClick={() => setIsReviewModalOpen(true)}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer shrink-0 inline-flex items-center gap-2 shadow-md shadow-emerald-600/30"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      <span>View Explanations & Solutions</span>
+                    </button>
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-300 font-mono text-[11px] shrink-0">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Solutions unlock on Result Release</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1958,96 +2043,132 @@ function RouteComponent() {
 
           {/* TAB 2: COLLEGE RANKINGS */}
           {activeTab === "college" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {COLLEGE_RANKINGS.map((c) => (
-                <div
-                  key={c.name}
-                  className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className={`w-8 h-8 rounded-xl font-mono text-sm font-black flex items-center justify-center ${
-                        c.rank === 1 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
-                      }`}>
-                        #{c.rank}
-                      </span>
-                      <div>
-                        <h4 className="text-base font-bold text-white">{c.name}</h4>
-                        <span className="text-xs text-slate-400">{c.city}</span>
-                      </div>
-                    </div>
-                    <span className="font-mono text-xs font-bold text-emerald-400">{c.movement}</span>
+            <div className="space-y-4">
+              {!resultsPublished ? (
+                <div className="p-8 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-700/60 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-800/60 border border-slate-700 flex items-center justify-center mx-auto">
+                    <GraduationCap className="w-7 h-7 text-amber-400" />
                   </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
-                    <div className="p-2 rounded-xl bg-slate-950/60">
-                      <div className="text-[10px] text-slate-400">Enrolled</div>
-                      <div className="font-mono text-xs font-bold text-white mt-0.5">{c.activeStudents}</div>
-                    </div>
-                    <div className="p-2 rounded-xl bg-slate-950/60">
-                      <div className="text-[10px] text-slate-400">Accuracy</div>
-                      <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{c.avgAccuracy}</div>
-                    </div>
-                    <div className="p-2 rounded-xl bg-slate-950/60">
-                      <div className="text-[10px] text-slate-400">Total Score</div>
-                      <div className="font-mono text-xs font-bold text-amber-400 mt-0.5">{c.avgScore}</div>
-                    </div>
+                  <h3 className="text-xl font-black text-white">College Standings</h3>
+                  <p className="text-sm text-slate-400 max-w-md mx-auto">
+                    Institutional rankings are computed from verified student scores and will be released when official results are published by the admin.
+                  </p>
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-amber-300">
+                    <Clock className="w-3.5 h-3.5" />
+                    Awaiting admin result publication
                   </div>
                 </div>
-              ))}
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {COLLEGE_RANKINGS.map((c) => (
+                    <div
+                      key={c.name}
+                      className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className={`w-8 h-8 rounded-xl font-mono text-sm font-black flex items-center justify-center ${
+                            c.rank === 1 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
+                          }`}>
+                            #{c.rank}
+                          </span>
+                          <div>
+                            <h4 className="text-base font-bold text-white">{c.name}</h4>
+                            <span className="text-xs text-slate-400">{c.city}</span>
+                          </div>
+                        </div>
+                        <span className="font-mono text-xs font-bold text-emerald-400">{c.movement}</span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
+                        <div className="p-2 rounded-xl bg-slate-950/60">
+                          <div className="text-[10px] text-slate-400">Enrolled</div>
+                          <div className="font-mono text-xs font-bold text-white mt-0.5">{c.activeStudents}</div>
+                        </div>
+                        <div className="p-2 rounded-xl bg-slate-950/60">
+                          <div className="text-[10px] text-slate-400">Accuracy</div>
+                          <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{c.avgAccuracy}</div>
+                        </div>
+                        <div className="p-2 rounded-xl bg-slate-950/60">
+                          <div className="text-[10px] text-slate-400">Total Score</div>
+                          <div className="font-mono text-xs font-bold text-amber-400 mt-0.5">{c.avgScore}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {/* TAB 3: BATCH RANKINGS — Requirement 2 Mapping */}
           {activeTab === "batch" && (
             <div className="space-y-4">
-              <div className="p-4 rounded-2xl bg-blue-950/30 border border-blue-500/30 text-xs text-blue-200 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>
-                  <strong>Official Batch Classification:</strong> 2026 Batch (Freshers), 2025 Batch (1st Year MBBS), 2024 Batch (2nd Year MBBS), and 2023 Batch (3rd Year MBBS).
-                </span>
-              </div>
+              {!resultsPublished ? (
+                <div className="p-8 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-700/60 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-800/60 border border-slate-700 flex items-center justify-center mx-auto">
+                    <Layers className="w-7 h-7 text-amber-400" />
+                  </div>
+                  <h3 className="text-xl font-black text-white">MBBS Batch Standings</h3>
+                  <p className="text-sm text-slate-400 max-w-md mx-auto">
+                    Batch-wise rankings across 2026, 2025, 2024, and 2023 MBBS cohorts will be unlocked once official results are declared.
+                  </p>
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-amber-300">
+                    <Clock className="w-3.5 h-3.5" />
+                    Awaiting admin result publication
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 rounded-2xl bg-blue-950/30 border border-blue-500/30 text-xs text-blue-200 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      <strong>Official Batch Classification:</strong> 2026 Batch (Freshers), 2025 Batch (1st Year MBBS), 2024 Batch (2nd Year MBBS), and 2023 Batch (3rd Year MBBS).
+                    </span>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {BATCH_RANKINGS.map((b) => (
-                  <div
-                    key={b.batch}
-                    className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-8 h-8 rounded-xl font-mono text-sm font-black flex items-center justify-center ${
-                          b.rank === 1 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
-                        }`}>
-                          #{b.rank}
-                        </span>
-                        <div>
-                          <h4 className="text-base font-bold text-white">{b.batch}</h4>
-                          <span className="text-xs text-blue-400 font-medium">{b.enrolled} Doctors Enrolled</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {BATCH_RANKINGS.map((b) => (
+                      <div
+                        key={b.batch}
+                        className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className={`w-8 h-8 rounded-xl font-mono text-sm font-black flex items-center justify-center ${
+                              b.rank === 1 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
+                            }`}>
+                              #{b.rank}
+                            </span>
+                            <div>
+                              <h4 className="text-base font-bold text-white">{b.batch}</h4>
+                              <span className="text-xs text-blue-400 font-medium">{b.enrolled} Doctors Enrolled</span>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-mono font-bold">
+                            {b.pulseCompletionRate}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
+                          <div className="p-2 rounded-xl bg-slate-950/60">
+                            <div className="text-[10px] text-slate-400">Total Score</div>
+                            <div className="font-mono text-xs font-bold text-white mt-0.5">{b.totalScore.toLocaleString()}</div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-950/60">
+                            <div className="text-[10px] text-slate-400">Avg Streak</div>
+                            <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{b.avgStreak} Days</div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-950/60">
+                            <div className="text-[10px] text-slate-400">Top Subject</div>
+                            <div className="font-mono text-xs font-bold text-amber-400 mt-0.5 truncate">{b.topSubject}</div>
+                          </div>
                         </div>
                       </div>
-                      <span className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-mono font-bold">
-                        {b.pulseCompletionRate}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
-                      <div className="p-2 rounded-xl bg-slate-950/60">
-                        <div className="text-[10px] text-slate-400">Total Score</div>
-                        <div className="font-mono text-xs font-bold text-white mt-0.5">{b.totalScore.toLocaleString()}</div>
-                      </div>
-                      <div className="p-2 rounded-xl bg-slate-950/60">
-                        <div className="text-[10px] text-slate-400">Avg Streak</div>
-                        <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{b.avgStreak} Days</div>
-                      </div>
-                      <div className="p-2 rounded-xl bg-slate-950/60">
-                        <div className="text-[10px] text-slate-400">Top Subject</div>
-                        <div className="font-mono text-xs font-bold text-amber-400 mt-0.5 truncate">{b.topSubject}</div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
             </div>
           )}
 
@@ -2318,14 +2439,79 @@ function RouteComponent() {
             </button>
 
             {!quizFinished ? (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-blue-400 uppercase tracking-wider">
-                    Daily Pulse Slot {currentQIndex + 1} of {todayQuestions.length}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                    {todayQuestions[currentQIndex]?.points} Points
-                  </span>
+              <div className="space-y-5">
+                {/* Header: Slot + Real-Time 60s Pulse Countdown Timer + Points */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-blue-400 uppercase tracking-wider">
+                        Daily Pulse Slot {currentQIndex + 1} of {todayQuestions.length}
+                      </span>
+                      {adminPulseStatus === "paused" && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Pulse Countdown Timer Pill */}
+                      <div
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold border transition-all duration-300 ${
+                          timerSecondsLeft <= 10
+                            ? "bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse shadow-sm shadow-rose-500/30"
+                            : timerSecondsLeft <= 20
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                            : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        }`}
+                        title="Pulse Countdown Timer (60s Limit)"
+                      >
+                        <Clock
+                          className={`w-3.5 h-3.5 ${
+                            timerSecondsLeft <= 10
+                              ? "text-rose-400 animate-pulse"
+                              : timerSecondsLeft <= 20
+                              ? "text-amber-400"
+                              : "text-emerald-400"
+                          }`}
+                        />
+                        <span>00:{timerSecondsLeft.toString().padStart(2, "0")}</span>
+                      </div>
+
+                      <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                        {todayQuestions[currentQIndex]?.points} Pts
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Visual Progress Bar */}
+                  {(() => {
+                    const qDuration =
+                      todayQuestions[currentQIndex]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+                    const pct = Math.max(0, Math.min(100, (timerSecondsLeft / qDuration) * 100));
+                    return (
+                      <div className="w-full space-y-1">
+                        <div className="w-full h-1.5 bg-slate-800/80 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-1000 ease-linear rounded-full ${
+                              timerSecondsLeft <= 10
+                                ? "bg-gradient-to-r from-rose-600 to-red-500 animate-pulse"
+                                : timerSecondsLeft <= 20
+                                ? "bg-gradient-to-r from-amber-500 to-yellow-400"
+                                : "bg-gradient-to-r from-cyan-500 to-emerald-400"
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        {timerSecondsLeft <= 10 && !hasSubmittedAnswer && (
+                          <div className="flex items-center justify-between text-[10px] font-mono text-rose-400 font-semibold px-0.5 animate-pulse">
+                            <span>⚡ Final seconds!</span>
+                            <span>Auto-submitting in {timerSecondsLeft}s</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="space-y-2">
@@ -2388,32 +2574,46 @@ function RouteComponent() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center font-mono">
-                  <div>
-                    <div className="text-[10px] text-slate-400 font-sans">Score</div>
-                    <div className="text-lg font-bold text-amber-400 mt-0.5">+{quizResult?.score}</div>
+                {resultsPublished ? (
+                  <div className="grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center font-mono">
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-sans">Score</div>
+                      <div className="text-lg font-bold text-amber-400 mt-0.5">+{quizResult?.score}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-sans">Accuracy</div>
+                      <div className="text-lg font-bold text-emerald-400 mt-0.5">{quizResult?.accuracy}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-sans">XP Earned</div>
+                      <div className="text-lg font-bold text-blue-400 mt-0.5">+{quizResult?.xp}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400 font-sans">Accuracy</div>
-                    <div className="text-lg font-bold text-emerald-400 mt-0.5">{quizResult?.accuracy}%</div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-2">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 text-amber-300 text-xs font-mono">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Results & Faculty Explanations Awaiting Release</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      To preserve championship integrity, official rankings, final scores, and detailed faculty solutions remain sealed until the administrator declares official results.
+                    </p>
                   </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400 font-sans">XP Earned</div>
-                    <div className="text-lg font-bold text-blue-400 mt-0.5">+{quizResult?.xp}</div>
-                  </div>
-                </div>
+                )}
 
                 <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <button
-                    onClick={() => {
-                      setIsQuizOpen(false);
-                      setIsReviewModalOpen(true);
-                    }}
-                    className="flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wider uppercase transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    <span>View Explanations</span>
-                  </button>
+                  {resultsPublished && (
+                    <button
+                      onClick={() => {
+                        setIsQuizOpen(false);
+                        setIsReviewModalOpen(true);
+                      }}
+                      className="flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wider uppercase transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      <span>View Explanations</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => setIsQuizOpen(false)}
                     className="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs tracking-wider uppercase transition cursor-pointer"
@@ -2451,7 +2651,7 @@ function RouteComponent() {
             </div>
 
             {/* Performance summary if student attempted */}
-            {(todayAttempt || quizResult) && (
+            {resultsPublished && (todayAttempt || quizResult) && (
               <div className="grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center font-mono">
                 <div>
                   <div className="text-[10px] text-slate-400 font-sans">Score</div>
@@ -2474,8 +2674,24 @@ function RouteComponent() {
               </div>
             )}
 
-            {/* 5 Questions Review List */}
-            <div className="space-y-4">
+            {!resultsPublished ? (
+              <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center mx-auto text-amber-400">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-white">Faculty Solutions & Answer Keys Sealed</h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Detailed question solutions, faculty clinical rationales, and official answer keys will unlock
+                  once official results are published by the admin in Result Control.
+                </p>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs font-mono text-amber-300">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Awaiting Admin Result Publication</span>
+                </div>
+              </div>
+            ) : (
+              /* 5 Questions Review List */
+              <div className="space-y-4">
               {todayQuestions.map((q, qIdx) => {
                 const userChoice = userAnswers[qIdx] !== undefined ? userAnswers[qIdx] : null;
                 const isCorrect = userChoice === q.correctIndex;
@@ -2499,10 +2715,16 @@ function RouteComponent() {
                             className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                               isCorrect
                                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                : userChoice === -1
+                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                                 : "bg-red-500/20 text-red-300 border border-red-500/30"
                             }`}
                           >
-                            {isCorrect ? `Correct (+${q.points || 50} Pts)` : "Incorrect"}
+                            {isCorrect
+                              ? `Correct (+${q.points || 50} Pts)`
+                              : userChoice === -1
+                              ? "Timed Out (0 Pts)"
+                              : "Incorrect"}
                           </span>
                         )}
                       </div>
@@ -2517,7 +2739,7 @@ function RouteComponent() {
                       {q.options.map((opt, optIdx) => {
                         const optLetter = ["A", "B", "C", "D"][optIdx];
                         const isThisCorrect = q.correctIndex === optIdx;
-                        const isThisUserPick = userChoice === optIdx;
+                        const isThisUserPick = userChoice !== -1 && userChoice === optIdx;
 
                         let style = "bg-slate-900/60 border-slate-800 text-slate-300";
                         if (isThisCorrect) {
@@ -2565,6 +2787,7 @@ function RouteComponent() {
                 );
               })}
             </div>
+            )}
 
             <div className="pt-2">
               <button

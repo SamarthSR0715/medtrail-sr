@@ -39,6 +39,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { PulseStudio } from "@/components/admin/pulse-studio";
 import { AdminPanel } from "@/components/trips/admin-panel";
 import { CompetitionSettings } from "@/components/admin/competition-settings";
+import { ResultControl } from "@/components/admin/result-control";
 import { Settings2 } from "lucide-react";
 import { sendRealFCMPush, requestAndRegisterNotificationPermission, detectDevicePlatform } from "@/lib/fcm-client";
 import {
@@ -73,7 +74,7 @@ export function SuperAdminControlCenter() {
 
   // Top Section Tab
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "pulse_studio" | "registrations" | "leaderboard" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
+    "dashboard" | "pulse_studio" | "result_control" | "registrations" | "leaderboard" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
   >("dashboard");
 
   // ── 1. Dashboard State ──────────────────────────────────────────────────────
@@ -508,10 +509,11 @@ export function SuperAdminControlCenter() {
           {[
             { id: "dashboard", label: "Dashboard", icon: Sparkles },
             { id: "pulse_studio", label: "Pulse Studio", icon: Flame },
+            { id: "result_control", label: "Result Control", icon: Trophy },
             { id: "registrations", label: `Registrations (${registrations.length})`, icon: Users },
-            { id: "leaderboard", label: "Leaderboard Control", icon: Trophy },
+            { id: "leaderboard", label: "Leaderboard Standings", icon: Award },
             { id: "notifications", label: "Notification Center", icon: Bell },
-            { id: "hall_of_fame", label: "Hall of Fame", icon: Award },
+            { id: "hall_of_fame", label: "Hall of Fame", icon: Crown },
             { id: "trips", label: "Trip Admin", icon: MapPin },
             { id: "competition_settings", label: "Pulse Settings", icon: Settings2 },
           ].map((tab) => {
@@ -932,6 +934,11 @@ export function SuperAdminControlCenter() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── TAB 3.5: RESULT CONTROL DECK ── */}
+      {activeTab === "result_control" && (
+        <ResultControl />
       )}
 
       {/* ── TAB 4: LIVE LEADERBOARD CONTROL ── */}

@@ -20,6 +20,7 @@ import { Route as MbbsRouteImport } from './routes/mbbs'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as PulseStudioRouteImport } from './routes/pulse-studio'
+import { Route as ResultControlRouteImport } from './routes/result-control'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SuperAdminRouteImport } from './routes/super-admin'
@@ -83,6 +84,11 @@ const PulseStudioRoute = PulseStudioRouteImport.update({
   path: '/pulse-studio',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ResultControlRoute = ResultControlRouteImport.update({
+  id: '/result-control',
+  path: '/result-control',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/notes': typeof NotesRoute
   '/portfolio': typeof PortfolioRoute
   '/pulse-studio': typeof PulseStudioRoute
+  '/result-control': typeof ResultControlRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/super-admin': typeof SuperAdminRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/notes': typeof NotesRoute
   '/portfolio': typeof PortfolioRoute
   '/pulse-studio': typeof PulseStudioRoute
+  '/result-control': typeof ResultControlRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/super-admin': typeof SuperAdminRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/notes': typeof NotesRoute
   '/portfolio': typeof PortfolioRoute
   '/pulse-studio': typeof PulseStudioRoute
+  '/result-control': typeof ResultControlRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/super-admin': typeof SuperAdminRoute
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/portfolio'
     | '/pulse-studio'
+    | '/result-control'
     | '/signup'
     | '/sitemap.xml'
     | '/super-admin'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/portfolio'
     | '/pulse-studio'
+    | '/result-control'
     | '/signup'
     | '/sitemap.xml'
     | '/super-admin'
@@ -234,6 +245,7 @@ export interface FileRouteTypes {
     | '/notes'
     | '/portfolio'
     | '/pulse-studio'
+    | '/result-control'
     | '/signup'
     | '/sitemap.xml'
     | '/super-admin'
@@ -255,6 +267,7 @@ export interface RootRouteChildren {
   NotesRoute: typeof NotesRoute
   PortfolioRoute: typeof PortfolioRoute
   PulseStudioRoute: typeof PulseStudioRoute
+  ResultControlRoute: typeof ResultControlRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   SuperAdminRoute: typeof SuperAdminRoute
@@ -343,6 +356,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PulseStudioRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/result-control': {
+      id: '/result-control'
+      path: '/result-control'
+      fullPath: '/result-control'
+      preLoaderRoute: typeof ResultControlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -407,6 +427,7 @@ const rootRouteChildren: RootRouteChildren = {
   NotesRoute: NotesRoute,
   PortfolioRoute: PortfolioRoute,
   PulseStudioRoute: PulseStudioRoute,
+  ResultControlRoute: ResultControlRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   SuperAdminRoute: SuperAdminRoute,

@@ -171,6 +171,20 @@ export async function publishResults(): Promise<{ success: boolean; error?: stri
 }
 
 /**
+ * Hide Results: sets results_published = false (never modifies pulse_status)
+ */
+export async function hideResults(): Promise<{ success: boolean; error?: string }> {
+  return updatePulseSettingsRow({ results_published: false });
+}
+
+/**
+ * Set Results Published state (never modifies pulse_status)
+ */
+export async function setResultsPublished(published: boolean): Promise<{ success: boolean; error?: string }> {
+  return updatePulseSettingsRow({ results_published: published });
+}
+
+/**
  * Real-time subscription to pulse_settings table
  */
 export function subscribeToPulseStatus(

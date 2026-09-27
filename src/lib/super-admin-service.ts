@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SEED_LEADERBOARD } from "@/lib/championship-service";
 import { fetchLiveOpsState, updateLiveOpsState } from "@/lib/pulse-admin-service";
 import { sendRealFCMPush } from "@/lib/fcm-client";
+import { setResultsPublished, getPulseSettings } from "@/lib/pulse-service";
 
 export const SUPER_ADMIN_EMAIL = "samarthrautrao715@gmail.com";
 
@@ -453,7 +454,7 @@ export async function toggleLeaderboardFreeze(freeze: boolean): Promise<boolean>
 }
 
 export async function declareSuperAdminFinalResults(): Promise<{ success: boolean; championName: string }> {
-  // 1. Freeze leaderboard and declare results
+  // 1. Freeze leaderboard and declare results in both pulse_settings and championship_live_ops
   const declaredTime = new Date().toISOString();
   await updateLiveOpsState({
     results_declared: true,
@@ -461,6 +462,7 @@ export async function declareSuperAdminFinalResults(): Promise<{ success: boolea
     results_declared_at: declaredTime,
     live_status: "ended",
   });
+  await setResultsPublished(true);
 
   // 2. Identify Champion from Rank #1 individual
   const { individuals } = getLeaderboardRankingsData();
@@ -494,6 +496,164 @@ export async function declareSuperAdminFinalResults(): Promise<{ success: boolea
   });
 
   return { success: true, championName: champion.name };
+}
+
+// ── Result Control Service Operations ───────────────────────────────────────────
+
+export interface PulseAttemptAuditItem {
+  id: string;
+  pulse_date: string;
+  user_id: string;
+  user_email: string | null;
+  student_name: string;
+  college: string;
+  batch: string;
+  score: number;
+  xp_earned: number;
+  accuracy: number;
+  completed_at: string;
+}
+
+export interface ResultControlSummary {
+  resultsPublished: boolean;
+  resultsDeclared: boolean;
+  isLeaderboardFrozen: boolean;
+  resultsDeclaredAt: string | null;
+  totalSubmissions: number;
+  avgScore: number;
+  avgAccuracy: number;
+  topScore: number;
+  rank1Name: string;
+  rank1College: string;
+  pulseStatus: string;
+}
+
+/**
+ * Toggle or explicitly set results visibility across pulse_settings and championship_live_ops
+ */
+export async function setResultsVisibility(published: boolean): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 1. Update pulse_settings row 1 (the single source of truth for student view)
+    const pRes = await setResultsPublished(published);
+    if (!pRes.success) {
+      console.warn("[SuperAdmin] setResultsPublished warning:", pRes.error);
+    }
+
+    // 2. Update championship_live_ops (for admin telemetry & freeze status)
+    await updateLiveOpsState({
+      results_declared: published,
+      results_declared_at: published ? new Date().toISOString() : null,
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("[SuperAdmin] setResultsVisibility error:", err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Fetch attempts audit list from championship_pulse_attempts joined with registrations
+ */
+export async function fetchPulseAttemptsAudit(): Promise<PulseAttemptAuditItem[]> {
+  try {
+    const { data: attempts, error } = await supabase
+      .from("championship_pulse_attempts")
+      .select("*")
+      .order("score", { ascending: false })
+      .order("completed_at", { ascending: true });
+
+    if (error || !attempts || attempts.length === 0) {
+      return [];
+    }
+
+    const emails = attempts.map((a: any) => a.user_email).filter(Boolean);
+    const regMap = new Map<string, { name: string; college: string; batch: string }>();
+
+    if (emails.length > 0) {
+      try {
+        const { data: regs } = await supabase
+          .from("championship_registrations")
+          .select("email, full_name, medical_college, batch")
+          .in("email", emails);
+
+        if (regs) {
+          for (const r of regs) {
+            if (r.email) {
+              regMap.set(r.email.toLowerCase(), {
+                name: r.full_name,
+                college: r.medical_college,
+                batch: r.batch,
+              });
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return attempts.map((a: any, idx: number) => {
+      const email = (a.user_email || "").toLowerCase();
+      const regInfo = email ? regMap.get(email) : null;
+      return {
+        id: a.id,
+        pulse_date: a.pulse_date,
+        user_id: a.user_id,
+        user_email: a.user_email,
+        student_name: regInfo?.name || (email ? email.split("@")[0] : `Student #${idx + 1}`),
+        college: regInfo?.college || "Medical College",
+        batch: regInfo?.batch || "MBBS Batch",
+        score: Number(a.score ?? 0),
+        xp_earned: Number(a.xp_earned ?? 0),
+        accuracy: Number(a.accuracy ?? 0),
+        completed_at: a.completed_at || new Date().toISOString(),
+      };
+    });
+  } catch (err) {
+    console.warn("[SuperAdmin] fetchPulseAttemptsAudit error:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetch unified Result Control summary
+ */
+export async function fetchResultControlSummary(): Promise<ResultControlSummary> {
+  const [pulseSettings, liveOps, attempts] = await Promise.all([
+    getPulseSettings(),
+    fetchLiveOpsState(),
+    fetchPulseAttemptsAudit(),
+  ]);
+
+  const resultsPublished = Boolean(pulseSettings.results_published || liveOps.results_declared);
+  const totalSubmissions = attempts.length;
+  const avgScore = totalSubmissions > 0
+    ? Math.round(attempts.reduce((sum, a) => sum + a.score, 0) / totalSubmissions)
+    : 0;
+  const avgAccuracy = totalSubmissions > 0
+    ? Math.round(attempts.reduce((sum, a) => sum + a.accuracy, 0) / totalSubmissions)
+    : 0;
+  const topScore = totalSubmissions > 0 ? attempts[0]!.score : 0;
+
+  const { individuals } = getLeaderboardRankingsData();
+  const topCandidate = attempts.length > 0
+    ? { name: attempts[0]!.student_name, college: attempts[0]!.college }
+    : { name: individuals[0]?.name || "Dr. Samarth Rautrao", college: individuals[0]?.college || "MIMER Medical College" };
+
+  return {
+    resultsPublished,
+    resultsDeclared: liveOps.results_declared,
+    isLeaderboardFrozen: liveOps.is_leaderboard_frozen,
+    resultsDeclaredAt: liveOps.results_declared_at,
+    totalSubmissions,
+    avgScore,
+    avgAccuracy,
+    topScore,
+    rank1Name: topCandidate.name,
+    rank1College: topCandidate.college,
+    pulseStatus: pulseSettings.pulse_status,
+  };
 }
 
 // ── 4. Notification Center ───────────────────────────────────────────────────

@@ -26,7 +26,10 @@ export interface PulseQuestionInput {
   subject: PulseSubject;
   difficulty: PulseDifficulty;
   xp_value: number;
+  time_limit_seconds?: number;
 }
+
+export const DEFAULT_PULSE_QUESTION_TIMER_SECONDS = 60;
 
 export interface PulseSetRecord {
   id: string;
@@ -378,6 +381,7 @@ export function convertToQuizQuestions(questions: PulseQuestionInput[]): PulseQu
       explanation: q.explanation,
       xp: q.xp_value || 50,
       points: q.xp_value || 50,
+      time_limit_seconds: q.time_limit_seconds ? Number(q.time_limit_seconds) : 60,
     };
   });
 }
