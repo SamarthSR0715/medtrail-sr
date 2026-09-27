@@ -113,7 +113,7 @@ export interface HallOfFameData {
 }
 
 // ── Local Fallback Storage Keys ──────────────────────────────────────────────
-const STORAGE_HOF_KEY = "medtrail_championship_hof_v1";
+const STORAGE_HOF_KEY = "medtrail_hall_of_fame_v1";
 const STORAGE_NOTIFS_KEY = "medtrail_championship_notifs_v1";
 
 // ── 1. Dashboard Live Analytics ───────────────────────────────────────────────
@@ -694,21 +694,7 @@ export const DEFAULT_HALL_OF_FAME: HallOfFameData = {
 };
 
 export async function fetchHallOfFameRecord(): Promise<HallOfFameData> {
-  try {
-    const { data, error } = await supabase
-      .from("championship_hall_of_fame")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data) {
-      return data as HallOfFameData;
-    }
-  } catch (err) {
-    console.warn("[SuperAdmin] fetchHallOfFameRecord warning:", err);
-  }
-
-  const cached = safeGetItem(STORAGE_HOF_KEY);
+  const cached = safeGetItem(STORAGE_HOF_KEY) || safeGetItem("medtrail_championship_hof_v1");
   if (cached) {
     try {
       return JSON.parse(cached);
@@ -748,33 +734,9 @@ export async function updateHallOfFameRecord(updates: {
     updated_at: new Date().toISOString(),
   };
 
-  try {
-    const { error } = await supabase
-      .from("championship_hall_of_fame")
-      .upsert({
-        id: "season_1",
-        season_id: merged.season_id,
-        season_title: merged.season_title,
-        champion_name: merged.champion_name,
-        college: merged.college,
-        batch: merged.batch,
-        trophy_id: merged.trophy_id,
-        winner_photo: merged.winner_photo,
-        status: merged.status,
-        final_score: merged.final_score,
-        accuracy_pct: merged.accuracy_pct,
-        streak_days: merged.streak_days,
-        updated_at: merged.updated_at,
-        updated_by: SUPER_ADMIN_EMAIL,
-      });
-
-    if (error) throw error;
-  } catch (err) {
-    console.warn("[SuperAdmin] updateHallOfFameRecord Supabase error:", err);
-  }
-
   // Update local storage
   safeSetItem(STORAGE_HOF_KEY, JSON.stringify(merged));
+  safeSetItem("medtrail_championship_hof_v1", JSON.stringify(merged));
 
   // Broadcast realtime event so the public championship Hall of Fame updates live!
   try {

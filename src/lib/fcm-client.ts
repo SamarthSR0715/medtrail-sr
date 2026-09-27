@@ -23,13 +23,13 @@ export interface DeviceTokenRecord {
 
 // Default MedTrail Firebase Configuration (can be overridden via VITE_ env variables)
 export const FIREBASE_CONFIG = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyMedTrailPublicFCMKey2026Championship",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDOjSkccOKHJJT7to6kA3pAilUGX0gbh9M",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "medtrail-championship.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "medtrail-championship",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "medtrail-championship.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "1083928172641",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:1083928172641:web:d7a8e239bca0921",
-  vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY || "BOHG_q9h98l7sR-MedTrail-Championship-VAPID-Key-2026-FCM-Delivery",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "medtrail-championship.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "542876173177",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:542876173177:web:2ce87eca88f709514ea5a8",
+  vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY || "BDdj15T7hqKXh2QIIGoKRPnypi6EhBSXe--gVJwBjcZgqpOKF2sDll2Ui6I2aLc0ZCWfi0f9O4UHTbfy8kGjoCo",
 };
 
 let cachedApp: FirebaseApp | null = null;

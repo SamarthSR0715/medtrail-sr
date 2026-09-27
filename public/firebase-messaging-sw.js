@@ -8,12 +8,12 @@ importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-com
 
 // Default Firebase Configuration for MedTrail
 const firebaseConfig = {
-  apiKey: "AIzaSyMedTrailPublicFCMKey2026Championship",
+  apiKey: "AIzaSyDOjSkccOKHJJT7to6kA3pAilUGX0gbh9M",
   authDomain: "medtrail-championship.firebaseapp.com",
   projectId: "medtrail-championship",
-  storageBucket: "medtrail-championship.appspot.com",
-  messagingSenderId: "1083928172641",
-  appId: "1:1083928172641:web:d7a8e239bca0921"
+  storageBucket: "medtrail-championship.firebasestorage.app",
+  messagingSenderId: "542876173177",
+  appId: "1:542876173177:web:2ce87eca88f709514ea5a8"
 };
 
 // Initialize Firebase in Service Worker
