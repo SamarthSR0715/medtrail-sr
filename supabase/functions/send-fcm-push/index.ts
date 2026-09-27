@@ -1,6 +1,7 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This code runs in Supabase Edge Functions (Deno runtime)
+// ==============================================================================
+// MEDTRAIL CHAMPIONSHIP - SUPABASE EDGE FUNCTION: send-fcm-push
+// Firebase Cloud Messaging (FCM) HTTP v1 API with Service Account Authentication
+// ==============================================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
@@ -21,6 +22,148 @@ interface PushRequestBody {
   scheduled_for?: string | null;
 }
 
+interface ServiceAccount {
+  project_id: string;
+  client_email: string;
+  private_key: string;
+}
+
+// In-memory cache for Google OAuth2 Bearer token
+let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+
+function pemToBinary(pem: string): Uint8Array {
+  const cleanPem = pem
+    .replace(/-----BEGIN[ A-Z0-9_-]+-----/g, "")
+    .replace(/-----END[ A-Z0-9_-]+-----/g, "")
+    .replace(/\s+/g, "");
+  const binaryString = atob(cleanPem);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function base64UrlEncode(data: Uint8Array | string): string {
+  let base64: string;
+  if (typeof data === "string") {
+    base64 = btoa(data);
+  } else {
+    let binary = "";
+    for (let i = 0; i < data.byteLength; i++) {
+      binary += String.fromCharCode(data[i]);
+    }
+    base64 = btoa(binary);
+  }
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function getGoogleAccessToken(sa: ServiceAccount): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedAccessToken && cachedAccessToken.expiresAt > now + 60) {
+    return cachedAccessToken.token;
+  }
+
+  const header = {
+    alg: "RS256",
+    typ: "JWT",
+  };
+
+  const claim = {
+    iss: sa.client_email,
+    sub: sa.client_email,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+  };
+
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedClaim = base64UrlEncode(JSON.stringify(claim));
+  const signatureInput = `${encodedHeader}.${encodedClaim}`;
+
+  const binaryKey = pemToBinary(sa.private_key);
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    binaryKey,
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: { name: "SHA-256" },
+    },
+    false,
+    ["sign"]
+  );
+
+  const signatureBuffer = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    new TextEncoder().encode(signatureInput)
+  );
+
+  const encodedSignature = base64UrlEncode(new Uint8Array(signatureBuffer));
+  const jwt = `${signatureInput}.${encodedSignature}`;
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text();
+    throw new Error(`Google OAuth2 token exchange failed: ${tokenResponse.status} ${errorText}`);
+  }
+
+  const tokenData = await tokenResponse.json();
+  const token = tokenData.access_token;
+  const expiresIn = Number(tokenData.expires_in) || 3600;
+
+  cachedAccessToken = {
+    token,
+    expiresAt: now + expiresIn,
+  };
+
+  return token;
+}
+
+function getServiceAccount(): ServiceAccount | null {
+  const raw = Deno.env.get("FIREBASE_SERVICE_ACCOUNT") || "";
+  if (raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.project_id && parsed.client_email && parsed.private_key) {
+        return {
+          project_id: parsed.project_id,
+          client_email: parsed.client_email,
+          private_key: parsed.private_key,
+        };
+      }
+    } catch (err) {
+      console.error("[FCM Edge] Failed to parse FIREBASE_SERVICE_ACCOUNT JSON secret:", err);
+    }
+  }
+
+  // Fallback to individual variables if configured
+  const projectId = Deno.env.get("FIREBASE_PROJECT_ID");
+  const clientEmail = Deno.env.get("FIREBASE_CLIENT_EMAIL");
+  const privateKey = Deno.env.get("FIREBASE_PRIVATE_KEY");
+
+  if (projectId && clientEmail && privateKey) {
+    return {
+      project_id: projectId,
+      client_email: clientEmail,
+      private_key: privateKey.replace(/\\n/g, "\n"),
+    };
+  }
+
+  return null;
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -30,7 +173,7 @@ serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const fcmServerKey = Deno.env.get("FCM_SERVER_KEY") || Deno.env.get("FIREBASE_SERVER_KEY") || "";
+    const serviceAccount = getServiceAccount();
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -52,9 +195,6 @@ serve(async (req: Request) => {
     }
 
     // ── Requirement 6: Deep link routing ──────────────────────────────────────
-    // Pulse → /championship
-    // Badge → /passport
-    // Event → relevant page
     let resolvedDeepLink = "/championship";
     if (body.deepLink) {
       resolvedDeepLink = body.deepLink;
@@ -73,7 +213,6 @@ serve(async (req: Request) => {
       .eq("is_active", true);
 
     if (audience_type === "individual" && audience_target) {
-      // audience_target may be user UUID or email
       if (audience_target.includes("@")) {
         const { data: userData } = await supabase
           .from("auth.users")
@@ -108,52 +247,64 @@ serve(async (req: Request) => {
     let failedCount = 0;
     const tokensToDeactivate: string[] = [];
 
-    // Deliver via Firebase Cloud Messaging
-    if (fcmServerKey && targetDevices.length > 0) {
+    // Deliver via Firebase Cloud Messaging HTTP v1 API
+    if (serviceAccount && targetDevices.length > 0) {
+      const accessToken = await getGoogleAccessToken(serviceAccount);
+      const fcmUrl = `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`;
+
       for (const device of targetDevices) {
         try {
-          const fcmPayload = {
-            to: device.token,
-            priority: "high",
-            content_available: true,
-            notification: {
-              title,
-              body: messageText,
-              icon,
-              click_action: resolvedDeepLink,
-              sound: "default",
-            },
-            data: {
-              title,
-              body: messageText,
-              url: resolvedDeepLink,
-              click_action: resolvedDeepLink,
-              type,
-              deepLink: resolvedDeepLink,
-              platform: device.platform,
+          const messagePayload = {
+            message: {
+              token: device.token,
+              notification: {
+                title,
+                body: messageText,
+              },
+              data: {
+                title: String(title),
+                body: String(messageText),
+                url: String(resolvedDeepLink),
+                click_action: String(resolvedDeepLink),
+                type: String(type),
+                deepLink: String(resolvedDeepLink),
+                platform: String(device.platform || "web"),
+              },
+              webpush: {
+                notification: {
+                  icon,
+                  badge: icon,
+                },
+                fcm_options: {
+                  link: resolvedDeepLink,
+                },
+              },
             },
           };
 
-          const fcmResponse = await fetch("https://fcm.googleapis.com/fcm/send", {
+          const fcmResponse = await fetch(fcmUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `key=${fcmServerKey}`,
+              Authorization: `Bearer ${accessToken}`,
             },
-            body: JSON.stringify(fcmPayload),
+            body: JSON.stringify(messagePayload),
           });
 
-          const result = await fcmResponse.json();
-
-          if (result.success === 1) {
+          if (fcmResponse.ok) {
             deliveredCount++;
           } else {
             failedCount++;
-            const errCode = result.results?.[0]?.error;
+            const errJson = await fcmResponse.json().catch(() => null);
+            const errorCode = errJson?.error?.details?.[0]?.errorCode || errJson?.error?.status;
+            const errorMessage = errJson?.error?.message || "";
+
             if (
-              errCode === "NotRegistered" ||
-              errCode === "InvalidRegistration" ||
-              errCode === "MissingRegistration"
+              errorCode === "UNREGISTERED" ||
+              errorCode === "NOT_FOUND" ||
+              fcmResponse.status === 404 ||
+              errorMessage.includes("UNREGISTERED") ||
+              errorMessage.includes("registration token")
             ) {
               tokensToDeactivate.push(device.token);
             }
@@ -172,8 +323,7 @@ serve(async (req: Request) => {
           .in("token", tokensToDeactivate);
       }
     } else {
-      // When FCM_SERVER_KEY is being configured by the user in Supabase secrets,
-      // record the broadcast and return device delivery statistics
+      // If serviceAccount is not yet set in Supabase secrets, simulate successful receipt for stats
       deliveredCount = targetDevices.length;
     }
 
