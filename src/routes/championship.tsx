@@ -4,6 +4,7 @@ import {
   combineDateAndTime,
   formatCompetitionDate,
   formatCompetitionTime,
+  formatTimeTaken,
   type LiveLeaderboardEntry,
   type PulseStatus,
 } from "@/lib/competition-settings-service";
@@ -55,7 +56,6 @@ import {
   getISTDateString,
   registerChampionshipParticipant,
   submitPulseAttempt,
-  convertToQuizQuestions,
   type LiveOpsState,
   type PulseSetRecord,
   type PulseAttemptRecord,
@@ -64,6 +64,10 @@ import {
   type SeasonStatus,
   type TimeWindowState,
 } from "@/lib/championship-service";
+import {
+  fetchTodayPublishedPulse,
+  convertToQuizQuestions,
+} from "@/lib/pulse-admin-service";
 import {
   DEFAULT_HALL_OF_FAME,
   type HallOfFameData,
@@ -403,30 +407,48 @@ function RouteComponent() {
     },
   ], []);
 
-  // Load today's questions and student's attempt safely from local store without 404 queries
-  const loadTodayPulse = useCallback(() => {
+  // Load today's questions and student's attempt safely from Supabase championship_pulse_sets
+  const loadTodayPulse = useCallback(async () => {
     try {
-      const todayStr = getISTDateString();
+      const targetDate = pulseSettings.competition_date || getISTDateString();
       let questionsToUse: PulseQuestion[] = [];
       let setRecord: PulseSetRecord | null = null;
 
+      // 1. Fetch official Admin-published pulse from Supabase (championship_pulse_sets)
       try {
-        const raw = localStorage.getItem("medtrail_admin_pulse_sets_v2");
-        if (raw) {
-          const sets = JSON.parse(raw);
-          const found = sets[todayStr];
-          if (found && found.status === "published" && Array.isArray(found.questions) && found.questions.length > 0) {
-            setRecord = found;
-            questionsToUse = convertToQuizQuestions(found.questions);
+        const publishedPulse = await fetchTodayPublishedPulse(targetDate);
+        if (publishedPulse && Array.isArray(publishedPulse.questions) && publishedPulse.questions.length > 0) {
+          const converted = convertToQuizQuestions(publishedPulse.questions);
+          if (converted.length > 0) {
+            questionsToUse = converted;
+            setRecord = publishedPulse;
           }
         }
-      } catch {}
+      } catch (fetchErr) {
+        console.warn("[Student Pulse] Supabase published pulse fetch notice:", fetchErr);
+      }
 
+      // 2. Check localStorage cache if network fetch returned nothing (offline / fallback)
+      if (questionsToUse.length === 0) {
+        try {
+          const raw = localStorage.getItem("medtrail_admin_pulse_sets_v2");
+          if (raw) {
+            const sets = JSON.parse(raw);
+            const found = sets[targetDate] || sets[getISTDateString()];
+            if (found && found.status === "published" && Array.isArray(found.questions) && found.questions.length > 0) {
+              setRecord = found;
+              questionsToUse = convertToQuizQuestions(found.questions);
+            }
+          }
+        } catch {}
+      }
+
+      // 3. Fallback only if genuinely no published pulse exists
       if (questionsToUse.length === 0) {
         questionsToUse = DEFAULT_PULSE_QUESTIONS;
         setRecord = {
-          id: `pulse-default-${todayStr}`,
-          pulse_date: todayStr,
+          id: `pulse-default-${targetDate}`,
+          pulse_date: targetDate,
           status: "published",
           questions: questionsToUse as any,
           published_at: new Date().toISOString(),
@@ -445,8 +467,8 @@ function RouteComponent() {
           const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
           if (rawAttempts) {
             const attempts = JSON.parse(rawAttempts);
-            const key = `${todayStr}_${studentId}`;
-            const attempt = attempts[key];
+            const key = `${targetDate}_${studentId}`;
+            const attempt = attempts[key] || attempts[`${getISTDateString()}_${studentId}`];
             if (attempt) {
               setHasAttemptedToday(true);
               setTodayAttempt(attempt);
@@ -468,7 +490,7 @@ function RouteComponent() {
     } catch (err) {
       console.warn("[Student Pulse] loadTodayPulse warning:", err);
     }
-  }, [getEffectiveStudentId, DEFAULT_PULSE_QUESTIONS]);
+  }, [pulseSettings.competition_date, getEffectiveStudentId, DEFAULT_PULSE_QUESTIONS]);
 
   // Load pulse questions on mount
   useEffect(() => {
@@ -1846,7 +1868,7 @@ function RouteComponent() {
                                 #{idx + 1}
                               </div>
                               <span className="text-[11px] font-mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                                {student.score.toLocaleString()} PTS
+                                {(student.score ?? 0).toLocaleString()} PTS
                               </span>
                             </div>
 
@@ -1862,7 +1884,7 @@ function RouteComponent() {
                               </div>
                               <div>
                                 <div className="text-[10px] text-slate-400 font-mono">Time</div>
-                                <div className="font-bold text-blue-300 mt-0.5">{formatTimeTaken(student.time_taken_seconds)}</div>
+                                <div className="font-bold text-blue-300 mt-0.5">{formatTimeTaken(student.time_taken_seconds ?? 0)}</div>
                               </div>
                             </div>
                           </div>
@@ -1920,8 +1942,8 @@ function RouteComponent() {
                                 </td>
                                 <td className="py-3 px-4 text-slate-300">{student.institution ?? "—"}</td>
                                 <td className="py-3 px-4 text-center font-mono text-emerald-400 font-semibold">{student.accuracy}%</td>
-                                <td className="py-3 px-4 text-center font-mono text-blue-300 font-semibold">{formatTimeTaken(student.time_taken_seconds)}</td>
-                                <td className="py-3 px-4 text-right font-mono font-bold text-white">{student.score.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-center font-mono text-blue-300 font-semibold">{formatTimeTaken(student.time_taken_seconds ?? 0)}</td>
+                                <td className="py-3 px-4 text-right font-mono font-bold text-white">{(student.score ?? 0).toLocaleString()}</td>
                               </tr>
                             ))}
                           </tbody>
