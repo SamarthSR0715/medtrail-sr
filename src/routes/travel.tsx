@@ -27,6 +27,7 @@ import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { SeatCounter } from "@/components/trips/seat-counter";
 import { RegistrationDialog } from "@/components/trips/registration-dialog";
+import { ExpeditionsLockModal } from "@/components/trips/expeditions-lock-modal";
 import { RAJGAD_TRIP } from "@/lib/trip-service";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -56,6 +57,7 @@ export const Route = createFileRoute("/travel")({
 
 export function MedTrailTripsPage() {
   const { user } = useAuth();
+  const [lockModalOpen, setLockModalOpen] = useState<boolean>(false);
   const [remainingSeats, setRemainingSeats] = useState<number>(RAJGAD_TRIP.totalSeats);
   const [isSoldOut, setIsSoldOut] = useState<boolean>(false);
   const [refreshKey, setRefreshKey] = useState<number>(0);
@@ -91,6 +93,9 @@ export function MedTrailTripsPage() {
                   <span className="glass inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold tracking-wide text-foreground">
                     <Sparkles className="size-3.5 text-amber-500" />
                     MedTrail Trips · Season 2026
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    <Lock className="size-3.5" /> Coming Soon
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
                     <ShieldCheck className="size-3.5" /> For Medical Students
@@ -129,12 +134,13 @@ export function MedTrailTripsPage() {
 
               {/* Primary CTA & Live Seat Counter Trigger */}
               <Reveal delay={300} className="mt-8 flex flex-wrap items-center gap-4">
-                <RegistrationDialog
-                  key={refreshKey}
-                  isSoldOut={isSoldOut}
-                  remainingSeats={remainingSeats}
-                  onSuccess={handleRegisterSuccess}
-                />
+                <button
+                  type="button"
+                  onClick={() => setLockModalOpen(true)}
+                  className="bg-amber-500 hover:bg-amber-600 text-black font-semibold inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm shadow-lg transition-transform hover:scale-[1.02] cursor-pointer"
+                >
+                  <Lock className="size-4" /> Locked · Coming Soon
+                </button>
 
                 <a
                   href="#featured-trip"
@@ -241,16 +247,14 @@ export function MedTrailTripsPage() {
 
               {/* Status Badge */}
               <div>
-                <span
-                  className={
-                    isSoldOut
-                      ? "inline-flex items-center gap-1.5 rounded-full bg-destructive/15 px-4 py-2 text-xs font-bold uppercase tracking-wider text-destructive"
-                      : "inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300"
-                  }
+                <button
+                  type="button"
+                  onClick={() => setLockModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 cursor-pointer hover:bg-amber-500/25 transition-colors"
                 >
-                  <span className="size-2 rounded-full bg-current animate-ping" />
-                  {isSoldOut ? "Sold Out" : RAJGAD_TRIP.statusBadge}
-                </span>
+                  <Lock className="size-3.5" />
+                  Coming Soon
+                </button>
               </div>
             </div>
           </Reveal>
@@ -368,12 +372,13 @@ export function MedTrailTripsPage() {
                         </div>
                       </div>
 
-                      <RegistrationDialog
-                        key={refreshKey + 10}
-                        isSoldOut={isSoldOut}
-                        remainingSeats={remainingSeats}
-                        onSuccess={handleRegisterSuccess}
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setLockModalOpen(true)}
+                        className="bg-amber-500 hover:bg-amber-600 text-black font-semibold inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm shadow-lg transition-transform hover:scale-[1.02] cursor-pointer"
+                      >
+                        <Lock className="size-4" /> Locked · Coming Soon
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -718,12 +723,13 @@ export function MedTrailTripsPage() {
             </p>
 
             <div className="mt-8 flex flex-wrap justify-center gap-4">
-              <RegistrationDialog
-                key={refreshKey + 20}
-                isSoldOut={isSoldOut}
-                remainingSeats={remainingSeats}
-                onSuccess={handleRegisterSuccess}
-              />
+              <button
+                type="button"
+                onClick={() => setLockModalOpen(true)}
+                className="bg-amber-500 hover:bg-amber-600 text-black font-semibold inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm shadow-lg transition-transform hover:scale-[1.02] cursor-pointer"
+              >
+                <Lock className="size-4" /> Locked · Coming Soon
+              </button>
 
               <Link
                 to="/destinations"
@@ -735,6 +741,8 @@ export function MedTrailTripsPage() {
           </Reveal>
         </section>
       </div>
+
+      <ExpeditionsLockModal open={lockModalOpen} onOpenChange={setLockModalOpen} />
     </div>
   );
 }

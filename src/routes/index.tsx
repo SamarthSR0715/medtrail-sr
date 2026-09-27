@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
@@ -5,6 +6,7 @@ import {
   Dumbbell,
   FileText,
   HeartPulse,
+  Lock,
   Mountain,
   Sparkles,
   UserRound,
@@ -12,6 +14,7 @@ import {
 import { Reveal } from "@/components/site/reveal";
 import { SectionHeading } from "@/components/site/section-heading";
 import { realPhotos, travelStats } from "@/lib/travel-content";
+import { ExpeditionsLockModal } from "@/components/trips/expeditions-lock-modal";
 
 const SITE = "https://medtrail-sr.lovable.app";
 const heroImg = realPhotos.pawnaFromTikona;
@@ -82,6 +85,7 @@ const pillars = [
     icon: Mountain,
     title: "MedTrail Trips",
     copy: "One-day Sahyadri treks, fort heritage, and adventures curated for medical students.",
+    locked: true,
   },
   {
     to: "/fitness",
@@ -105,6 +109,8 @@ const stats = [
 ];
 
 function Index() {
+  const [expeditionModalOpen, setExpeditionModalOpen] = useState(false);
+
   return (
     <div className="px-4">
       <section className="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem]">
@@ -150,10 +156,10 @@ function Index() {
                 Study Notes
               </Link>
               <Link
-                to="/travel"
+                to="/championship"
                 className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-transform hover:scale-[1.03]"
               >
-                MedTrail Trips
+                Championship
               </Link>
             </div>
           </Reveal>
@@ -168,21 +174,47 @@ function Index() {
         />
         <div className="mt-12 grid gap-5 sm:grid-cols-2">
           {pillars.map((p, i) => (
-            <Reveal key={p.to} delay={i * 90}>
-              <Link
-                to={p.to}
-                className="glass group flex h-full flex-col rounded-[1.75rem] p-7 transition-all duration-500 hover:-translate-y-1.5"
-              >
-                <span className="bg-gradient-brand flex size-12 items-center justify-center rounded-2xl text-brand-foreground shadow-md">
-                  <p.icon className="size-5.5" aria-hidden="true" />
-                </span>
-                <h3 className="mt-6 text-xl font-semibold">{p.title}</h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{p.copy}</p>
-                <span className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
-                  Enter
-                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
-                </span>
-              </Link>
+            <Reveal key={p.title} delay={i * 90}>
+              {p.locked ? (
+                <button
+                  type="button"
+                  onClick={() => setExpeditionModalOpen(true)}
+                  className="glass group flex h-full w-full flex-col text-left rounded-[1.75rem] p-7 transition-all duration-500 hover:-translate-y-1.5 cursor-pointer relative"
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="bg-gradient-brand flex size-12 items-center justify-center rounded-2xl text-brand-foreground shadow-md">
+                      <p.icon className="size-5.5" aria-hidden="true" />
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 px-3 py-1 text-xs font-semibold text-amber-500 dark:text-amber-400">
+                      <Lock className="size-3.5" aria-hidden="true" />
+                      Coming Soon
+                    </span>
+                  </div>
+                  <h3 className="mt-6 text-xl font-semibold flex items-center gap-2">
+                    {p.title}
+                  </h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{p.copy}</p>
+                  <span className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-amber-500 dark:text-amber-400">
+                    <Lock className="size-4" aria-hidden="true" />
+                    Coming Soon
+                  </span>
+                </button>
+              ) : (
+                <Link
+                  to={p.to}
+                  className="glass group flex h-full flex-col rounded-[1.75rem] p-7 transition-all duration-500 hover:-translate-y-1.5"
+                >
+                  <span className="bg-gradient-brand flex size-12 items-center justify-center rounded-2xl text-brand-foreground shadow-md">
+                    <p.icon className="size-5.5" aria-hidden="true" />
+                  </span>
+                  <h3 className="mt-6 text-xl font-semibold">{p.title}</h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{p.copy}</p>
+                  <span className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+                    Enter
+                    <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+                  </span>
+                </Link>
+              )}
             </Reveal>
           ))}
         </div>
@@ -219,6 +251,8 @@ function Index() {
           </Link>
         </Reveal>
       </section>
+
+      <ExpeditionsLockModal open={expeditionModalOpen} onOpenChange={setExpeditionModalOpen} />
     </div>
   );
 }
