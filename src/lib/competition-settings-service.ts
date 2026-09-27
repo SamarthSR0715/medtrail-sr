@@ -134,10 +134,7 @@ export async function saveCompetitionSetting(
   value: string | null,
   updatedBy?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  // 1. Immediately cache in localStorage for instant UI responsiveness
-  setCachedSetting(key, value);
-
-  // 2. Dispatch custom event so all active components refresh immediately
+  // Dispatch custom event so all active components refresh immediately
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(SETTINGS_EVENT, { detail: { key, value } })
