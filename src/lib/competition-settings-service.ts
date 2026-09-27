@@ -12,14 +12,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import {
-  getPulseSettings,
-  saveSchedule,
-  goLive,
-  pausePulse,
-  endPulse,
-  publishResults,
-} from "@/lib/pulse-service";
+import { getPulseSettings } from "@/lib/pulse-service";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -101,25 +94,52 @@ export async function savePulseSettingsRecord(params: {
   results_published?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    if (params.pulse_status === "live") {
-      return goLive();
-    }
-    if (params.pulse_status === "paused") {
-      return pausePulse();
-    }
-    if (params.pulse_status === "ended") {
-      return endPulse();
+    const payload: Record<string, any> = {};
+
+    if (params.pulse_status !== undefined) {
+      payload.pulse_status = params.pulse_status;
     }
     if (params.results_published !== undefined) {
-      return publishResults();
+      payload.results_published = Boolean(params.results_published);
     }
-    if (params.competition_date !== undefined || params.start_time !== undefined || params.end_time !== undefined) {
-      return saveSchedule({
-        competition_date: params.competition_date ?? null,
-        start_time: params.start_time ?? null,
-        end_time: params.end_time ?? null,
-      });
+    if (params.competition_date !== undefined) {
+      payload.competition_date = params.competition_date
+        ? params.competition_date.split("T")[0]
+        : null;
     }
+    if (params.start_time !== undefined) {
+      payload.start_time = params.start_time ? params.start_time.trim().slice(0, 8) : null;
+    }
+    if (params.end_time !== undefined) {
+      payload.end_time = params.end_time ? params.end_time.trim().slice(0, 8) : null;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return { success: true };
+    }
+
+    // Direct update to existing pulse_settings row
+    const { data: existing } = await (supabase as any)
+      .from("pulse_settings")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    const targetId = existing?.id ?? "singleton";
+    const { error } = await (supabase as any)
+      .from("pulse_settings")
+      .update(payload)
+      .eq("id", targetId);
+
+    if (error) {
+      console.error("[CompetitionSettings] pulse_settings save error:", error);
+      return { success: false, error: error.message };
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: params }));
+    }
+
     return { success: true };
   } catch (err: any) {
     console.error("[CompetitionSettings] save error:", err);
@@ -134,66 +154,67 @@ export async function saveCompetitionSetting(
   value: string | null,
   updatedBy?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  // Dispatch custom event so all active components refresh immediately
+  // 1. Dispatch custom event so all active components refresh immediately
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(SETTINGS_EVENT, { detail: { key, value } })
     );
   }
 
-  // 3. Date / Time fields for pulse_settings are handled strictly via saveSchedule().
-  // pulse_settings is NEVER written directly here.
+  // 2. Map supported settings directly to the existing pulse_settings row
+  const payload: Record<string, any> = {};
 
-
-  // 4. Persist to Supabase app_settings
-  let supabaseSuccess = false;
-  let lastError: any = null;
-
-  try {
-    const { error: appErr } = await (supabase as any)
-      .from("app_settings")
-      .upsert(
-        { key, value, updated_at: new Date().toISOString() },
-        { onConflict: "key" }
-      );
-
-    if (!appErr) {
-      supabaseSuccess = true;
-    } else {
-      // Retry with just { key, value } in case updated_at column does not exist
-      const { error: retryErr } = await (supabase as any)
-        .from("app_settings")
-        .upsert({ key, value }, { onConflict: "key" });
-
-      if (!retryErr) {
-        supabaseSuccess = true;
-      } else {
-        lastError = retryErr;
+  if (key === "competition_date") {
+    payload.competition_date = value ? value.split("T")[0] : null;
+    if (value && value.includes("T")) {
+      const timePart = value.split("T")[1]?.trim().slice(0, 5);
+      if (timePart) {
+        payload.start_time = timePart;
       }
     }
-  } catch (err) {
-    lastError = err;
+  } else if (key === "competition_end_date") {
+    if (value && value.includes("T")) {
+      const timePart = value.split("T")[1]?.trim().slice(0, 5);
+      if (timePart) {
+        payload.end_time = timePart;
+      }
+    } else if (value) {
+      payload.end_time = value.trim().slice(0, 5);
+    } else {
+      payload.end_time = "23:59";
+    }
+  } else if (key === "start_time") {
+    payload.start_time = value ? value.trim().slice(0, 8) : "19:00";
+  } else if (key === "end_time") {
+    payload.end_time = value ? value.trim().slice(0, 8) : "23:59";
+  } else if (key === "pulse_status") {
+    payload.pulse_status = (value as PulseStatus) || "upcoming";
+  } else if (key === "results_published") {
+    payload.results_published = value === "true" || value === true;
   }
 
-  // 5. Also mirror to championship_settings as secondary persistence
-  try {
-    await (supabase as any)
-      .from("championship_settings")
-      .upsert(
-        {
-          key,
-          value,
-          updated_at: new Date().toISOString(),
-          updated_by: updatedBy ?? null,
-        },
-        { onConflict: "key" }
-      );
-  } catch {
-    // Ignore secondary table mirror error
-  }
+  if (Object.keys(payload).length > 0) {
+    try {
+      const { data: existing } = await (supabase as any)
+        .from("pulse_settings")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
 
-  if (lastError && !supabaseSuccess) {
-    console.warn("[CompetitionSettings] Supabase write warning:", lastError);
+      const targetId = existing?.id ?? "singleton";
+      const { error } = await (supabase as any)
+        .from("pulse_settings")
+        .update(payload)
+        .eq("id", targetId);
+
+      if (error) {
+        console.error("[CompetitionSettings] pulse_settings save error:", error);
+        return { success: false, error: error.message };
+      }
+    } catch (err: any) {
+      console.error("[CompetitionSettings] pulse_settings save exception:", err);
+      return { success: false, error: err?.message || String(err) };
+    }
   }
 
   return { success: true };
