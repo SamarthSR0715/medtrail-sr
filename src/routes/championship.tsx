@@ -521,14 +521,20 @@ function RouteComponent() {
       setTodayQuestions(questionsToUse);
 
       // Check student's single daily attempt in Supabase (Enforce One Attempt Only)
-      const studentId = getEffectiveStudentId();
-      if (studentId || user?.id || user?.email || regEmail) {
+      // IMPORTANT: Always use today's IST date as the authoritative pulse date for the check,
+      // not pulseSettings.competition_date which may be stale or set to a different day.
+      const todayIST = getISTDateString();
+      const dbUserId = user?.id || null;  // Only auth UUID is valid for DB operations
+      const dbUserEmail = user?.email || regEmail || null;
+
+      if (dbUserId || dbUserEmail) {
         try {
           const remoteCheck = await fetchStudentExistingAttempt({
-            userId: user?.id || studentId,
-            userEmail: user?.email || regEmail,
+            userId: dbUserId,
+            userEmail: dbUserEmail,
             pulseId: setRecord?.id,
-            pulseDate: targetDate,
+            // Check both today's IST date AND the configured competition_date to catch all cases
+            pulseDate: todayIST,
           });
 
           if (remoteCheck.hasSubmitted && remoteCheck.attempt) {
@@ -544,12 +550,16 @@ function RouteComponent() {
               xp: Number(attempt.xp ?? attempt.xp_earned ?? 0),
             });
           } else {
-            // Local fallback check
+            // Local fallback check (only as secondary guard, not primary)
+            const studentId = getEffectiveStudentId();
             const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
             if (rawAttempts) {
               const attempts = JSON.parse(rawAttempts);
-              const key = `${targetDate}_${studentId}`;
-              const attempt = attempts[key] || attempts[`${getISTDateString()}_${studentId}`];
+              // Check both today's date and competition_date keys
+              const attempt =
+                attempts[`${todayIST}_${dbUserId || dbUserEmail}`] ||
+                attempts[`${todayIST}_${studentId}`] ||
+                attempts[`${targetDate}_${studentId}`];
               if (attempt) {
                 setHasAttemptedToday(true);
                 setTodayAttempt(attempt);
@@ -1028,6 +1038,15 @@ function RouteComponent() {
 
     setTimeout(async () => {
       if (isLast) {
+        // Guard: require authenticated user to persist to DB
+        // Non-authenticated users cannot have their attempt stored with a valid UUID
+        if (!user?.id) {
+          toast.error("Please log in to submit your Pulse attempt and appear on the leaderboard.");
+          setHasAttemptedToday(true);
+          setQuizFinished(true);
+          return;
+        }
+
         let correctCount = 0;
         let earnedScore = 0;
         let earnedXP = 0;
@@ -1042,12 +1061,13 @@ function RouteComponent() {
 
         const accuracy = Math.round((correctCount / todayQuestions.length) * 100);
         const timeTaken = Math.round((Date.now() - quizStartTime) / 1000);
-        const todayStr = publishedPulseSet?.pulse_date || getISTDateString();
-        const studentId = getEffectiveStudentId();
-        const effectiveUserId = user?.id || studentId;
+        // Always use today's IST date as the authoritative date — not competition_date
+        const todayStr = getISTDateString();
         const pulseId = publishedPulseSet?.id || `pulse_${todayStr}`;
-        const studentEmail = user?.email || regEmail || null;
-        const studentName = regName || user?.user_metadata?.full_name || "Doctor";
+        // CRITICAL: use user?.id (UUID) as the DB user identifier — not studentId (email string)
+        const dbUserId = user.id;
+        const studentEmail = user.email || regEmail || null;
+        const studentName = regName || user.user_metadata?.full_name || "Doctor";
         const studentCollege = regCollege || "Medical College";
         const studentBatch = regBatch || "2026 Batch → Freshers";
 
@@ -1055,7 +1075,7 @@ function RouteComponent() {
         const atomicRes = await submitPulseAttemptAtomic({
           pulseId,
           pulseDate: todayStr,
-          userId: effectiveUserId,
+          userId: dbUserId,
           userEmail: studentEmail,
           studentName,
           college: studentCollege,
@@ -1080,19 +1100,22 @@ function RouteComponent() {
 
         if (atomicRes.alreadySubmitted) {
           toast.error("You have already submitted this Pulse. Only 1 attempt is permitted.");
+        } else if (!atomicRes.success) {
+          toast.error(atomicRes.message || "Failed to submit Pulse. Please try again.");
         } else {
           toast.success("Pulse submitted successfully! Leaderboard & standings updated.");
         }
 
         // Cache attempt record locally for instant UI restoration across reloads
+        // Key uses dbUserId so the check in loadTodayPulse matches
         try {
           const attemptRecord: PulseAttemptRecord = {
-            id: atomicRes.attemptId || `att-${todayStr}-${studentId}`,
+            id: atomicRes.attemptId || `att-${todayStr}-${dbUserId}`,
             pulse_set_id: pulseId,
             pulse_date: todayStr,
-            user_id: effectiveUserId,
+            user_id: dbUserId,
             user_email: studentEmail || undefined,
-            participant_id: studentId,
+            participant_id: dbUserId,
             score: finalScore,
             accuracy: finalAccuracy,
             xp: finalXP,
@@ -1103,8 +1126,9 @@ function RouteComponent() {
           };
           const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
           const localAttempts = JSON.parse(rawAttempts || "{}");
-          const key = `${todayStr}_${studentId}`;
-          localAttempts[key] = attemptRecord;
+          // Store under both possible key formats for resilience
+          localAttempts[`${todayStr}_${dbUserId}`] = attemptRecord;
+          localAttempts[`${todayStr}_${studentEmail}`] = attemptRecord;
           localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(localAttempts));
           setTodayAttempt(attemptRecord);
         } catch (e) {

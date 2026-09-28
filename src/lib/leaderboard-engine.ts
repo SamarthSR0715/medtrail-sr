@@ -240,22 +240,8 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
       console.warn("[LeaderboardEngine] championship_leaderboard query notice:", lbErr);
     }
 
-    // Fallback: If candidate pulse query returned 0 rows, check overall championship_leaderboard
-    if (!lbData || lbData.length === 0) {
-      let fallbackQuery = (supabase as any)
-        .from("championship_leaderboard")
-        .select("*")
-        .order("rank", { ascending: true });
-
-      if (!params?.isAdmin) {
-        fallbackQuery = fallbackQuery.limit(5);
-      }
-
-      const { data: fbData } = await fallbackQuery;
-      if (fbData && fbData.length > 0) {
-        lbData = fbData;
-      }
-    }
+    // NOTE: No unfiltered fallback — if today's pulse has no submissions yet, return empty.
+    // Previously this fallback returned all-time rows (e.g. "Test 1", "Test 2") which is wrong.
 
     // Map rows directly from SQL table
     const entries: LeaderboardStudentEntry[] = (lbData || []).map((row: any, idx: number) => {
@@ -364,15 +350,7 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
 
     let { data: collegeRows } = await collegeQuery;
 
-    if (!collegeRows || collegeRows.length === 0) {
-      const { data: fbColleges } = await (supabase as any)
-        .from("championship_college_standings")
-        .select("*")
-        .order("rank", { ascending: true });
-      if (fbColleges && fbColleges.length > 0) {
-        collegeRows = fbColleges;
-      }
-    }
+    // No unfiltered college fallback — return empty if no data for today's pulse.
 
     const collegeRankings: DynamicCollegeRankItem[] = (collegeRows || []).map((c: any, idx: number) => ({
       rank: c.rank ?? idx + 1,
@@ -401,15 +379,7 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
 
     let { data: batchRows } = await batchQuery;
 
-    if (!batchRows || batchRows.length === 0) {
-      const { data: fbBatches } = await (supabase as any)
-        .from("championship_batch_standings")
-        .select("*")
-        .order("rank", { ascending: true });
-      if (fbBatches && fbBatches.length > 0) {
-        batchRows = fbBatches;
-      }
-    }
+    // No unfiltered batch fallback — return empty if no data for today's pulse.
 
     const batchRankings: DynamicBatchRankItem[] = (batchRows || []).map((b: any, idx: number) => {
       const batchName = b.batch;
