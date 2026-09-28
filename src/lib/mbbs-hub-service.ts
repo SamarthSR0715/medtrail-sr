@@ -1163,18 +1163,38 @@ export async function deleteExam(id: string, userId: string): Promise<void> {
 
 export { fetchNotes, resolvePdfUrl } from "@/lib/notes-service";
 
-export async function createNote(userId: string, note: Partial<Note>): Promise<Note> {
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function createNote(
+  userIdOrNote: string | Partial<Note>,
+  maybeNote?: Partial<Note>
+): Promise<Note> {
+  const note: Partial<Note> =
+    typeof userIdOrNote === "object" && userIdOrNote !== null
+      ? userIdOrNote
+      : maybeNote || {};
+
   try {
+    const title = (note.title || "").trim();
+    const content = note.content ? note.content.trim() : null;
+    const rawSubjectId =
+      note.subject_id && typeof note.subject_id === "string" ? note.subject_id.trim() : null;
+    const subject_id = rawSubjectId && UUID_REGEX.test(rawSubjectId) ? rawSubjectId : null;
+
+    // Remove "id" and "user_id" from the insert payload
+    // user_id is populated automatically by Supabase default auth.uid() and RLS policies
     const payload: any = {
-      user_id: userId,
-      subject_id: note.subject_id && note.subject_id.trim() ? note.subject_id.trim() : null,
-      title: note.title!.trim(),
-      content: note.content ? note.content.trim() : null,
-      pdf_url: note.pdf_url ? note.pdf_url.trim() : null,
+      title,
+      subject_id,
+      content,
     };
 
+    if (note.pdf_url && note.pdf_url.trim()) {
+      payload.pdf_url = note.pdf_url.trim();
+    }
+
     const { data, error } = await (supabase.from("notes") as any)
-      .insert([payload])
+      .insert(payload)
       .select()
       .maybeSingle();
 
@@ -1185,17 +1205,17 @@ export async function createNote(userId: string, note: Partial<Note>): Promise<N
 
     const row = data!;
     return {
-      id: row.id,
-      user_id: row.user_id,
-      title: row.title,
-      content: row.content || "",
-      description: row.description || row.content || null,
-      subject_id: row.subject_id || null,
+      id: row?.id || "note_" + Date.now(),
+      user_id: row?.user_id,
+      title: row?.title || title,
+      content: row?.content || content || "",
+      description: row?.description || row?.content || content || null,
+      subject_id: row?.subject_id || subject_id,
       subject_name: note.subject_name || null,
       subject: note.subject || note.subject_name || null,
-      pdf_url: row.pdf_url || null,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
+      pdf_url: row?.pdf_url || note.pdf_url || null,
+      created_at: row?.created_at || new Date().toISOString(),
+      updated_at: row?.updated_at || new Date().toISOString(),
     };
   } catch (err: any) {
     console.error("[MBBSService] createNote exception:", err);
@@ -1214,13 +1234,17 @@ export async function updateNote(
     if (updates.content !== undefined) payload.content = updates.content ? updates.content.trim() : null;
     if (updates.pdf_url !== undefined) payload.pdf_url = updates.pdf_url ? updates.pdf_url.trim() : null;
     if (updates.subject_id !== undefined) {
-      payload.subject_id = updates.subject_id && updates.subject_id.trim() ? updates.subject_id.trim() : null;
+      const rawSub =
+        updates.subject_id && typeof updates.subject_id === "string" ? updates.subject_id.trim() : null;
+      payload.subject_id = rawSub && UUID_REGEX.test(rawSub) ? rawSub : null;
     }
 
-    const { error } = await (supabase.from("notes") as any)
-      .update(payload)
-      .eq("id", id)
-      .eq("user_id", userId);
+    let query = (supabase.from("notes") as any).update(payload).eq("id", id);
+    if (userId && UUID_REGEX.test(userId)) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error("[MBBSService] updateNote error:", error);
@@ -1234,11 +1258,12 @@ export async function updateNote(
 
 export async function deleteNote(id: string, userId: string): Promise<void> {
   try {
-    const { error } = await supabase
-      .from("notes")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", userId);
+    let query = supabase.from("notes").delete().eq("id", id);
+    if (userId && UUID_REGEX.test(userId)) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error("[MBBSService] deleteNote error:", error);
