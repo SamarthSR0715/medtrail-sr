@@ -487,8 +487,11 @@ export async function submitPulseAttemptAtomic(params: {
     }
 
     if (rpcError) {
-      console.warn("[ChampionshipService] submit_pulse_attempt_atomic RPC warning:", rpcError);
-      // Check if error is due to unique violation
+      console.error(
+        "[ChampionshipService] submit_pulse_attempt_atomic RPC error:",
+        JSON.stringify({ code: rpcError.code, message: rpcError.message, details: rpcError.details, hint: rpcError.hint })
+      );
+      // Unique violation / already submitted
       if (
         rpcError.code === "23505" ||
         rpcError.message?.toLowerCase().includes("unique") ||
@@ -504,9 +507,20 @@ export async function submitPulseAttemptAtomic(params: {
           message: "You have already submitted this Pulse.",
         };
       }
+      // Any other RPC error: return immediately — do NOT fall through to the fallback INSERT.
+      // Falling through would mask the real error and attempt a second failing DB call.
+      return {
+        success: false,
+        alreadySubmitted: false,
+        score,
+        accuracy,
+        xp,
+        correctCount,
+        message: rpcError.message || "Pulse submission failed",
+      };
     }
   } catch (err: any) {
-    console.warn("[ChampionshipService] submit_pulse_attempt_atomic exception:", err);
+    console.error("[ChampionshipService] submit_pulse_attempt_atomic exception:", err);
   }
 
   // 2. Direct Fallback insert into championship_pulse_attempts (stores all 8 permanent fields)
