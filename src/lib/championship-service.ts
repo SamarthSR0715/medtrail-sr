@@ -427,9 +427,17 @@ export async function submitPulseAttemptAtomic(params: {
     timeTakenSeconds,
   } = params;
 
+  const cleanAnswers = Array.isArray(answers)
+    ? answers.map((a) =>
+        typeof a === "number" && !Number.isNaN(a)
+          ? Math.floor(a)
+          : -1
+      )
+    : [];
+
   let correctCount = 0;
   questions.forEach((q, i) => {
-    if (answers[i] === q.correctIndex) {
+    if (cleanAnswers[i] === q.correctIndex) {
       correctCount++;
     }
   });
@@ -456,9 +464,17 @@ export async function submitPulseAttemptAtomic(params: {
         p_accuracy: accuracy,
         p_time_taken_seconds: timeTakenSeconds,
         p_xp: xp,
-        p_answers: answers,
+        p_answers: cleanAnswers,
       }
     );
+
+    console.log("[PULSE RPC RETURN]", {
+      success: rpcData?.success,
+      alreadySubmitted: rpcData?.already_submitted,
+      attemptId: rpcData?.attempt_id,
+      rpcErrorCode: rpcError?.code,
+      rpcErrorMessage: rpcError?.message,
+    });
 
     if (!rpcError && rpcData) {
       if (rpcData.already_submitted) {
@@ -487,10 +503,12 @@ export async function submitPulseAttemptAtomic(params: {
     }
 
     if (rpcError) {
-      console.error(
-        "[ChampionshipService] submit_pulse_attempt_atomic RPC error:",
-        JSON.stringify({ code: rpcError.code, message: rpcError.message, details: rpcError.details, hint: rpcError.hint })
-      );
+      console.error("[ChampionshipService] submit_pulse_attempt_atomic RPC error:", {
+        code: rpcError.code,
+        message: rpcError.message,
+        details: rpcError.details,
+        hint: rpcError.hint,
+      });
       // Unique violation / already submitted
       if (
         rpcError.code === "23505" ||
@@ -520,7 +538,22 @@ export async function submitPulseAttemptAtomic(params: {
       };
     }
   } catch (err: any) {
-    console.error("[ChampionshipService] submit_pulse_attempt_atomic exception:", err);
+    console.error("[ChampionshipService] submit_pulse_attempt_atomic exception:", {
+      userId,
+      pulseId,
+      pulseDate,
+      errName: err?.name,
+      errMessage: err?.message,
+    });
+    return {
+      success: false,
+      alreadySubmitted: false,
+      score,
+      accuracy,
+      xp,
+      correctCount,
+      message: err?.message || "Pulse submission failed",
+    };
   }
 
   // 2. Direct Fallback insert into championship_pulse_attempts (stores all 8 permanent fields)

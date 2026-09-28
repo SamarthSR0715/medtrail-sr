@@ -888,6 +888,11 @@ function RouteComponent() {
     }
 
     setIsSubmittingReg(true);
+    console.log("[LIVE OPS REGISTER START]", {
+      userId: user?.id || null,
+      pulseId: publishedPulseSet?.id || `pulse_${getISTDateString()}`,
+      pulseDate: getISTDateString(),
+    });
     try {
       const result = await registerChampionshipParticipant({
         fullName: regName.trim(),
@@ -895,6 +900,12 @@ function RouteComponent() {
         batch: regBatch,
         passportId: regPassportId.trim() || undefined,
         email: effectiveEmail,
+      });
+
+      console.log("[LIVE OPS REGISTER RESULT]", {
+        success: result.success,
+        errorCode: result.error ? "REG_FAIL" : null,
+        errorMessage: result.message || null,
       });
 
       // Prevent duplicate registration using the same email
@@ -1018,12 +1029,23 @@ function RouteComponent() {
 
     if (hasSubmittedAnswerRef.current) return;
 
-    // Determine final choice (autoOption on timeout or manual selectedOption)
-    const finalChoice = autoOption !== undefined ? autoOption : selectedOption;
-    if (finalChoice === null && autoOption === undefined) return;
+    // Defensively accept ONLY number, null, or undefined (ignore any React/DOM events)
+    const cleanAutoOption =
+      typeof autoOption === "number" && !Number.isNaN(autoOption)
+        ? autoOption
+        : autoOption === null
+        ? null
+        : undefined;
 
-    // -1 denotes timed out / unanswered question
-    const answerToRecord = finalChoice !== null && finalChoice !== undefined ? finalChoice : -1;
+    // Determine final choice (autoOption on timeout or manual selectedOption)
+    const finalChoice = cleanAutoOption !== undefined ? cleanAutoOption : selectedOption;
+    if (finalChoice === null || finalChoice === undefined) return;
+
+    // -1 denotes timed out / unanswered question; otherwise guarantee integer
+    const answerToRecord =
+      typeof finalChoice === "number" && !Number.isNaN(finalChoice)
+        ? Math.floor(finalChoice)
+        : -1;
     hasSubmittedAnswerRef.current = true;
     setHasSubmittedAnswer(true);
 
@@ -1042,17 +1064,21 @@ function RouteComponent() {
         // Non-authenticated users cannot have their attempt stored with a valid UUID
         if (!user?.id) {
           toast.error("Please log in to submit your Pulse attempt and appear on the leaderboard.");
-          setHasAttemptedToday(true);
-          setQuizFinished(true);
+          hasSubmittedAnswerRef.current = false;
+          setHasSubmittedAnswer(false);
           return;
         }
+
+        const cleanNumericAnswers = newAnswers.map((a) =>
+          typeof a === "number" && !Number.isNaN(a) ? Math.floor(a) : -1
+        );
 
         let correctCount = 0;
         let earnedScore = 0;
         let earnedXP = 0;
 
         todayQuestions.forEach((q, i) => {
-          if (newAnswers[i] === q.correctIndex) {
+          if (cleanNumericAnswers[i] === q.correctIndex) {
             correctCount++;
             earnedScore += q.points;
             earnedXP += q.xp;
@@ -1072,6 +1098,12 @@ function RouteComponent() {
         const studentBatch = regBatch || "2026 Batch → Freshers";
 
         // Atomic submission to Supabase: enforces One Attempt Only & triggers standings recalculation
+        console.log("[PULSE SUBMIT START]", {
+          userId: dbUserId,
+          pulseId,
+          pulseDate: todayStr,
+        });
+
         const atomicRes = await submitPulseAttemptAtomic({
           pulseId,
           pulseDate: todayStr,
@@ -1080,9 +1112,37 @@ function RouteComponent() {
           studentName,
           college: studentCollege,
           batch: studentBatch,
-          answers: newAnswers,
+          answers: cleanNumericAnswers,
           questions: todayQuestions,
           timeTakenSeconds: timeTaken,
+        });
+
+        console.log("[PULSE ATOMIC RESULT]", {
+          success: atomicRes?.success,
+          alreadySubmitted: atomicRes?.alreadySubmitted,
+          attemptId: atomicRes?.attemptId,
+        });
+
+        // 1. If already submitted, lock the UI and block further attempts
+        if (atomicRes.alreadySubmitted) {
+          setHasAttemptedToday(true);
+          setQuizFinished(true);
+          toast.error("You have already submitted this Pulse. Only 1 attempt is permitted.");
+          return;
+        }
+
+        // 2. If submission failed, DO NOT mark completed. Reset state so student can retry.
+        if (!atomicRes.success) {
+          hasSubmittedAnswerRef.current = false;
+          setHasSubmittedAnswer(false);
+          toast.error(atomicRes.message || "Failed to submit Pulse. Please try again.");
+          return;
+        }
+
+        // 3. ONLY when success === true:
+        console.log("[PULSE COMPLETION STATE]", {
+          success: atomicRes?.success,
+          alreadySubmitted: atomicRes?.alreadySubmitted,
         });
 
         setHasAttemptedToday(true);
@@ -1098,37 +1158,27 @@ function RouteComponent() {
           xp: finalXP,
         });
 
-        if (atomicRes.alreadySubmitted) {
-          toast.error("You have already submitted this Pulse. Only 1 attempt is permitted.");
-        } else if (!atomicRes.success) {
-          toast.error(atomicRes.message || "Failed to submit Pulse. Please try again.");
-        } else {
-          toast.success("Pulse submitted successfully! Leaderboard & standings updated.");
-        }
+        toast.success("Pulse submitted successfully! Leaderboard & standings updated.");
 
         // Cache attempt record locally for instant UI restoration across reloads
-        // Key uses dbUserId so the check in loadTodayPulse matches
+        // Store only safe, serializable primitive attempt data and numeric answers
         try {
           const attemptRecord: PulseAttemptRecord = {
             id: atomicRes.attemptId || `att-${todayStr}-${dbUserId}`,
-            pulse_set_id: pulseId,
             pulse_date: todayStr,
             user_id: dbUserId,
-            user_email: studentEmail || undefined,
-            participant_id: dbUserId,
             score: finalScore,
             accuracy: finalAccuracy,
-            xp: finalXP,
-            time_taken_seconds: timeTaken,
-            answers: newAnswers,
+            xp_earned: finalXP,
+            answers: cleanNumericAnswers,
             completed_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
           };
           const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
           const localAttempts = JSON.parse(rawAttempts || "{}");
-          // Store under both possible key formats for resilience
           localAttempts[`${todayStr}_${dbUserId}`] = attemptRecord;
-          localAttempts[`${todayStr}_${studentEmail}`] = attemptRecord;
+          if (studentEmail) {
+            localAttempts[`${todayStr}_${studentEmail}`] = attemptRecord;
+          }
           localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(localAttempts));
           setTodayAttempt(attemptRecord);
         } catch (e) {
@@ -1138,7 +1188,7 @@ function RouteComponent() {
         // Also notify client pulse service state
         await submitPulseAttempt({
           slot: 1,
-          answers: newAnswers,
+          answers: cleanNumericAnswers,
           questions: todayQuestions,
           timeTakenSeconds: timeTaken,
         });
@@ -2926,7 +2976,7 @@ function RouteComponent() {
                 <div className="pt-2">
                   <button
                     disabled={hasAttemptedToday || selectedOption === null || hasSubmittedAnswer}
-                    onClick={handleSubmitQuestion}
+                    onClick={() => handleSubmitQuestion()}
                     className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider transition"
                   >
                     {hasAttemptedToday
