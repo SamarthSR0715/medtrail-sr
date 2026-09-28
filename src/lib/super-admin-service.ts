@@ -194,7 +194,7 @@ export async function fetchSuperAdminDashboardStats(): Promise<SuperAdminDashboa
 
   const finalTotalUsers = Math.max(profilesCount, registeredCount + 142);
   const finalColleges = Math.max(collegeSet.size, registeredCount > 0 ? collegeSet.size : 12);
-  const finalPulsesDone = Math.max(attemptsCount, (registeredCount || 10) * 3 + 45);
+  const finalPulsesDone = attemptsCount;
 
   return {
     totalUsers: finalTotalUsers,

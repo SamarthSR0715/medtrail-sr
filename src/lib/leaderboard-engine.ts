@@ -54,7 +54,7 @@ export interface LeaderboardCalculationResult {
 }
 
 /**
- * Standard 4-Tier Sorting for MedTrail Leaderboard:
+ * Standard 4-Tier Sorting for MedTrail Leaderboard (maintained for export compatibility):
  * 1. Highest Score (score DESC)
  * 2. Highest Accuracy (accuracy DESC)
  * 3. Lowest Time Taken (time_taken_seconds ASC)
@@ -64,27 +64,23 @@ export function compareLeaderboardEntries(
   a: { score: number; accuracy: number; time_taken_seconds: number; submitted_at: string | null },
   b: { score: number; accuracy: number; time_taken_seconds: number; submitted_at: string | null }
 ): number {
-  // 1. Highest Score
   const scoreDiff = Number(b.score ?? 0) - Number(a.score ?? 0);
   if (scoreDiff !== 0) return scoreDiff;
 
-  // 2. Highest Accuracy
   const accDiff = Number(b.accuracy ?? 0) - Number(a.accuracy ?? 0);
   if (accDiff !== 0) return accDiff;
 
-  // 3. Lowest Time Taken
   const timeA = Number(a.time_taken_seconds ?? 0);
   const timeB = Number(b.time_taken_seconds ?? 0);
   if (timeA !== timeB) return timeA - timeB;
 
-  // 4. Earliest Submission
   const dateA = new Date(a.submitted_at || 0).getTime();
   const dateB = new Date(b.submitted_at || 0).getTime();
   return dateA - dateB;
 }
 
 /**
- * Helper to compute correct and wrong answers from an attempt and the pulse set questions.
+ * Helper to compute correct and wrong answers (maintained for export compatibility).
  */
 export function calculateAttemptMetrics(
   attempt: any,
@@ -113,7 +109,6 @@ export function calculateAttemptMetrics(
       const q = questions[idx];
       if (!q) return;
 
-      // Extract correct option index (0..3)
       let correctIdx = -1;
       if (typeof q.correctIndex === "number") {
         correctIdx = q.correctIndex;
@@ -122,7 +117,6 @@ export function calculateAttemptMetrics(
         correctIdx = letterMap[q.correct_answer.trim()] ?? -1;
       }
 
-      // Extract user chosen option index (0..3)
       let userIdx = -1;
       if (typeof ans === "number") {
         userIdx = ans;
@@ -146,7 +140,6 @@ export function calculateAttemptMetrics(
       }
     });
   } else {
-    // If questions or answers aren't detailed, calculate from accuracy %
     const acc = Number(attempt.accuracy ?? 0);
     correctCount = Math.round((acc / 100) * totalQuestions);
   }
@@ -166,8 +159,13 @@ export function calculateAttemptMetrics(
 }
 
 /**
- * Fetch dynamic leaderboard strictly from championship_pulse_attempts
- * filtered by the current pulse_set_id only.
+ * Fetch leaderboard strictly from SQL standings tables as the single source of truth:
+ * - Public Top 5 reads ONLY from championship_leaderboard (limited to 5 for students)
+ * - Admin reads complete leaderboard from championship_leaderboard
+ * - Student self result reads only the logged-in user's row from championship_leaderboard
+ * - College rankings read championship_college_standings
+ * - MBBS batch rankings read championship_batch_standings
+ * - Zero client-side ranking recalculations
  */
 export async function fetchLeaderboardForCurrentPulse(params?: {
   pulseSetId?: string | null;
@@ -180,41 +178,14 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
   try {
     let resolvedSetId = params?.pulseSetId || null;
     let resolvedDate = params?.pulseDate || null;
-    let pulseQuestions: any[] = [];
 
-    // 1. Resolve current pulse set from championship_pulse_sets
-    if (resolvedSetId) {
-      const { data: setById } = await (supabase as any)
-        .from("championship_pulse_sets")
-        .select("*")
-        .eq("id", resolvedSetId)
-        .maybeSingle();
-
-      if (setById) {
-        resolvedDate = setById.pulse_date;
-        pulseQuestions = Array.isArray(setById.questions) ? setById.questions : [];
-      } else if (/^\d{4}-\d{2}-\d{2}$/.test(resolvedSetId)) {
-        // If passed as date
-        resolvedDate = resolvedSetId;
-        const { data: setByDate } = await (supabase as any)
-          .from("championship_pulse_sets")
-          .select("*")
-          .eq("pulse_date", resolvedDate)
-          .maybeSingle();
-        if (setByDate) {
-          resolvedSetId = setByDate.id;
-          pulseQuestions = Array.isArray(setByDate.questions) ? setByDate.questions : [];
-        }
-      }
-    }
-
+    // 1. Resolve pulse date & pulse set ID if not provided
     if (!resolvedDate) {
-      // Check pulse_settings single source of truth
       try {
         const { data: pSettings } = await (supabase as any)
           .from("pulse_settings")
           .select("competition_date")
-          .eq("id", 1)
+          .limit(1)
           .maybeSingle();
 
         if (pSettings?.competition_date) {
@@ -223,292 +194,242 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
       } catch {}
     }
 
-    if (!resolvedDate) {
-      // Find latest published set
-      const { data: latestSet } = await (supabase as any)
-        .from("championship_pulse_sets")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (latestSet) {
-        resolvedSetId = latestSet.id;
-        resolvedDate = latestSet.pulse_date;
-        pulseQuestions = Array.isArray(latestSet.questions) ? latestSet.questions : [];
-      }
-    } else if (!resolvedSetId || pulseQuestions.length === 0) {
-      const { data: setByDate } = await (supabase as any)
-        .from("championship_pulse_sets")
-        .select("*")
-        .eq("pulse_date", resolvedDate)
-        .maybeSingle();
-
-      if (setByDate) {
-        resolvedSetId = setByDate.id;
-        pulseQuestions = Array.isArray(setByDate.questions) ? setByDate.questions : [];
-      }
-    }
-
-    // 2. Query championship_pulse_attempts strictly for the current pulse set
-    let attemptsQuery = (supabase as any).from("championship_pulse_attempts").select("*");
-    if (resolvedDate && resolvedSetId) {
-      attemptsQuery = attemptsQuery.or(`pulse_date.eq.${resolvedDate},pulse_id.eq.${resolvedSetId}`);
-    } else if (resolvedDate) {
-      attemptsQuery = attemptsQuery.or(`pulse_date.eq.${resolvedDate},pulse_id.eq.${resolvedDate}`);
-    } else if (resolvedSetId) {
-      attemptsQuery = attemptsQuery.eq("pulse_id", resolvedSetId);
-    }
-    const { data: rawAttempts, error: attemptsError } = await attemptsQuery;
-
-    if (attemptsError) {
-      console.warn("[LeaderboardEngine] championship_pulse_attempts query warning:", attemptsError);
-    }
-
-    let attemptsList: any[] = Array.isArray(rawAttempts) ? [...rawAttempts] : [];
-
-    // Check localStorage for student's local attempt if client-side
-    if (typeof window !== "undefined") {
+    if (!resolvedSetId && resolvedDate) {
       try {
-        const rawLocal = localStorage.getItem("medtrail_pulse_attempts_v2");
-        if (rawLocal) {
-          const parsed = JSON.parse(rawLocal);
-          Object.values(parsed).forEach((att: any) => {
-            if (!att) return;
-            // Match current pulse_set_id or pulse_date
-            const matchesSet =
-              (resolvedSetId && att.pulse_set_id === resolvedSetId) ||
-              (resolvedDate && att.pulse_date === resolvedDate);
-            if (matchesSet) {
-              const attKey = att.user_id || att.user_email || att.id;
-              const alreadyInRemote = attemptsList.some(
-                (r) => (r.user_id && r.user_id === att.user_id) || (r.user_email && r.user_email === att.user_email)
-              );
-              if (!alreadyInRemote) {
-                attemptsList.push(att);
-              }
-            }
-          });
+        const { data: setByDate } = await (supabase as any)
+          .from("championship_pulse_sets")
+          .select("id")
+          .eq("pulse_date", resolvedDate)
+          .maybeSingle();
+
+        if (setByDate?.id) {
+          resolvedSetId = setByDate.id;
         }
       } catch {}
     }
 
-    if (attemptsList.length === 0) {
-      return {
-        entries: [],
-        currentUserEntry: null,
-        collegeRankings: [],
-        batchRankings: [],
-        pulseSetId: resolvedSetId,
-        pulseDate: resolvedDate,
-      };
+    // Candidate pulse identifiers
+    const candidatePulseIds = [
+      resolvedSetId,
+      resolvedDate,
+      resolvedDate ? `pulse_${resolvedDate}` : null,
+    ].filter(Boolean) as string[];
+
+    const currentEmail = params?.currentUserEmail?.trim().toLowerCase();
+    const currentId = params?.currentUserId?.trim();
+    const partId = params?.participantId?.trim();
+
+    // 2. Requirements 3 & 7: Query championship_leaderboard
+    // Public receives ONLY Top 5. Admin receives all entries.
+    let lbQuery = (supabase as any)
+      .from("championship_leaderboard")
+      .select("*")
+      .order("rank", { ascending: true });
+
+    if (candidatePulseIds.length > 0) {
+      lbQuery = lbQuery.in("pulse_id", candidatePulseIds);
     }
 
-    // 3. Enrich student registrations (Name, College, Batch)
-    const emails = attemptsList.map((a) => a.user_email).filter(Boolean);
-    const regMap = new Map<string, { name: string; college: string; batch: string }>();
-
-    if (emails.length > 0) {
-      try {
-        const { data: regs } = await (supabase as any)
-          .from("championship_registrations")
-          .select("email, full_name, medical_college, batch")
-          .in("email", emails);
-
-        if (regs) {
-          for (const r of regs) {
-            if (r.email) {
-              regMap.set(r.email.toLowerCase(), {
-                name: r.full_name,
-                college: r.medical_college,
-                batch: r.batch,
-              });
-            }
-          }
-        }
-      } catch {}
+    if (!params?.isAdmin) {
+      lbQuery = lbQuery.limit(5);
     }
 
-    // 4. Calculate metrics for each attempt
-    const processedEntries: LeaderboardStudentEntry[] = [];
+    let { data: lbData, error: lbErr } = await lbQuery;
 
-    for (const a of attemptsList) {
-      const email = (a.user_email || "").toLowerCase();
-      const reg = email ? regMap.get(email) : null;
+    if (lbErr) {
+      console.warn("[LeaderboardEngine] championship_leaderboard query notice:", lbErr);
+    }
 
-      const metrics = calculateAttemptMetrics(a, pulseQuestions);
-      const studentName =
-        a.student_name ||
-        reg?.name ||
-        (email ? email.split("@")[0] : `Student`);
-      const institution = a.college || reg?.college || "Medical College";
-      const batch = reg?.batch || a.batch || "2026 Batch → Freshers";
-      const submittedAt = a.completed_at || a.created_at || new Date().toISOString();
+    // Fallback: If candidate pulse query returned 0 rows, check overall championship_leaderboard
+    if (!lbData || lbData.length === 0) {
+      let fallbackQuery = (supabase as any)
+        .from("championship_leaderboard")
+        .select("*")
+        .order("rank", { ascending: true });
 
+      if (!params?.isAdmin) {
+        fallbackQuery = fallbackQuery.limit(5);
+      }
+
+      const { data: fbData } = await fallbackQuery;
+      if (fbData && fbData.length > 0) {
+        lbData = fbData;
+      }
+    }
+
+    // Map rows directly from SQL table
+    const entries: LeaderboardStudentEntry[] = (lbData || []).map((row: any, idx: number) => {
       const isCurrentUser = Boolean(
-        (params?.currentUserEmail && email && email === params.currentUserEmail.toLowerCase()) ||
-        (params?.currentUserId && a.user_id && a.user_id === params.currentUserId) ||
-        (params?.participantId && (a.user_id === params.participantId || a.id === params.participantId))
+        (currentEmail && row.user_email && row.user_email.toLowerCase() === currentEmail) ||
+        (currentId && row.user_id && row.user_id === currentId) ||
+        (partId && row.user_id && row.user_id === partId)
       );
 
-      processedEntries.push({
-        rank: 0,
-        participant_id: a.user_id || a.id || email,
-        display_name: studentName,
-        institution,
-        batch,
-        score: metrics.totalScore,
-        total_score: metrics.totalScore,
-        correct_answers: metrics.correctAnswers,
-        wrong_answers: metrics.wrongAnswers,
-        accuracy: metrics.accuracyPct,
-        time_taken_seconds: metrics.timeTaken,
-        submitted_at: submittedAt,
+      const acc = Number(row.accuracy ?? 0);
+      const totalQ = 5;
+      const correct = Math.min(totalQ, Math.round((acc / 100) * totalQ));
+      const wrong = Math.max(0, totalQ - correct);
+
+      return {
+        rank: row.rank ?? idx + 1,
+        participant_id: row.user_id || row.id,
+        display_name: row.student_name || "Doctor",
+        institution: row.college || "Medical College",
+        batch: row.batch || "2026 Batch → Freshers",
+        score: Number(row.score ?? 0),
+        total_score: Number(row.score ?? 0),
+        correct_answers: correct,
+        wrong_answers: wrong,
+        accuracy: acc,
+        time_taken_seconds: Number(row.time_taken_seconds ?? 0),
+        submitted_at: row.submitted_at || row.updated_at || new Date().toISOString(),
         is_current_user: isCurrentUser,
-      });
-    }
-
-    // 5. Deduplicate by student identity: keep best attempt
-    const studentBestMap = new Map<string, LeaderboardStudentEntry>();
-
-    for (const entry of processedEntries) {
-      const key = entry.participant_id.toLowerCase();
-      const existing = studentBestMap.get(key);
-      if (!existing) {
-        studentBestMap.set(key, entry);
-      } else {
-        // Compare to keep the best attempt according to ranking order
-        if (compareLeaderboardEntries(entry, existing) < 0) {
-          studentBestMap.set(key, entry);
-        }
-      }
-    }
-
-    const uniqueEntries = Array.from(studentBestMap.values());
-
-    // 6. Rank all entries strictly according to the 4-tier criteria:
-    // 1) Highest Score
-    // 2) Highest Accuracy
-    // 3) Lowest time_taken_seconds
-    // 4) Earliest submitted_at
-    uniqueEntries.sort((a, b) => compareLeaderboardEntries(a, b));
-
-    uniqueEntries.forEach((entry, idx) => {
-      entry.rank = idx + 1;
+      };
     });
 
-    // 7. Calculate Dynamic College Standings from actual entries
-    const collegeMap = new Map<
-      string,
-      {
-        totalScore: number;
-        count: number;
-        topScorer: string;
-        topScore: number;
-        accuracies: number[];
-      }
-    >();
+    // 3. Requirement 6: Student self result reads only logged-in user's row from championship_leaderboard
+    let currentUserEntry: LeaderboardStudentEntry | null = entries.find((e) => e.is_current_user) || null;
 
-    for (const entry of uniqueEntries) {
-      const college = entry.institution || "Medical College";
-      const existing = collegeMap.get(college) || {
-        totalScore: 0,
-        count: 0,
-        topScorer: entry.display_name,
-        topScore: 0,
-        accuracies: [],
+    if (!currentUserEntry && (currentEmail || currentId || partId)) {
+      try {
+        let selfQuery = (supabase as any)
+          .from("championship_leaderboard")
+          .select("*");
+
+        if (candidatePulseIds.length > 0) {
+          selfQuery = selfQuery.in("pulse_id", candidatePulseIds);
+        }
+
+        const orFilters: string[] = [];
+        if (currentId) orFilters.push(`user_id.eq.${currentId}`);
+        if (partId && partId !== currentId) orFilters.push(`user_id.eq.${partId}`);
+        if (currentEmail) orFilters.push(`user_email.ilike.${currentEmail}`);
+
+        if (orFilters.length > 0) {
+          selfQuery = selfQuery.or(orFilters.join(","));
+        }
+
+        let { data: selfRow } = await selfQuery.order("rank", { ascending: true }).limit(1).maybeSingle();
+
+        // Fallback without pulse_id constraint if not found
+        if (!selfRow && orFilters.length > 0) {
+          const { data: globalSelf } = await (supabase as any)
+            .from("championship_leaderboard")
+            .select("*")
+            .or(orFilters.join(","))
+            .order("rank", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (globalSelf) {
+            selfRow = globalSelf;
+          }
+        }
+
+        if (selfRow) {
+          const acc = Number(selfRow.accuracy ?? 0);
+          const totalQ = 5;
+          const correct = Math.min(totalQ, Math.round((acc / 100) * totalQ));
+          const wrong = Math.max(0, totalQ - correct);
+
+          currentUserEntry = {
+            rank: selfRow.rank ?? 0,
+            participant_id: selfRow.user_id || selfRow.id,
+            display_name: selfRow.student_name || "Doctor",
+            institution: selfRow.college || "Medical College",
+            batch: selfRow.batch || "2026 Batch → Freshers",
+            score: Number(selfRow.score ?? 0),
+            total_score: Number(selfRow.score ?? 0),
+            correct_answers: correct,
+            wrong_answers: wrong,
+            accuracy: acc,
+            time_taken_seconds: Number(selfRow.time_taken_seconds ?? 0),
+            submitted_at: selfRow.submitted_at || selfRow.updated_at || new Date().toISOString(),
+            is_current_user: true,
+          };
+        }
+      } catch (selfErr) {
+        console.warn("[LeaderboardEngine] student self result fetch error:", selfErr);
+      }
+    }
+
+    // 4. Requirement 4: College ranking must read championship_college_standings
+    let collegeQuery = (supabase as any)
+      .from("championship_college_standings")
+      .select("*")
+      .order("rank", { ascending: true });
+
+    if (candidatePulseIds.length > 0) {
+      collegeQuery = collegeQuery.in("pulse_id", candidatePulseIds);
+    }
+
+    let { data: collegeRows } = await collegeQuery;
+
+    if (!collegeRows || collegeRows.length === 0) {
+      const { data: fbColleges } = await (supabase as any)
+        .from("championship_college_standings")
+        .select("*")
+        .order("rank", { ascending: true });
+      if (fbColleges && fbColleges.length > 0) {
+        collegeRows = fbColleges;
+      }
+    }
+
+    const collegeRankings: DynamicCollegeRankItem[] = (collegeRows || []).map((c: any, idx: number) => ({
+      rank: c.rank ?? idx + 1,
+      name: c.college,
+      college: c.college,
+      collegeName: c.college,
+      city: "Medical Institution",
+      activeStudents: Number(c.participants_count ?? 0),
+      participantsCount: Number(c.participants_count ?? 0),
+      totalScore: Number(c.total_score ?? 0),
+      avgScore: Number(c.avg_score ?? 0),
+      avgAccuracy: `${Number(c.avg_accuracy ?? 0)}%`,
+      topScorer: c.top_scorer || "—",
+      movement: "• 0",
+    }));
+
+    // 5. Requirement 5: MBBS batch ranking must read championship_batch_standings
+    let batchQuery = (supabase as any)
+      .from("championship_batch_standings")
+      .select("*")
+      .order("rank", { ascending: true });
+
+    if (candidatePulseIds.length > 0) {
+      batchQuery = batchQuery.in("pulse_id", candidatePulseIds);
+    }
+
+    let { data: batchRows } = await batchQuery;
+
+    if (!batchRows || batchRows.length === 0) {
+      const { data: fbBatches } = await (supabase as any)
+        .from("championship_batch_standings")
+        .select("*")
+        .order("rank", { ascending: true });
+      if (fbBatches && fbBatches.length > 0) {
+        batchRows = fbBatches;
+      }
+    }
+
+    const batchRankings: DynamicBatchRankItem[] = (batchRows || []).map((b: any, idx: number) => {
+      const batchName = b.batch;
+      const batchYear = batchName.match(/\d{4}/)?.[0] || batchName.slice(0, 4);
+      return {
+        rank: b.rank ?? idx + 1,
+        batch: batchName,
+        batchName,
+        batchYear,
+        enrolled: Number(b.participants_count ?? 0),
+        participantsCount: Number(b.participants_count ?? 0),
+        totalScore: Number(b.total_score ?? 0),
+        avgScore: Number(b.avg_score ?? 0),
+        avgAccuracy: `${Number(b.avg_accuracy ?? 0)}%`,
+        pulseCompletionRate: "100%",
       };
-      existing.totalScore += entry.score;
-      existing.count += 1;
-      existing.accuracies.push(entry.accuracy);
-      if (entry.score > existing.topScore) {
-        existing.topScore = entry.score;
-        existing.topScorer = entry.display_name;
-      }
-      collegeMap.set(college, existing);
-    }
-
-    const collegeRankings: DynamicCollegeRankItem[] = Array.from(collegeMap.entries())
-      .map(([name, stat]) => {
-        const avgScore = stat.count > 0 ? Math.round(stat.totalScore / stat.count) : 0;
-        const avgAccNum =
-          stat.accuracies.length > 0
-            ? Math.round(stat.accuracies.reduce((sum, v) => sum + v, 0) / stat.accuracies.length)
-            : 0;
-        return {
-          rank: 0,
-          name,
-          college: name,
-          collegeName: name,
-          activeStudents: stat.count,
-          participantsCount: stat.count,
-          totalScore: stat.totalScore,
-          avgScore,
-          avgAccuracy: `${avgAccNum}%`,
-          topScorer: stat.topScorer,
-          movement: "• 0",
-        };
-      })
-      .sort((a, b) => {
-        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-        return (parseInt(b.avgAccuracy) || 0) - (parseInt(a.avgAccuracy) || 0);
-      })
-      .map((item, idx) => ({ ...item, rank: idx + 1 }));
-
-    // 8. Calculate Dynamic MBBS Batch Standings from actual entries
-    const batchMap = new Map<
-      string,
-      {
-        totalScore: number;
-        count: number;
-        accuracies: number[];
-      }
-    >();
-
-    for (const entry of uniqueEntries) {
-      let matchedBatch = "2024 Batch → 2nd Year MBBS";
-      const b = entry.batch || "";
-      if (b.includes("2026") || b.includes("Freshers")) matchedBatch = "2026 Batch → Freshers";
-      else if (b.includes("2025") || b.includes("1st Year")) matchedBatch = "2025 Batch → 1st Year MBBS";
-      else if (b.includes("2024") || b.includes("2nd Year")) matchedBatch = "2024 Batch → 2nd Year MBBS";
-      else if (b.includes("2023") || b.includes("3rd Year")) matchedBatch = "2023 Batch → 3rd Year MBBS";
-
-      const existing = batchMap.get(matchedBatch) || { totalScore: 0, count: 0, accuracies: [] };
-      existing.totalScore += entry.score;
-      existing.count += 1;
-      existing.accuracies.push(entry.accuracy);
-      batchMap.set(matchedBatch, existing);
-    }
-
-    const batchRankings: DynamicBatchRankItem[] = Array.from(batchMap.entries())
-      .map(([batchName, stat]) => {
-        const avgAccNum =
-          stat.accuracies.length > 0
-            ? Math.round(stat.accuracies.reduce((sum, v) => sum + v, 0) / stat.accuracies.length)
-            : 0;
-        const avgScore = stat.count > 0 ? Math.round(stat.totalScore / stat.count) : 0;
-        return {
-          rank: 0,
-          batch: batchName,
-          batchName,
-          batchYear: batchName.slice(0, 4),
-          enrolled: stat.count,
-          participantsCount: stat.count,
-          totalScore: stat.totalScore,
-          avgScore,
-          avgAccuracy: `${avgAccNum}%`,
-          pulseCompletionRate: "100%",
-        };
-      })
-      .sort((a, b) => b.totalScore - a.totalScore)
-      .map((item, idx) => ({ ...item, rank: idx + 1 }));
-
-    // Extract the logged-in student's personal performance
-    const currentUserEntry = uniqueEntries.find((entry) => entry.is_current_user) || null;
+    });
 
     return {
-      // Public view receives ONLY Top 5. Admin view receives all entries.
-      entries: params?.isAdmin ? uniqueEntries : uniqueEntries.slice(0, 5),
+      entries,
       currentUserEntry,
       collegeRankings,
       batchRankings,

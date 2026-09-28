@@ -939,12 +939,8 @@ function RouteComponent() {
 
   // Start Pulse Quiz (Strict Admin-managed single attempt per day)
   const startPulseQuiz = () => {
-    // 0. Live Ops administrative status checks strictly from pulse_settings
-    if (resultsPublished) {
-      toast.error("Championship results have been officially declared. All submissions are locked.");
-      setIsReviewModalOpen(true);
-      return;
-    }
+    // Requirement 9: pulse_status alone controls whether submissions are open or closed
+    // Requirement 8: results_published controls visibility only
     if (adminPulseStatus === "paused") {
       toast.warning("Pulse is currently paused by Administration. Submissions on hold.");
       return;
@@ -1003,6 +999,10 @@ function RouteComponent() {
     }
     if (adminPulseStatus === "ended") {
       toast.info("Today's Pulse session has concluded.");
+      return;
+    }
+    if (adminPulseStatus !== "live") {
+      toast.info("Today's Pulse session is not live. Submissions are closed.");
       return;
     }
 
