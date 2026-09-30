@@ -675,7 +675,7 @@ function RouteComponent() {
       const studentId = getEffectiveStudentId();
       const res = await fetchLeaderboardForCurrentPulse({
         pulseSetId: publishedPulseSet?.id,
-        pulseDate: pulseSettings.competition_date,
+        pulseDate: publishedPulseSet?.pulse_date || getISTDateString(),
         currentUserEmail: user?.email || regEmail,
         currentUserId: user?.id || studentId,
         participantId: studentId,
@@ -693,7 +693,7 @@ function RouteComponent() {
     } finally {
       setLoadingLeaderboard(false);
     }
-  }, [publishedPulseSet?.id, pulseSettings.competition_date, user?.email, user?.id, regEmail, getEffectiveStudentId]);
+  }, [publishedPulseSet?.id, publishedPulseSet?.pulse_date, user?.email, user?.id, regEmail, getEffectiveStudentId]);
 
   useEffect(() => {
     loadLeaderboard();

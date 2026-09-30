@@ -243,6 +243,21 @@ export function SuperAdminControlCenter() {
         { event: "*", schema: "public", table: "championship_pulse_attempts" },
         () => loadLeaderboardLiveOps()
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_leaderboard" },
+        () => loadLeaderboardLiveOps()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_college_standings" },
+        () => loadLeaderboardLiveOps()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_batch_standings" },
+        () => loadLeaderboardLiveOps()
+      )
       .subscribe();
 
     return () => {

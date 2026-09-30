@@ -295,11 +295,11 @@ export const SEED_LEADERBOARD: LeaderboardEntry[] = [];
 export async function getLiveLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
   try {
     const { fetchLeaderboardForCurrentPulse } = await import("./leaderboard-engine");
-    const result = await fetchLeaderboardForCurrentPulse(limit);
-    return result.entries.map((e) => ({
-      participant_id: e.user_id,
-      display_name: e.student_name,
-      institution: e.college,
+    const result = await fetchLeaderboardForCurrentPulse();
+    return result.entries.slice(0, limit).map((e: any) => ({
+      participant_id: e.participant_id || e.user_id,
+      display_name: e.display_name || e.student_name,
+      institution: e.institution || e.college,
       country: "India",
       batch: e.batch,
       total_score: e.total_score,

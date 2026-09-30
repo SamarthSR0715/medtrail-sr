@@ -169,44 +169,93 @@ export function calculateAttemptMetrics(
  * - Zero client-side ranking recalculations
  */
 export async function fetchLeaderboardForCurrentPulse(params?: {
-  pulseSetId?: string | null;
-  pulseDate?: string | null;
-  currentUserEmail?: string | null;
-  currentUserId?: string | null;
-  participantId?: string | null;
-  isAdmin?: boolean;
+  pulseSetId?: string | null | undefined;
+  pulseDate?: string | null | undefined;
+  currentUserEmail?: string | null | undefined;
+  currentUserId?: string | null | undefined;
+  participantId?: string | null | undefined;
+  isAdmin?: boolean | undefined;
 }): Promise<LeaderboardCalculationResult> {
   try {
     let resolvedSetId = params?.pulseSetId || null;
     let resolvedDate = params?.pulseDate || null;
 
-    // 1. Resolve pulse date & pulse set ID if not provided
-    if (!resolvedDate) {
+    // 1. Resolve pulse set ID & date dynamically:
+    // If pulseSetId is provided, retrieve its pulse_date if missing.
+    if (resolvedSetId && !resolvedDate) {
       try {
-        const { data: pSettings } = await (supabase as any)
-          .from("pulse_settings")
-          .select("competition_date")
-          .limit(1)
+        const { data: setRow } = await (supabase as any)
+          .from("championship_pulse_sets")
+          .select("pulse_date")
+          .eq("id", resolvedSetId)
           .maybeSingle();
-
-        if (pSettings?.competition_date) {
-          resolvedDate = pSettings.competition_date;
+        if (setRow?.pulse_date) {
+          resolvedDate = setRow.pulse_date;
         }
       } catch {}
     }
 
-    if (!resolvedSetId && resolvedDate) {
+    // If pulseSetId is NOT provided (e.g. from Admin Leaderboard, College Standings, or initial mount),
+    // dynamically resolve the current live published pulse set.
+    if (!resolvedSetId) {
+      const todayIST = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+
+      // Priority A: Currently published pulse for today (IST)
       try {
-        const { data: setByDate } = await (supabase as any)
+        const { data: todaySet } = await (supabase as any)
           .from("championship_pulse_sets")
-          .select("id")
-          .eq("pulse_date", resolvedDate)
+          .select("id, pulse_date")
+          .eq("pulse_date", todayIST)
+          .eq("status", "published")
           .maybeSingle();
 
-        if (setByDate?.id) {
-          resolvedSetId = setByDate.id;
+        if (todaySet?.id) {
+          resolvedSetId = todaySet.id;
+          resolvedDate = todaySet.pulse_date;
         }
       } catch {}
+
+      // Priority B: Latest published pulse overall
+      if (!resolvedSetId) {
+        try {
+          const { data: latestSet } = await (supabase as any)
+            .from("championship_pulse_sets")
+            .select("id, pulse_date")
+            .eq("status", "published")
+            .order("pulse_date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestSet?.id) {
+            resolvedSetId = latestSet.id;
+            resolvedDate = latestSet.pulse_date;
+          }
+        } catch {}
+      }
+
+      // Priority C: Fall back to pulse_settings competition_date only if no published sets exist
+      if (!resolvedSetId) {
+        try {
+          const { data: pSettings } = await (supabase as any)
+            .from("pulse_settings")
+            .select("competition_date")
+            .limit(1)
+            .maybeSingle();
+
+          if (pSettings?.competition_date) {
+            resolvedDate = pSettings.competition_date;
+            const { data: setByDate } = await (supabase as any)
+              .from("championship_pulse_sets")
+              .select("id")
+              .eq("pulse_date", resolvedDate)
+              .maybeSingle();
+
+            if (setByDate?.id) {
+              resolvedSetId = setByDate.id;
+            }
+          }
+        } catch {}
+      }
     }
 
     // Candidate pulse identifiers
