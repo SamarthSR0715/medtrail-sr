@@ -21,6 +21,7 @@ export interface DynamicCollegeRankItem {
   name: string;
   college: string;
   collegeName: string;
+  medicalCollegeId?: string;
   city?: string;
   activeStudents: number;
   participantsCount: number;
@@ -357,6 +358,7 @@ export async function fetchLeaderboardForCurrentPulse(params?: {
       name: c.college,
       college: c.college,
       collegeName: c.college,
+      medicalCollegeId: c.medical_college_id || undefined,
       city: "Medical Institution",
       activeStudents: Number(c.participants_count ?? 0),
       participantsCount: Number(c.participants_count ?? 0),

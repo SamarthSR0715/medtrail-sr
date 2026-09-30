@@ -67,6 +67,7 @@ import {
   type SeasonStatus,
   type TimeWindowState,
 } from "@/lib/championship-service";
+import { CollegeSelect } from "@/components/ui/college-select";
 import {
   fetchTodayPublishedPulse,
   convertToQuizQuestions,
@@ -204,6 +205,7 @@ function RouteComponent() {
   const [registered, setRegistered] = useState(false);
   const [regName, setRegName] = useState("");
   const [regCollege, setRegCollege] = useState("");
+  const [regCollegeId, setRegCollegeId] = useState<string | null>(null);
   const [regBatch, setRegBatch] = useState<string>("2026 Batch → Freshers");
   const [regPassportId, setRegPassportId] = useState("");
   const [regEmail, setRegEmail] = useState("");
@@ -245,6 +247,7 @@ function RouteComponent() {
         if (data && !error) {
           setRegName(data.full_name);
           setRegCollege(data.medical_college);
+          setRegCollegeId(data.medical_college_id || null);
           setRegBatch(data.batch || "2026 Batch → Freshers");
           setRegPassportId(data.passport_id || "");
           setRegEmail(data.email);
@@ -381,6 +384,7 @@ function RouteComponent() {
         if (parsed.fullName) {
           setRegName(parsed.fullName);
           setRegCollege(parsed.medicalCollege || "");
+          setRegCollegeId(parsed.medicalCollegeId || null);
           setRegBatch(parsed.batch || "2026 Batch → Freshers");
           setRegPassportId(parsed.passportId || "");
           setRegEmail(parsed.email || "");
@@ -897,6 +901,7 @@ function RouteComponent() {
       const result = await registerChampionshipParticipant({
         fullName: regName.trim(),
         medicalCollege: regCollege.trim(),
+        medicalCollegeId: regCollegeId || undefined,
         batch: regBatch,
         passportId: regPassportId.trim() || undefined,
         email: effectiveEmail,
@@ -1111,6 +1116,7 @@ function RouteComponent() {
           userEmail: studentEmail,
           studentName,
           college: studentCollege,
+          collegeId: regCollegeId || undefined,
           batch: studentBatch,
           answers: cleanNumericAnswers,
           questions: todayQuestions,
@@ -1791,13 +1797,15 @@ function RouteComponent() {
                       <GraduationCap className="w-3.5 h-3.5 text-blue-400" />
                       Medical College <span className="text-red-400">*</span>
                     </label>
-                    <input
-                      type="text"
-                      required
+                    <CollegeSelect
                       value={regCollege}
-                      onChange={(e) => setRegCollege(e.target.value)}
-                      placeholder="e.g. BJ Government Medical College, Pune"
-                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                      selectedCollegeId={regCollegeId || undefined}
+                      onChange={(collegeName, collegeId) => {
+                        setRegCollege(collegeName);
+                        setRegCollegeId(collegeId || null);
+                      }}
+                      required
+                      placeholder="Search medical college or city..."
                     />
                   </div>
 
@@ -3297,13 +3305,15 @@ function RouteComponent() {
 
               <div className="space-y-1">
                 <label className="text-slate-300 font-semibold">Medical College *</label>
-                <input
-                  type="text"
-                  required
+                <CollegeSelect
                   value={regCollege}
-                  onChange={(e) => setRegCollege(e.target.value)}
-                  placeholder="e.g. BJ Government Medical College, Pune"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-blue-500 transition"
+                  selectedCollegeId={regCollegeId || undefined}
+                  onChange={(collegeName, collegeId) => {
+                    setRegCollege(collegeName);
+                    setRegCollegeId(collegeId || null);
+                  }}
+                  required
+                  placeholder="Search medical college or city..."
                 />
               </div>
 

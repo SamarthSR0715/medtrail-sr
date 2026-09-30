@@ -400,6 +400,7 @@ export async function submitPulseAttemptAtomic(params: {
   userEmail?: string | null;
   studentName: string;
   college: string;
+  collegeId?: string | null | undefined;
   batch: string;
   answers: number[];
   questions: PulseQuestion[];
@@ -421,6 +422,7 @@ export async function submitPulseAttemptAtomic(params: {
     userEmail,
     studentName,
     college,
+    collegeId,
     batch,
     answers,
     questions,
@@ -465,6 +467,7 @@ export async function submitPulseAttemptAtomic(params: {
         p_time_taken_seconds: timeTakenSeconds,
         p_xp: xp,
         p_answers: cleanAnswers,
+        p_college_id: collegeId || null,
       }
     );
 
@@ -654,6 +657,7 @@ export async function submitPulseAttempt(params: {
 export interface ChampionshipRegistrationData {
   fullName: string;
   medicalCollege: string;
+  medicalCollegeId?: string | null | undefined;
   batch: string; // "2026 Batch (Freshers)", "2025 Batch (1st Year MBBS)", etc.
   passportId?: string | undefined;
   email: string;
@@ -687,6 +691,7 @@ export async function registerChampionshipParticipant(
   const trimmedEmail = data.email.trim();
   const trimmedFullName = data.fullName.trim();
   const trimmedCollege = data.medicalCollege.trim();
+  const collegeId = data.medicalCollegeId || null;
 
   // 1. Generate Passport ID if empty
   const finalPassportId = (data.passportId && data.passportId.trim())
@@ -697,7 +702,7 @@ export async function registerChampionshipParticipant(
   try {
     const { data: existingRecords, error: checkError } = await supabase
       .from("championship_registrations")
-      .select("id, full_name, email, medical_college, batch, passport_id, created_at")
+      .select("id, full_name, email, medical_college, batch, passport_id, created_at, medical_college_id")
       .ilike("email", trimmedEmail);
 
     if (!checkError && existingRecords && existingRecords.length > 0) {
@@ -724,6 +729,7 @@ export async function registerChampionshipParticipant(
         full_name: trimmedFullName,
         email: trimmedEmail,
         medical_college: trimmedCollege,
+        medical_college_id: collegeId,
         batch: data.batch,
         passport_id: finalPassportId,
       })
@@ -766,10 +772,19 @@ export async function registerChampionshipParticipant(
 
     insertedRecord = insertedData;
 
-    // 4. Also register in championship_participants if session is active
+    // 4. Update student's profile with medical_college_id if logged in
     const { data: authUser } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
     const userId = authUser?.user?.id;
     if (userId) {
+      await supabase
+        .from("profiles")
+        .update({
+          medical_college_id: collegeId,
+        })
+        .eq("id", userId)
+        .catch((profErr: any) => console.warn("Profile college update note:", profErr));
+
+      // Also register in championship_participants if table exists
       await (supabase as any)
         .from("championship_participants")
         .insert({
@@ -807,6 +822,7 @@ export async function registerChampionshipParticipant(
     const payload = {
       fullName: trimmedFullName,
       medicalCollege: trimmedCollege,
+      medicalCollegeId: collegeId,
       batch: data.batch,
       passportId: finalPassportId,
       email: trimmedEmail,

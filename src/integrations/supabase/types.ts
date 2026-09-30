@@ -335,6 +335,7 @@ export interface Database {
           full_name: string | null;
           email: string | null;
           avatar_url: string | null;
+          medical_college_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -343,6 +344,7 @@ export interface Database {
           full_name?: string | null;
           email?: string | null;
           avatar_url?: string | null;
+          medical_college_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -351,6 +353,7 @@ export interface Database {
           full_name?: string | null;
           email?: string | null;
           avatar_url?: string | null;
+          medical_college_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -517,6 +520,7 @@ export interface Database {
           full_name: string;
           email: string;
           medical_college: string;
+          medical_college_id: string | null;
           batch: string;
           passport_id: string | null;
           approval_status: 'approved' | 'pending' | 'removed';
@@ -527,6 +531,7 @@ export interface Database {
           full_name: string;
           email: string;
           medical_college: string;
+          medical_college_id?: string | null;
           batch: string;
           passport_id?: string | null;
           approval_status?: 'approved' | 'pending' | 'removed';
@@ -537,6 +542,7 @@ export interface Database {
           full_name?: string;
           email?: string;
           medical_college?: string;
+          medical_college_id?: string | null;
           batch?: string;
           passport_id?: string | null;
           approval_status?: 'approved' | 'pending' | 'removed';
@@ -632,9 +638,14 @@ export interface Database {
         Row: {
           id: string;
           pulse_date: string;
+          pulse_id: string | null;
           user_id: string;
           user_email: string | null;
           participant_id: string | null;
+          student_name: string | null;
+          college: string | null;
+          medical_college_id: string | null;
+          batch: string | null;
           score: number;
           xp_earned: number;
           accuracy: number;
@@ -644,9 +655,14 @@ export interface Database {
         Insert: {
           id?: string;
           pulse_date: string;
+          pulse_id?: string | null;
           user_id: string;
           user_email?: string | null;
           participant_id?: string | null;
+          student_name?: string | null;
+          college?: string | null;
+          medical_college_id?: string | null;
+          batch?: string | null;
           score?: number;
           xp_earned?: number;
           accuracy?: number;
@@ -656,9 +672,14 @@ export interface Database {
         Update: {
           id?: string;
           pulse_date?: string;
+          pulse_id?: string | null;
           user_id?: string;
           user_email?: string | null;
           participant_id?: string | null;
+          student_name?: string | null;
+          college?: string | null;
+          medical_college_id?: string | null;
+          batch?: string | null;
           score?: number;
           xp_earned?: number;
           accuracy?: number;
@@ -802,6 +823,132 @@ export interface Database {
           sent_at?: string | null;
           created_at?: string;
           created_by?: string | null;
+        };
+      };
+      medical_colleges: {
+        Row: {
+          id: string;
+          college_name: string;
+          city: string;
+          state: string;
+          college_type: string;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          college_name: string;
+          city: string;
+          state?: string;
+          college_type?: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          college_name?: string;
+          city?: string;
+          state?: string;
+          college_type?: string;
+          active?: boolean;
+          created_at?: string;
+        };
+      };
+      championship_leaderboard: {
+        Row: {
+          id: string;
+          season_id: string;
+          pulse_id: string;
+          user_id: string;
+          user_email: string | null;
+          student_name: string;
+          college: string;
+          medical_college_id: string | null;
+          batch: string;
+          score: number;
+          accuracy: number;
+          time_taken_seconds: number;
+          rank: number;
+          submitted_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          season_id?: string;
+          pulse_id: string;
+          user_id: string;
+          user_email?: string | null;
+          student_name: string;
+          college: string;
+          medical_college_id?: string | null;
+          batch: string;
+          score?: number;
+          accuracy?: number;
+          time_taken_seconds?: number;
+          rank?: number;
+          submitted_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          season_id?: string;
+          pulse_id?: string;
+          user_id?: string;
+          user_email?: string | null;
+          student_name?: string;
+          college?: string;
+          medical_college_id?: string | null;
+          batch?: string;
+          score?: number;
+          accuracy?: number;
+          time_taken_seconds?: number;
+          rank?: number;
+          submitted_at?: string;
+          updated_at?: string;
+        };
+      };
+      championship_college_standings: {
+        Row: {
+          id: string;
+          season_id: string;
+          pulse_id: string;
+          college: string;
+          medical_college_id: string | null;
+          total_score: number;
+          avg_score: number;
+          avg_accuracy: number;
+          participants_count: number;
+          top_scorer: string | null;
+          rank: number;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          season_id?: string;
+          pulse_id: string;
+          college: string;
+          medical_college_id?: string | null;
+          total_score?: number;
+          avg_score?: number;
+          avg_accuracy?: number;
+          participants_count?: number;
+          top_scorer?: string | null;
+          rank?: number;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          season_id?: string;
+          pulse_id?: string;
+          college?: string;
+          medical_college_id?: string | null;
+          total_score?: number;
+          avg_score?: number;
+          avg_accuracy?: number;
+          participants_count?: number;
+          top_scorer?: string | null;
+          rank?: number;
+          updated_at?: string;
         };
       };
     };
