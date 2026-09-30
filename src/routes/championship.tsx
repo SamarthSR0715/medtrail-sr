@@ -474,13 +474,15 @@ function RouteComponent() {
   // Load today's questions and student's attempt safely from Supabase championship_pulse_sets
   const loadTodayPulse = useCallback(async () => {
     try {
-      const targetDate = pulseSettings.competition_date || getISTDateString();
+      const todayIST = getISTDateString();
+      const targetDate = pulseSettings.competition_date || todayIST;
       let questionsToUse: PulseQuestion[] = [];
       let setRecord: PulseSetRecord | null = null;
 
-      // 1. Fetch official Admin-published pulse from Supabase (championship_pulse_sets)
+      // 1. Fetch official Admin-published pulse from Supabase (championship_pulse_sets) for today
       try {
-        const publishedPulse = await fetchTodayPublishedPulse(targetDate);
+        const publishedPulse = await fetchTodayPublishedPulse(todayIST);
+
         if (publishedPulse && Array.isArray(publishedPulse.questions) && publishedPulse.questions.length > 0) {
           const converted = convertToQuizQuestions(publishedPulse.questions);
           if (converted.length > 0) {
@@ -492,13 +494,13 @@ function RouteComponent() {
         console.warn("[Student Pulse] Supabase published pulse fetch notice:", fetchErr);
       }
 
-      // 2. Check localStorage cache if network fetch returned nothing (offline / fallback)
+      // 2. Check localStorage cache if network fetch returned nothing (offline / fallback) for today
       if (questionsToUse.length === 0) {
         try {
           const raw = localStorage.getItem("medtrail_admin_pulse_sets_v2");
           if (raw) {
             const sets = JSON.parse(raw);
-            const found = sets[targetDate] || sets[getISTDateString()];
+            const found = sets[todayIST];
             if (found && found.status === "published" && Array.isArray(found.questions) && found.questions.length > 0) {
               setRecord = found;
               questionsToUse = convertToQuizQuestions(found.questions);
@@ -511,8 +513,8 @@ function RouteComponent() {
       if (questionsToUse.length === 0) {
         questionsToUse = DEFAULT_PULSE_QUESTIONS;
         setRecord = {
-          id: `pulse-default-${targetDate}`,
-          pulse_date: targetDate,
+          id: `pulse-default-${todayIST}`,
+          pulse_date: todayIST,
           status: "published",
           questions: questionsToUse as any,
           published_at: new Date().toISOString(),
@@ -524,21 +526,22 @@ function RouteComponent() {
       setPublishedPulseSet(setRecord);
       setTodayQuestions(questionsToUse);
 
-      // Check student's single daily attempt in Supabase (Enforce One Attempt Only)
-      // IMPORTANT: Always use today's IST date as the authoritative pulse date for the check,
-      // not pulseSettings.competition_date which may be stale or set to a different day.
-      const todayIST = getISTDateString();
+      // Always reset attempt state first when loading a pulse to avoid stale state carrying over
+      setHasAttemptedToday(false);
+      setTodayAttempt(null);
+
+      // Check student's attempt for THIS specific pulse (Rule: user_id = current user AND pulse_id = currentPulseId)
+      const currentPulseId = setRecord?.id;
       const dbUserId = user?.id || null;  // Only auth UUID is valid for DB operations
       const dbUserEmail = user?.email || regEmail || null;
 
-      if (dbUserId || dbUserEmail) {
+      if (currentPulseId && (dbUserId || dbUserEmail)) {
         try {
           const remoteCheck = await fetchStudentExistingAttempt({
             userId: dbUserId,
             userEmail: dbUserEmail,
-            pulseId: setRecord?.id,
-            // Check both today's IST date AND the configured competition_date to catch all cases
-            pulseDate: todayIST,
+            pulseId: currentPulseId,
+            pulseDate: setRecord?.pulse_date || todayIST,
           });
 
           if (remoteCheck.hasSubmitted && remoteCheck.attempt) {
@@ -554,17 +557,15 @@ function RouteComponent() {
               xp: Number(attempt.xp ?? attempt.xp_earned ?? 0),
             });
           } else {
-            // Local fallback check (only as secondary guard, not primary)
+            // Local fallback check strictly scoped to currentPulseId
             const studentId = getEffectiveStudentId();
             const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
             if (rawAttempts) {
               const attempts = JSON.parse(rawAttempts);
-              // Check both today's date and competition_date keys
               const attempt =
-                attempts[`${todayIST}_${dbUserId || dbUserEmail}`] ||
-                attempts[`${todayIST}_${studentId}`] ||
-                attempts[`${targetDate}_${studentId}`];
-              if (attempt) {
+                attempts[`${currentPulseId}_${dbUserId || dbUserEmail}`] ||
+                attempts[`${currentPulseId}_${studentId}`];
+              if (attempt && (attempt.pulse_id === currentPulseId || attempt.pulseId === currentPulseId)) {
                 setHasAttemptedToday(true);
                 setTodayAttempt(attempt);
                 if (attempt.answers && Array.isArray(attempt.answers)) {
@@ -586,6 +587,8 @@ function RouteComponent() {
           }
         } catch (checkErr) {
           console.warn("[Student Pulse] Check attempt error:", checkErr);
+          setHasAttemptedToday(false);
+          setTodayAttempt(null);
         }
       }
     } catch (err) {
@@ -1171,6 +1174,7 @@ function RouteComponent() {
         try {
           const attemptRecord: PulseAttemptRecord = {
             id: atomicRes.attemptId || `att-${todayStr}-${dbUserId}`,
+            pulse_id: pulseId,
             pulse_date: todayStr,
             user_id: dbUserId,
             score: finalScore,
@@ -1181,8 +1185,10 @@ function RouteComponent() {
           };
           const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
           const localAttempts = JSON.parse(rawAttempts || "{}");
+          localAttempts[`${pulseId}_${dbUserId}`] = attemptRecord;
           localAttempts[`${todayStr}_${dbUserId}`] = attemptRecord;
           if (studentEmail) {
+            localAttempts[`${pulseId}_${studentEmail}`] = attemptRecord;
             localAttempts[`${todayStr}_${studentEmail}`] = attemptRecord;
           }
           localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(localAttempts));

@@ -325,64 +325,68 @@ export async function fetchStudentExistingAttempt(params: {
   pulseId?: string | null;
   pulseDate?: string | null;
 }): Promise<{ hasSubmitted: boolean; attempt?: any }> {
-  const { userId, userEmail, pulseId, pulseDate } = params;
-  if (!userId && !userEmail) {
+  const { userId, userEmail, pulseId } = params;
+  if ((!userId && !userEmail) || !pulseId) {
     return { hasSubmitted: false };
   }
 
   try {
-    let query = (supabase as any)
-      .from("championship_pulse_attempts")
-      .select("*");
+    let existingAttempt: any = null;
 
-    // Match pulse identity
-    if (pulseId && pulseDate) {
-      query = query.or(`pulse_id.eq.${pulseId},pulse_date.eq.${pulseDate}`);
-    } else if (pulseId) {
-      query = query.or(`pulse_id.eq.${pulseId},pulse_date.eq.${pulseId}`);
-    } else if (pulseDate) {
-      query = query.eq("pulse_date", pulseDate);
+    // Primary check: user_id AND pulse_id
+    if (userId) {
+      const { data, error } = await (supabase as any)
+        .from("championship_pulse_attempts")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("pulse_id", pulseId)
+        .maybeSingle();
+
+      if (!error && data) {
+        existingAttempt = data;
+      }
     }
 
-    // Match student identity
-    const conditions: string[] = [];
-    if (userId) conditions.push(`user_id.eq.${userId}`);
-    if (userEmail) conditions.push(`user_email.ilike.${userEmail.trim()}`);
+    // Secondary email-based check only if user_id check didn't match and userEmail is present
+    if (!existingAttempt && userEmail) {
+      const { data, error } = await (supabase as any)
+        .from("championship_pulse_attempts")
+        .select("*")
+        .ilike("user_email", userEmail.trim())
+        .eq("pulse_id", pulseId)
+        .maybeSingle();
 
-    if (conditions.length > 0) {
-      query = query.or(conditions.join(","));
+      if (!error && data) {
+        existingAttempt = data;
+      }
     }
 
-    const { data, error } = await query.order("completed_at", { ascending: false }).limit(1);
-
-    if (!error && data && data.length > 0) {
-      const existing = data[0];
-      // Mirror to localStorage for offline cache
+    if (existingAttempt) {
+      // Mirror to localStorage strictly scoped by pulseId
       if (typeof window !== "undefined") {
         try {
-          const key = `${pulseDate || getISTDateString()}_${userId || userEmail}`;
+          const key = `${pulseId}_${userId || userEmail}`;
           const raw = localStorage.getItem("medtrail_pulse_attempts_v2") || "{}";
           const parsed = JSON.parse(raw);
-          parsed[key] = existing;
+          parsed[key] = existingAttempt;
           localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(parsed));
         } catch {}
       }
-      return { hasSubmitted: true, attempt: existing };
+      return { hasSubmitted: true, attempt: existingAttempt };
     }
   } catch (err) {
     console.warn("[ChampionshipService] fetchStudentExistingAttempt error:", err);
   }
 
-  // Check localStorage backup
+  // Check localStorage backup strictly scoped to current pulseId
   if (typeof window !== "undefined") {
     try {
       const raw = localStorage.getItem("medtrail_pulse_attempts_v2");
       if (raw) {
         const parsed = JSON.parse(raw);
-        const targetDate = pulseDate || getISTDateString();
-        const key = `${targetDate}_${userId || userEmail}`;
+        const key = `${pulseId}_${userId || userEmail}`;
         const local = parsed[key];
-        if (local) {
+        if (local && (local.pulse_id === pulseId || local.pulseId === pulseId)) {
           return { hasSubmitted: true, attempt: local };
         }
       }

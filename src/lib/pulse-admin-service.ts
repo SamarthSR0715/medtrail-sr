@@ -521,34 +521,71 @@ export async function publishTodayPulse(
   const now = new Date().toISOString();
 
   try {
-    const { data, error } = await supabase
-      .from("championship_pulse_sets")
-      .upsert(
+    let publishedRecord: PulseSetRecord | null = null;
+    let publishError: string | null = null;
+
+    // 1. Preferred: call secure atomic admin RPC function
+    try {
+      const sessionRes = await supabase.auth.getSession();
+      const userEmail = sessionRes.data?.session?.user?.email || null;
+
+      const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
+        "publish_pulse_set_atomic",
         {
+          p_pulse_date: pulseDate,
+          p_questions: cleanQuestions,
+          p_status: "published",
+          p_admin_email: userEmail,
+        }
+      );
+
+      if (!rpcError && rpcData?.success && rpcData?.pulse_id) {
+        publishedRecord = {
+          id: rpcData.pulse_id,
           pulse_date: pulseDate,
           status: "published",
-          questions: cleanQuestions as any,
-          published_at: now,
+          questions: cleanQuestions,
+          published_at: rpcData.published_at || now,
           updated_at: now,
-        },
-        { onConflict: "pulse_date" }
-      )
-      .select()
-      .single();
+          created_at: now,
+        };
+      } else if (rpcData && rpcData.success === false) {
+        publishError = rpcData.error || "Failed to publish pulse via database RPC.";
+      } else if (rpcError) {
+        publishError = rpcError.message;
+      }
+    } catch (rpcEx: any) {
+      console.warn("publish_pulse_set_atomic RPC exception, attempting direct write:", rpcEx);
+      publishError = rpcEx?.message || String(rpcEx);
+    }
 
-    const record: PulseSetRecord = {
-      id: data?.id || `pub-${pulseDate}`,
-      pulse_date: pulseDate,
-      status: "published",
-      questions: cleanQuestions,
-      published_at: now,
-      updated_at: now,
-      created_at: now,
-    };
+    // 2. Direct fallback UPSERT if RPC did not produce a record and failure was not an authorization error
+    if (!publishedRecord && (!publishError || (!publishError.toLowerCase().includes("unauthorized") && !publishError.toLowerCase().includes("privilege")))) {
+      const { data, error } = await supabase
+        .from("championship_pulse_sets")
+        .upsert(
+          {
+            pulse_date: pulseDate,
+            status: "published",
+            questions: cleanQuestions as any,
+            published_at: now,
+            updated_at: now,
+          },
+          { onConflict: "pulse_date" }
+        )
+        .select()
+        .single();
 
-    // Also sync individual rows into championship_pulse_questions table if table exists
-    if (data?.id) {
-      try {
+      if (error) {
+        console.error("Supabase championship_pulse_sets upsert failed:", error);
+        return {
+          success: false,
+          error: error.message || "Failed to save pulse set to database.",
+        };
+      }
+
+      if (data?.id) {
+        // Sync individual rows into championship_pulse_questions table
         const qRows = cleanQuestions.map((q) => ({
           pulse_set_id: data.id,
           pulse_date: pulseDate,
@@ -564,29 +601,53 @@ export async function publishTodayPulse(
           difficulty: q.difficulty,
           xp_value: q.xp_value,
         }));
+
         await supabase
           .from("championship_pulse_questions")
+          .delete()
+          .eq("pulse_set_id", data.id);
+
+        const { error: syncErr } = await supabase
+          .from("championship_pulse_questions")
           .upsert(qRows as any, { onConflict: "pulse_set_id,slot" });
-      } catch (syncErr) {
-        console.warn("Notice syncing championship_pulse_questions:", syncErr);
+
+        if (syncErr) {
+          console.error("Supabase championship_pulse_questions sync failed:", syncErr);
+          return {
+            success: false,
+            error: syncErr.message || "Pulse set was saved, but question syncing failed.",
+          };
+        }
+
+        publishedRecord = {
+          id: data.id,
+          pulse_date: pulseDate,
+          status: "published",
+          questions: cleanQuestions,
+          published_at: now,
+          updated_at: now,
+          created_at: now,
+        };
       }
     }
 
-    // Save to local cache
+    // 3. Strict error verification: if database write failed, FAIL FAST!
+    if (!publishedRecord) {
+      return {
+        success: false,
+        error: publishError || "Failed to publish pulse to Supabase. Check database permissions.",
+      };
+    }
+
+    // 4. ONLY AFTER BOTH database operations succeed: cache locally for offline access
     try {
       const raw = safeGetItem(LOCAL_STORAGE_PULSE_SETS_KEY);
       const local = JSON.parse(raw || "{}");
-      local[pulseDate] = record;
+      local[pulseDate] = publishedRecord;
       safeSetItem(LOCAL_STORAGE_PULSE_SETS_KEY, JSON.stringify(local));
-    } catch {
-      // Ignore
-    }
+    } catch {}
 
-    if (error) {
-      console.warn("Supabase publish notice (saved locally):", error.message);
-    }
-
-    return { success: true, data: record };
+    return { success: true, data: publishedRecord };
   } catch (err: any) {
     console.error("Publish pulse exception:", err);
     return { success: false, error: err?.message || String(err) };
@@ -594,18 +655,25 @@ export async function publishTodayPulse(
 }
 
 /**
- * Check if the student has already attempted today's pulse
- * Rule: Students can only attempt the published Pulse once per day.
+ * Check if the student has already attempted a pulse
+ * Rule: User can attempt each distinct pulse exactly once (user_id AND pulse_id).
  */
 export async function checkStudentAttempt(
   pulseDate: string,
-  userId?: string | null
+  userId?: string | null,
+  pulseId?: string | null
 ): Promise<PulseAttemptRecord | null> {
   // Check local storage first for instant feedback
   try {
-    const local = safeGetItem(`${LOCAL_STORAGE_ATTEMPTS_PREFIX}${pulseDate}`);
+    const key = pulseId
+      ? `${LOCAL_STORAGE_ATTEMPTS_PREFIX}${pulseId}`
+      : `${LOCAL_STORAGE_ATTEMPTS_PREFIX}${pulseDate}`;
+    const local = safeGetItem(key);
     if (local) {
-      return JSON.parse(local);
+      const parsed = JSON.parse(local);
+      if (!pulseId || parsed.pulse_id === pulseId || parsed.pulseId === pulseId) {
+        return parsed;
+      }
     }
   } catch {
     // Ignore
@@ -614,12 +682,18 @@ export async function checkStudentAttempt(
   // Check Supabase if user is logged in
   if (userId) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("championship_pulse_attempts")
         .select("*")
-        .eq("pulse_date", pulseDate)
-        .eq("user_id", userId)
-        .maybeSingle();
+        .eq("user_id", userId);
+
+      if (pulseId) {
+        query = query.eq("pulse_id", pulseId);
+      } else {
+        query = query.eq("pulse_date", pulseDate);
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (!error && data) {
         return {
