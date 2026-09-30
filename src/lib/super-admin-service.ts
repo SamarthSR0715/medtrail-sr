@@ -680,60 +680,33 @@ export async function fetchResultControlSummary(): Promise<ResultControlSummary>
 
 // ── 4. Notification Center ───────────────────────────────────────────────────
 export async function fetchAllNotifications(): Promise<NotificationRecord[]> {
-  try {
-    const { data, error } = await supabase
-      .from("championship_notifications")
-      .select("*")
-      .order("created_at", { ascending: false });
+  const { data, error } = await (supabase as any)
+    .from("championship_notifications")
+    .select("*")
+    .order("created_at", { ascending: false });
 
-    if (!error && data && data.length > 0) {
-      return data as NotificationRecord[];
-    }
-  } catch (err) {
-    console.warn("[SuperAdmin] notifications table fetch warning:", err);
+  if (error) {
+    console.error("[SuperAdmin] notifications table fetch error:", error);
+    throw error;
   }
 
-  // Fallback to local storage
-  const cached = safeGetItem(STORAGE_NOTIFS_KEY);
-  if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch {
-      // ignore
-    }
+  if (!data || data.length === 0) {
+    return [];
   }
 
-  const seedNotifs: NotificationRecord[] = [
-    {
-      id: "notif-01",
-      title: "MedTrail Championship Registration Open!",
-      message: "Season 1 slots are officially open. Reserve your Doctor Passport and claim your 50 XP onboarding credit.",
-      emoji: "🚀",
-      audience_type: "all",
-      audience_target: null,
-      status: "sent",
-      scheduled_for: null,
-      sent_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-      created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-      created_by: SUPER_ADMIN_EMAIL,
-    },
-    {
-      id: "notif-02",
-      title: "Daily Pulse Going LIVE Soon!",
-      message: "Sharpen your clinical instincts! Today's 5 Clinical Cases go live shortly. High speed submission earns bonus accuracy points.",
-      emoji: "⚡",
-      audience_type: "championship",
-      audience_target: null,
-      status: "sent",
-      scheduled_for: null,
-      sent_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-      created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-      created_by: SUPER_ADMIN_EMAIL,
-    },
-  ];
-
-  safeSetItem(STORAGE_NOTIFS_KEY, JSON.stringify(seedNotifs));
-  return seedNotifs;
+  return data.map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    message: row.body,
+    emoji: row.type === "pulse" ? "⚡" : row.type === "badge" ? "🏅" : "📢",
+    audience_type: (row.target_audience as any) || "all",
+    audience_target: null,
+    status: "sent",
+    scheduled_for: null,
+    sent_at: row.created_at,
+    created_at: row.created_at,
+    created_by: row.sent_by || null,
+  }));
 }
 
 export async function createPushNotification(params: {
@@ -745,115 +718,56 @@ export async function createPushNotification(params: {
   isScheduled?: boolean;
   scheduledFor?: string | null;
 }): Promise<NotificationRecord> {
-  const newNotif: NotificationRecord = {
-    id: `notif-${Date.now()}`,
-    title: params.title.trim(),
-    message: params.message.trim(),
+  let notifType = "info";
+  const lowerTitle = params.title.toLowerCase();
+  const lowerMsg = params.message.toLowerCase();
+  if (lowerTitle.includes("pulse") || lowerMsg.includes("pulse")) {
+    notifType = "pulse";
+  } else if (lowerTitle.includes("badge") || lowerMsg.includes("badge") || lowerTitle.includes("passport")) {
+    notifType = "badge";
+  }
+
+  const { data, error } = await (supabase as any)
+    .from("championship_notifications")
+    .insert({
+      title: params.title.trim(),
+      body: params.message.trim(),
+      type: notifType,
+      target_audience: params.audience_type,
+      sent_by: SUPER_ADMIN_EMAIL,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("[SuperAdmin] Push notif Supabase insert error:", error);
+    throw new Error(`Database error saving notification: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("Notification database operation returned no record.");
+  }
+
+  return {
+    id: data.id,
+    title: data.title,
+    message: data.body,
     emoji: params.emoji || "📢",
-    audience_type: params.audience_type,
+    audience_type: (data.target_audience as any) || "all",
     audience_target: params.audience_target || null,
-    status: params.isScheduled ? "scheduled" : "sent",
-    scheduled_for: params.isScheduled && params.scheduledFor ? params.scheduledFor : null,
-    sent_at: params.isScheduled ? null : new Date().toISOString(),
-    created_at: new Date().toISOString(),
-    created_by: SUPER_ADMIN_EMAIL,
+    status: "sent",
+    scheduled_for: null,
+    sent_at: data.created_at,
+    created_at: data.created_at,
+    created_by: data.sent_by,
   };
-
-  try {
-    const { data, error } = await supabase
-      .from("championship_notifications")
-      .insert({
-        title: newNotif.title,
-        message: newNotif.message,
-        emoji: newNotif.emoji,
-        audience_type: newNotif.audience_type,
-        audience_target: newNotif.audience_target,
-        status: newNotif.status,
-        scheduled_for: newNotif.scheduled_for,
-        sent_at: newNotif.sent_at,
-        created_by: SUPER_ADMIN_EMAIL,
-      })
-      .select()
-      .single();
-
-    if (!error && data) {
-      newNotif.id = data.id;
-    }
-  } catch (err) {
-    console.warn("[SuperAdmin] Push notif Supabase insert warning:", err);
-  }
-
-  // Requirement 4, 5, 6: Deliver real FCM push notification to all targeted devices (Android & iOS)
-  if (newNotif.status === "sent") {
-    // Deep link routing:
-    // - Pulse → /championship
-    // - Badge → /passport
-    // - Event → relevant page
-    let deepLink = "/championship";
-    let notifType: "pulse" | "badge" | "event" | "general" = "general";
-    const lowerTitle = newNotif.title.toLowerCase();
-    const lowerMsg = newNotif.message.toLowerCase();
-
-    if (lowerTitle.includes("badge") || lowerMsg.includes("badge") || lowerTitle.includes("passport")) {
-      deepLink = "/passport";
-      notifType = "badge";
-    } else if (lowerTitle.includes("pulse") || lowerMsg.includes("pulse")) {
-      deepLink = "/championship";
-      notifType = "pulse";
-    } else if (lowerTitle.includes("register") || lowerTitle.includes("registration")) {
-      deepLink = "/championship#registration";
-      notifType = "event";
-    } else if (lowerTitle.includes("result") || lowerTitle.includes("hall of fame")) {
-      deepLink = "/championship#hall-of-fame";
-      notifType = "event";
-    }
-
-    try {
-      await sendRealFCMPush({
-        title: `${newNotif.emoji} ${newNotif.title}`,
-        body: newNotif.message,
-        type: notifType,
-        deepLink,
-        audience_type: newNotif.audience_type,
-        audience_target: newNotif.audience_target,
-      });
-    } catch (fcmErr) {
-      console.warn("[SuperAdmin] FCM delivery dispatch notice:", fcmErr);
-    }
-  }
-
-  // Update localStorage cache
-  const cached = safeGetItem(STORAGE_NOTIFS_KEY);
-  let notifsList: NotificationRecord[] = [];
-  if (cached) {
-    try {
-      notifsList = JSON.parse(cached);
-    } catch {
-      // ignore
-    }
-  }
-  notifsList.unshift(newNotif);
-  safeSetItem(STORAGE_NOTIFS_KEY, JSON.stringify(notifsList));
-
-  return newNotif;
 }
 
 export async function cancelOrDeleteNotification(id: string): Promise<boolean> {
-  try {
-    await supabase.from("championship_notifications").delete().eq("id", id);
-  } catch (err) {
-    console.warn("[SuperAdmin] Delete notification warning:", err);
-  }
-
-  const cached = safeGetItem(STORAGE_NOTIFS_KEY);
-  if (cached) {
-    try {
-      const list: NotificationRecord[] = JSON.parse(cached);
-      const filtered = list.filter((n) => n.id !== id);
-      safeSetItem(STORAGE_NOTIFS_KEY, JSON.stringify(filtered));
-    } catch {
-      // ignore
-    }
+  const { error } = await (supabase as any).from("championship_notifications").delete().eq("id", id);
+  if (error) {
+    console.error("[SuperAdmin] Delete notification error:", error);
+    throw new Error(`Failed to delete notification: ${error.message}`);
   }
   return true;
 }

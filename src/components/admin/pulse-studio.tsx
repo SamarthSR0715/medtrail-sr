@@ -518,7 +518,7 @@ const handleSendNotification = async (isScheduled: boolean) => {
       toast.success(isScheduled ? "Notification scheduled successfully!" : "Push notification broadcasted to all participants!");
       await refreshLiveOps();
     } else {
-      toast.error("Failed to send notification.");
+      toast.error(res.error || "Failed to send notification.");
     }
   } catch (err: any) {
     toast.error(err?.message || "Notification transmission error.");

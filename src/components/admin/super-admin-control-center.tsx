@@ -345,7 +345,8 @@ export function SuperAdminControlCenter() {
 
     setIsSendingNotif(true);
     try {
-      await createPushNotification({
+      // Step A: Persist notification record to database (Requirement A)
+      const savedNotif = await createPushNotification({
         title: notifTitle,
         message: notifMessage,
         emoji: notifEmoji,
@@ -355,9 +356,10 @@ export function SuperAdminControlCenter() {
         scheduledFor: isScheduled ? scheduledDateTime : null,
       });
 
-      // Requirement 4 & 6: Deliver real FCM push notification to devices with deep link
+      // Step B: Single authoritative FCM send (Requirement B)
       if (!isScheduled) {
         const fcmRes = await sendRealFCMPush({
+          notification_id: savedNotif.id,
           title: `${notifEmoji} ${notifTitle}`,
           body: notifMessage,
           deepLink: notifDeepLink,
@@ -365,21 +367,23 @@ export function SuperAdminControlCenter() {
           audience_target: notifAudienceTarget.trim() || null,
         });
 
-        if (fcmRes.success) {
-          toast.success(fcmRes.message || "Push notification broadcasted to all users' phones!");
+        if (!fcmRes.success) {
+          throw new Error(fcmRes.error || fcmRes.message || "FCM transmission failed");
         }
+
+        toast.success(fcmRes.message || "Push notification broadcasted to all users' phones!");
       } else {
-        toast.success("Notification Scheduled for future broadcast.");
+        toast.success("Notification scheduled successfully.");
       }
 
       setNotifTitle("");
       setNotifMessage("");
       setIsScheduled(false);
       setScheduledDateTime("");
-      loadNotifications();
-      loadDeviceStats();
+      await loadNotifications();
+      await loadDeviceStats();
     } catch (err: any) {
-      toast.error("Failed to send notification: " + err.message);
+      toast.error("Failed to send notification: " + (err.message || String(err)));
     } finally {
       setIsSendingNotif(false);
     }

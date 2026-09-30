@@ -12,6 +12,7 @@ const corsHeaders = {
 };
 
 interface PushRequestBody {
+  notification_id?: string | null;
   title: string;
   body: string;
   icon?: string;
@@ -248,104 +249,140 @@ serve(async (req: Request) => {
     const tokensToDeactivate: string[] = [];
 
     // Deliver via Firebase Cloud Messaging HTTP v1 API
-    if (serviceAccount && targetDevices.length > 0) {
-      const accessToken = await getGoogleAccessToken(serviceAccount);
-      const fcmUrl = `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`;
-
-      for (const device of targetDevices) {
-        try {
-          const messagePayload = {
-            message: {
-              token: device.token,
-              notification: {
-                title,
-                body: messageText,
-              },
-              data: {
-                title: String(title),
-                body: String(messageText),
-                url: String(resolvedDeepLink),
-                click_action: String(resolvedDeepLink),
-                type: String(type),
-                deepLink: String(resolvedDeepLink),
-                platform: String(device.platform || "web"),
-              },
-              webpush: {
-                notification: {
-                  icon,
-                  badge: icon,
-                },
-                fcm_options: {
-                  link: resolvedDeepLink,
-                },
-              },
-            },
-          };
-
-          const fcmResponse = await fetch(fcmUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify(messagePayload),
-          });
-
-          if (fcmResponse.ok) {
-            deliveredCount++;
-          } else {
-            failedCount++;
-            const errJson = await fcmResponse.json().catch(() => null);
-            const errorCode = errJson?.error?.details?.[0]?.errorCode || errJson?.error?.status;
-            const errorMessage = errJson?.error?.message || "";
-
-            if (
-              errorCode === "UNREGISTERED" ||
-              errorCode === "NOT_FOUND" ||
-              fcmResponse.status === 404 ||
-              errorMessage.includes("UNREGISTERED") ||
-              errorMessage.includes("registration token")
-            ) {
-              tokensToDeactivate.push(device.token);
-            }
-          }
-        } catch (err) {
-          console.error(`[FCM Edge] Delivery error for device ${device.token.slice(0, 10)}...:`, err);
-          failedCount++;
-        }
-      }
-
-      // Deactivate obsolete / uninstalled tokens
-      if (tokensToDeactivate.length > 0) {
-        await supabase
-          .from("device_tokens")
-          .update({ is_active: false })
-          .in("token", tokensToDeactivate);
-      }
-    } else {
-      // If serviceAccount is not yet set in Supabase secrets, simulate successful receipt for stats
-      deliveredCount = targetDevices.length;
+    if (!serviceAccount) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Firebase credentials missing: FIREBASE_SERVICE_ACCOUNT is not configured in Supabase secrets",
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // ── Log into championship_notifications table ──────────────────────────────
-    try {
-      await supabase.from("championship_notifications").insert({
-        title,
-        message: messageText,
-        audience_type,
-        audience_target,
-        status: "sent",
-        sent_at: new Date().toISOString(),
-        created_by: "Admin Control Center",
-      });
-    } catch {
-      // Non-fatal if table already populated
+    if (targetDevices.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "No active device tokens found in database to notify",
+          stats: { totalDevices: 0, deliveredCount: 0, failedCount: 0 },
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const accessToken = await getGoogleAccessToken(serviceAccount);
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`;
+
+    for (const device of targetDevices) {
+      try {
+        const messagePayload = {
+          message: {
+            token: device.token,
+            notification: {
+              title,
+              body: messageText,
+            },
+            data: {
+              title: String(title),
+              body: String(messageText),
+              url: String(resolvedDeepLink),
+              click_action: String(resolvedDeepLink),
+              type: String(type),
+              deepLink: String(resolvedDeepLink),
+              platform: String(device.platform || "web"),
+            },
+            webpush: {
+              notification: {
+                icon,
+                badge: icon,
+              },
+              fcm_options: {
+                link: resolvedDeepLink,
+              },
+            },
+          },
+        };
+
+        const fcmResponse = await fetch(fcmUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(messagePayload),
+        });
+
+        if (fcmResponse.ok) {
+          deliveredCount++;
+        } else {
+          failedCount++;
+          const errJson = await fcmResponse.json().catch(() => null);
+          const errorCode = errJson?.error?.details?.[0]?.errorCode || errJson?.error?.status;
+          const errorMessage = errJson?.error?.message || "";
+
+          if (
+            errorCode === "UNREGISTERED" ||
+            errorCode === "NOT_FOUND" ||
+            fcmResponse.status === 404 ||
+            errorMessage.includes("UNREGISTERED") ||
+            errorMessage.includes("registration token")
+          ) {
+            tokensToDeactivate.push(device.token);
+          }
+        }
+      } catch (err) {
+        console.error(`[FCM Edge] Delivery error for device ${device.token.slice(0, 10)}...:`, err);
+        failedCount++;
+      }
+    }
+
+    // Deactivate obsolete / uninstalled tokens
+    if (tokensToDeactivate.length > 0) {
+      await supabase
+        .from("device_tokens")
+        .update({ is_active: false })
+        .in("token", tokensToDeactivate);
+    }
+
+    // ── Log into championship_notifications table if not already persisted by caller ──
+    if (!body.notification_id) {
+      try {
+        const { error: insertError } = await supabase.from("championship_notifications").insert({
+          title,
+          body: messageText,
+          type,
+          target_audience: audience_type,
+          sent_by: "Admin Control Center",
+        });
+        if (insertError) {
+          console.error("[FCM Edge] Database insert error into championship_notifications:", insertError);
+        }
+      } catch (insertEx) {
+        console.error("[FCM Edge] Insert exception:", insertEx);
+      }
+    }
+
+    if (deliveredCount === 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Push notification delivery failed: 0 of ${targetDevices.length} registered devices accepted by FCM (${failedCount} failed)`,
+          stats: {
+            totalDevices: targetDevices.length,
+            deliveredCount: 0,
+            failedCount,
+            platformBreakdown,
+            deepLink: resolvedDeepLink,
+          },
+        }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Push notification delivered to ${deliveredCount} devices successfully!`,
+        message: `Push notification delivered to ${deliveredCount} of ${targetDevices.length} devices successfully!`,
         stats: {
           totalDevices: targetDevices.length,
           deliveredCount,

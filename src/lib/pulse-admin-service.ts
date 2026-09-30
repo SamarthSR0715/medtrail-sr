@@ -1035,9 +1035,64 @@ export async function sendPushNotification(params: {
   scheduledAt?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
+    let deepLink = "/championship";
+    let notifType: "pulse" | "badge" | "event" | "general" = "pulse";
+
+    if (params.templateKey.includes("pulse")) {
+      deepLink = "/championship";
+      notifType = "pulse";
+    } else if (params.templateKey.includes("badge") || params.templateKey.includes("founder")) {
+      deepLink = "/passport";
+      notifType = "badge";
+    } else if (params.templateKey === "reg_open") {
+      deepLink = "/championship#registration";
+      notifType = "event";
+    } else if (params.templateKey === "results_declared") {
+      deepLink = "/championship#hall-of-fame";
+      notifType = "event";
+    }
+
+    // Step A: Persist notification record to database (Requirement A)
+    const { data: dbData, error: dbError } = await (supabase as any)
+      .from("championship_notifications")
+      .insert({
+        title: params.title.trim(),
+        body: params.body.trim(),
+        type: notifType,
+        target_audience: "all",
+        sent_by: "Pulse Studio Admin",
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error("[Pulse Studio] Database notification insert error:", dbError);
+      return { success: false, error: `Database error: ${dbError.message}` };
+    }
+
+    // Step B: Single authoritative FCM send (Requirement B)
+    if (!params.scheduledAt) {
+      const fcmRes = await sendRealFCMPush({
+        notification_id: dbData?.id,
+        title: params.title,
+        body: params.body,
+        type: notifType,
+        deepLink,
+        audience_type: "all",
+      });
+
+      if (!fcmRes.success) {
+        return {
+          success: false,
+          error: fcmRes.error || fcmRes.message || "Failed to deliver push notification to devices via FCM",
+        };
+      }
+    }
+
+    // Step C: Update live ops participant state
     const current = await fetchLiveOpsState();
     const newNotif = {
-      id: `notif-${Date.now()}`,
+      id: dbData?.id || `notif-${Date.now()}`,
       templateKey: params.templateKey,
       title: params.title,
       body: params.body,
@@ -1050,39 +1105,10 @@ export async function sendPushNotification(params: {
     const updatedList = [newNotif, ...(current.notifications || [])].slice(0, 30);
     await updateLiveOpsState({ notifications: updatedList });
 
-    // Store in localStorage for active student popups
     try {
       safeSetItem("medtrail_latest_broadcast_notification", JSON.stringify(newNotif));
     } catch {
       // Ignore
-    }
-
-    // Requirement 4, 5, 6: Deliver real FCM push notification with deep links
-    if (!params.scheduledAt) {
-      let deepLink = "/championship";
-      let notifType: "pulse" | "badge" | "event" | "general" = "pulse";
-
-      if (params.templateKey.includes("pulse")) {
-        deepLink = "/championship";
-        notifType = "pulse";
-      } else if (params.templateKey.includes("badge") || params.templateKey.includes("founder")) {
-        deepLink = "/passport";
-        notifType = "badge";
-      } else if (params.templateKey === "reg_open") {
-        deepLink = "/championship#registration";
-        notifType = "event";
-      } else if (params.templateKey === "results_declared") {
-        deepLink = "/championship#hall-of-fame";
-        notifType = "event";
-      }
-
-      sendRealFCMPush({
-        title: params.title,
-        body: params.body,
-        type: notifType,
-        deepLink,
-        audience_type: "all",
-      }).catch((e) => console.warn("[Pulse Studio] FCM push warning:", e));
     }
 
     return { success: true };

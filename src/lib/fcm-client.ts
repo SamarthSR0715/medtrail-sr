@@ -318,6 +318,7 @@ export async function sendRealFCMPush(params: {
   deepLink?: string;
   audience_type?: "all" | "championship" | "college" | "batch" | "individual";
   audience_target?: string | null;
+  notification_id?: string | null;
 }): Promise<{
   success: boolean;
   message?: string;
@@ -344,6 +345,7 @@ export async function sendRealFCMPush(params: {
     // 1. Call Supabase Edge Function 'send-fcm-push'
     const { data, error } = await supabase.functions.invoke("send-fcm-push", {
       body: {
+        notification_id: params.notification_id || null,
         title: params.title,
         body: params.body,
         icon: params.icon || "/favicon.ico",
@@ -355,23 +357,40 @@ export async function sendRealFCMPush(params: {
     });
 
     if (error) {
-      console.warn("[FCM] Edge function invoke notice, executing realtime broadcast fallback:", error.message);
-      return await fallbackDirectBroadcast(params, resolvedLink);
+      console.error("[FCM] Edge function invoke error:", error);
+      await fallbackDirectBroadcast(params, resolvedLink);
+      return {
+        success: false,
+        error: error.message || "FCM edge function invocation failed",
+      };
+    }
+
+    if (!data || data.success !== true) {
+      return {
+        success: false,
+        error: data?.error || "FCM delivery failed or credentials unconfigured",
+        stats: data?.stats,
+      };
     }
 
     return {
-      success: data?.success ?? true,
-      message: data?.message || "Notification delivered to devices via FCM!",
-      stats: data?.stats,
+      success: true,
+      message: data.message || `Push notification delivered to ${data.stats?.deliveredCount ?? 0} devices!`,
+      stats: data.stats,
     };
   } catch (err: any) {
-    console.warn("[FCM] Edge function exception, executing realtime broadcast fallback:", err);
-    return await fallbackDirectBroadcast(params, resolvedLink);
+    console.error("[FCM] Edge function exception:", err);
+    await fallbackDirectBroadcast(params, resolvedLink);
+    return {
+      success: false,
+      error: err?.message || "Failed to communicate with push notification service",
+    };
   }
 }
 
 /**
- * Fallback to direct client broadcast and database update if Edge Functions are not deployed yet
+ * Fallback to direct client broadcast to active connected web tabs if Edge Functions fail.
+ * Note: This only reaches currently active web sessions, NOT background Android/iOS devices.
  */
 async function fallbackDirectBroadcast(
   params: {
@@ -412,12 +431,12 @@ async function fallbackDirectBroadcast(
     });
 
     return {
-      success: true,
-      message: `Push broadcast sent to ${deviceList.length} registered devices!`,
+      success: false,
+      error: "Edge function failed. Realtime fallback attempted for active browser tabs only.",
       stats: {
         totalDevices: deviceList.length,
-        deliveredCount: deviceList.length,
-        failedCount: 0,
+        deliveredCount: 0,
+        failedCount: deviceList.length,
         platformBreakdown,
         deepLink,
       },
