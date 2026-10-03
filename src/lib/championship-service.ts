@@ -412,6 +412,7 @@ export async function submitPulseAttemptAtomic(params: {
 }): Promise<{
   success: boolean;
   alreadySubmitted: boolean;
+  notRegistered?: boolean;
   score: number;
   accuracy: number;
   xp: number;
@@ -478,16 +479,32 @@ export async function submitPulseAttemptAtomic(params: {
     console.log("[PULSE RPC RETURN]", {
       success: rpcData?.success,
       alreadySubmitted: rpcData?.already_submitted,
+      notRegistered: rpcData?.not_registered,
       attemptId: rpcData?.attempt_id,
       rpcErrorCode: rpcError?.code,
       rpcErrorMessage: rpcError?.message,
     });
 
     if (!rpcError && rpcData) {
+      // Mandatory Championship Registration check rejection
+      if (rpcData.not_registered) {
+        return {
+          success: false,
+          alreadySubmitted: false,
+          notRegistered: true,
+          score,
+          accuracy,
+          xp,
+          correctCount,
+          message: rpcData.message || "You must register for the MedTrailSR Championship before attempting Pulse.",
+        };
+      }
+
       if (rpcData.already_submitted) {
         return {
           success: false,
           alreadySubmitted: true,
+          notRegistered: false,
           score,
           accuracy,
           xp,
@@ -500,6 +517,7 @@ export async function submitPulseAttemptAtomic(params: {
       return {
         success: true,
         alreadySubmitted: false,
+        notRegistered: false,
         score,
         accuracy,
         xp,
@@ -516,6 +534,24 @@ export async function submitPulseAttemptAtomic(params: {
         details: rpcError.details,
         hint: rpcError.hint,
       });
+
+      // Mandatory registration rejection from database
+      if (
+        rpcError.message?.toLowerCase().includes("register") ||
+        rpcError.details?.toLowerCase().includes("register")
+      ) {
+        return {
+          success: false,
+          alreadySubmitted: false,
+          notRegistered: true,
+          score,
+          accuracy,
+          xp,
+          correctCount,
+          message: "You must register for the MedTrailSR Championship before attempting Pulse.",
+        };
+      }
+
       // Unique violation / already submitted
       if (
         rpcError.code === "23505" ||
@@ -525,6 +561,7 @@ export async function submitPulseAttemptAtomic(params: {
         return {
           success: false,
           alreadySubmitted: true,
+          notRegistered: false,
           score,
           accuracy,
           xp,
@@ -864,4 +901,279 @@ export async function fetchChampionshipRegistrations() {
   }
 
   return data || [];
+}
+
+/**
+ * Canonical admission year choices for MBBS students.
+ * Strictly adheres to project conventions (2023–2026 batches).
+ */
+export const CHAMPIONSHIP_BATCH_CHOICES = [
+  "2026 Batch → Freshers",
+  "2025 Batch → 1st Year MBBS",
+  "2024 Batch → 2nd Year MBBS",
+  "2023 Batch → 3rd Year MBBS",
+] as const;
+
+export type ChampionshipBatchChoice = (typeof CHAMPIONSHIP_BATCH_CHOICES)[number];
+
+/**
+ * Authoritative check for Championship Registration:
+ * A profile or login alone DOES NOT count as championship registration.
+ * User must have an active row in championship_registrations with approval_status != 'removed'.
+ */
+export async function checkStudentChampionshipRegistration(
+  overrideEmail?: string | null
+): Promise<{
+  isRegistered: boolean;
+  registration: any | null;
+  approvalStatus: "approved" | "pending" | "removed" | "none";
+  message?: string;
+}> {
+  try {
+    const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+    const user = authData?.user;
+    const emailToCheck = overrideEmail || user?.email;
+
+    if (!user && !emailToCheck) {
+      return {
+        isRegistered: false,
+        registration: null,
+        approvalStatus: "none",
+        message: "You must register for the MedTrailSR Championship before attempting Pulse.",
+      };
+    }
+
+    let query = supabase.from("championship_registrations").select("*");
+
+    if (user?.id && emailToCheck) {
+      query = query.or(`user_id.eq.${user.id},email.ilike.${emailToCheck.trim()}`);
+    } else if (user?.id) {
+      query = query.eq("user_id", user.id);
+    } else if (emailToCheck) {
+      query = query.ilike("email", emailToCheck.trim());
+    }
+
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[ChampionshipService] Registration check warning:", error.message);
+    }
+
+    if (!data) {
+      return {
+        isRegistered: false,
+        registration: null,
+        approvalStatus: "none",
+        message: "You must register for the MedTrailSR Championship before attempting Pulse.",
+      };
+    }
+
+    const status = (data.approval_status as "approved" | "pending" | "removed") || "approved";
+
+    if (status === "pending") {
+      return {
+        isRegistered: false,
+        registration: data,
+        approvalStatus: "pending",
+        message: "Your championship registration is pending approval. You cannot attempt Pulse yet.",
+      };
+    }
+
+    if (status === "removed") {
+      return {
+        isRegistered: false,
+        registration: data,
+        approvalStatus: "removed",
+        message: "Your championship registration has been removed or suspended. You cannot participate in Pulse.",
+      };
+    }
+
+    if (status !== "approved") {
+      return {
+        isRegistered: false,
+        registration: data,
+        approvalStatus: status,
+        message: "You must register for the MedTrailSR Championship before attempting Pulse.",
+      };
+    }
+
+    return {
+      isRegistered: true,
+      registration: data,
+      approvalStatus: "approved",
+      message: "Registration active",
+    };
+  } catch (err: any) {
+    console.error("[ChampionshipService] checkStudentChampionshipRegistration exception:", err);
+    return {
+      isRegistered: false,
+      registration: null,
+      approvalStatus: "none",
+      message: "Unable to verify championship registration. Please try again.",
+    };
+  }
+}
+
+/**
+ * FEATURE A: Allows authenticated students to edit their own college and admission year.
+ * - Resolves canonical college from public.medical_colleges master
+ * - Enforces identity authorization using authenticated user
+ * - Updates championship_registrations, profiles, participants, and championship_leaderboard
+ * - Automatically triggers standings recalculation for participating pulses
+ */
+export async function updateStudentRegistration(params: {
+  collegeName: string;
+  collegeId?: string | null;
+  batch: string;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  data?: any;
+}> {
+  const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+  const user = authData?.user;
+
+  if (!user) {
+    return {
+      success: false,
+      message: "Please sign in to your MedTrail account to edit registration details.",
+    };
+  }
+
+  const cleanBatch = params.batch ? params.batch.trim() : "";
+  if (!cleanBatch) {
+    return {
+      success: false,
+      message: "Please select a valid admission year / batch.",
+    };
+  }
+
+  let resolvedCollegeId = params.collegeId || null;
+  let resolvedCollegeName = params.collegeName ? params.collegeName.trim() : "";
+
+  // 1. Resolve canonical college against public.medical_colleges master table
+  try {
+    if (resolvedCollegeId) {
+      const { data: mc } = await supabase
+        .from("medical_colleges" as any)
+        .select("id, college_name")
+        .eq("id", resolvedCollegeId)
+        .maybeSingle();
+
+      if (mc) {
+        resolvedCollegeName = (mc as any).college_name;
+        resolvedCollegeId = (mc as any).id;
+      }
+    } else if (resolvedCollegeName) {
+      const { data: mc } = await supabase
+        .from("medical_colleges" as any)
+        .select("id, college_name")
+        .ilike("college_name", resolvedCollegeName)
+        .maybeSingle();
+
+      if (mc) {
+        resolvedCollegeName = (mc as any).college_name;
+        resolvedCollegeId = (mc as any).id;
+      }
+    }
+  } catch (err) {
+    console.warn("[ChampionshipService] Medical college canonical lookup note:", err);
+  }
+
+  if (!resolvedCollegeName) {
+    return {
+      success: false,
+      message: "Please select a valid medical college from the official directory.",
+    };
+  }
+
+  // 2. Execute via secure atomic RPC if available in database
+  try {
+    const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
+      "update_student_registration",
+      {
+        p_medical_college_id: resolvedCollegeId,
+        p_batch: cleanBatch,
+      }
+    );
+
+    if (!rpcError && rpcData) {
+      if (rpcData.success) {
+        // Sync to local storage caches
+        updateLocalRegistrationCache({
+          medicalCollege: resolvedCollegeName,
+          medicalCollegeId: resolvedCollegeId,
+          batch: cleanBatch,
+        });
+
+        return {
+          success: true,
+          message: rpcData.message || "Registration details updated successfully.",
+          data: rpcData,
+        };
+      } else {
+        return {
+          success: false,
+          message: rpcData.message || "Failed to update registration details.",
+        };
+      }
+    }
+
+    if (rpcError) {
+      console.error("[ChampionshipService] update_student_registration RPC error:", rpcError);
+      return {
+        success: false,
+        message: rpcError.message || "Failed to update registration details.",
+        error: rpcError.message,
+      };
+    }
+
+    return {
+      success: false,
+      message: "Unexpected response from server while updating registration.",
+    };
+  } catch (err: any) {
+    console.error("[ChampionshipService] updateStudentRegistration exception:", err);
+    return {
+      success: false,
+      message: err?.message || "An unexpected error occurred while saving details.",
+      error: String(err),
+    };
+  }
+}
+
+function updateLocalRegistrationCache(updates: {
+  medicalCollege: string;
+  medicalCollegeId: string | null;
+  batch: string;
+}) {
+  try {
+    const myRegKey = "medtrail_my_championship_reg";
+    const myRegStr = localStorage.getItem(myRegKey);
+    if (myRegStr) {
+      const myReg = JSON.parse(myRegStr);
+      Object.assign(myReg, updates);
+      localStorage.setItem(myRegKey, JSON.stringify(myReg));
+    }
+
+    const allRegsKey = "medtrail_championship_registrations";
+    const allRegsStr = localStorage.getItem(allRegsKey);
+    if (allRegsStr) {
+      const allRegs = JSON.parse(allRegsStr);
+      if (Array.isArray(allRegs)) {
+        allRegs.forEach((r: any) => {
+          if (myRegStr && JSON.parse(myRegStr).email && r.email?.toLowerCase() === JSON.parse(myRegStr).email?.toLowerCase()) {
+            Object.assign(r, updates);
+          }
+        });
+        localStorage.setItem(allRegsKey, JSON.stringify(allRegs));
+      }
+    }
+  } catch {
+    // Ignore storage issues in non-browser env
+  }
 }

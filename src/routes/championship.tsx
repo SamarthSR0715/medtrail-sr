@@ -28,6 +28,7 @@ import {
   Mail,
   Medal,
   Pause,
+  Pencil,
   Play,
   RotateCcw,
   Scale,
@@ -58,6 +59,7 @@ import {
   submitPulseAttempt,
   submitPulseAttemptAtomic,
   fetchStudentExistingAttempt,
+  checkStudentChampionshipRegistration,
   DEFAULT_PULSE_TIMER_SECONDS,
   type LiveOpsState,
   type PulseSetRecord,
@@ -68,6 +70,7 @@ import {
   type TimeWindowState,
 } from "@/lib/championship-service";
 import { CollegeSelect } from "@/components/ui/college-select";
+import { EditRegistrationDialog } from "@/components/championship/edit-registration-dialog";
 import {
   fetchTodayPublishedPulse,
   convertToQuizQuestions,
@@ -211,6 +214,22 @@ function RouteComponent() {
   const [regEmail, setRegEmail] = useState("");
   const [isSubmittingReg, setIsSubmittingReg] = useState(false);
   const [regSuccessMsg, setRegSuccessMsg] = useState("");
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // Auto-open Edit Registration Dialog if ?editRegistration=true query param is present or custom event fired
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("editRegistration") === "true") {
+        setIsEditDialogOpen(true);
+      }
+      const handleOpen = () => setIsEditDialogOpen(true);
+      window.addEventListener("open-edit-registration", handleOpen);
+      return () => {
+        window.removeEventListener("open-edit-registration", handleOpen);
+      };
+    }
+  }, []);
 
   // Pre-fill user profile if authenticated
   useEffect(() => {
@@ -234,32 +253,51 @@ function RouteComponent() {
         }
       } catch {}
     }
-    if (!emailToCheck) return;
+    if (!emailToCheck && !user?.id) return;
 
     async function checkServerRegistration() {
       try {
-        const { data, error } = await supabase
-          .from("championship_registrations")
-          .select("*")
-          .ilike("email", emailToCheck)
-          .maybeSingle();
-
-        if (data && !error) {
-          setRegName(data.full_name);
-          setRegCollege(data.medical_college);
-          setRegCollegeId(data.medical_college_id || null);
-          setRegBatch(data.batch || "2026 Batch → Freshers");
-          setRegPassportId(data.passport_id || "");
-          setRegEmail(data.email);
+        const check = await checkStudentChampionshipRegistration(emailToCheck);
+        if (check.isRegistered && check.registration) {
+          const r = check.registration;
+          setRegName(r.full_name);
+          setRegCollege(r.medical_college);
+          setRegCollegeId(r.medical_college_id || null);
+          setRegBatch(r.batch || "2026 Batch → Freshers");
+          setRegPassportId(r.passport_id || "");
+          setRegEmail(r.email);
           setRegistered(true);
           setRegSuccessMsg("Registration Confirmed. You're officially participating in MedTrail Championship Season 1.");
+        } else {
+          // Feature B Requirement: A profile or login alone DOES NOT count as championship registration
+          setRegistered(false);
         }
       } catch {
-        // Ignore network errors on initial check
+        // Fallback to direct query
+        try {
+          const { data, error } = await supabase
+            .from("championship_registrations")
+            .select("*")
+            .ilike("email", emailToCheck)
+            .maybeSingle();
+
+          if (data && !error && (data as any).approval_status !== "removed") {
+            setRegName(data.full_name);
+            setRegCollege(data.medical_college);
+            setRegCollegeId(data.medical_college_id || null);
+            setRegBatch(data.batch || "2026 Batch → Freshers");
+            setRegPassportId(data.passport_id || "");
+            setRegEmail(data.email);
+            setRegistered(true);
+            setRegSuccessMsg("Registration Confirmed. You're officially participating in MedTrail Championship Season 1.");
+          } else {
+            setRegistered(false);
+          }
+        } catch {}
       }
     }
     checkServerRegistration();
-  }, [user?.email, regEmail]);
+  }, [user?.email, user?.id, regEmail]);
 
   // Live Leaderboard Data strictly from championship_pulse_attempts
   const [leaderboard, setLeaderboard] = useState<LiveLeaderboardEntry[]>([]);
@@ -968,6 +1006,17 @@ function RouteComponent() {
 
   // Start Pulse Quiz (Strict Admin-managed single attempt per day)
   const startPulseQuiz = () => {
+    // FEATURE B Requirement: Only registered students can attempt Pulse
+    if (!registered) {
+      toast.error("You must register for the MedTrailSR Championship before attempting Pulse.");
+      setIsRegisterOpen(true);
+      setTimeout(() => {
+        const el = document.getElementById("registration");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+      return;
+    }
+
     // Requirement 9: pulse_status alone controls whether submissions are open or closed
     // Requirement 8: results_published controls visibility only
     if (adminPulseStatus === "paused") {
@@ -1077,6 +1126,16 @@ function RouteComponent() {
           return;
         }
 
+        // FEATURE B Requirement: Only registered students can submit Pulse attempts
+        if (!registered) {
+          toast.error("You must register for the MedTrailSR Championship before attempting Pulse.");
+          hasSubmittedAnswerRef.current = false;
+          setHasSubmittedAnswer(false);
+          setIsQuizOpen(false);
+          setIsRegisterOpen(true);
+          return;
+        }
+
         const cleanNumericAnswers = newAnswers.map((a) =>
           typeof a === "number" && !Number.isNaN(a) ? Math.floor(a) : -1
         );
@@ -1129,8 +1188,20 @@ function RouteComponent() {
         console.log("[PULSE ATOMIC RESULT]", {
           success: atomicRes?.success,
           alreadySubmitted: atomicRes?.alreadySubmitted,
+          notRegistered: atomicRes?.notRegistered,
           attemptId: atomicRes?.attemptId,
         });
+
+        // 0. If rejected because not registered in championship
+        if (atomicRes.notRegistered) {
+          setRegistered(false);
+          hasSubmittedAnswerRef.current = false;
+          setHasSubmittedAnswer(false);
+          setIsQuizOpen(false);
+          setIsRegisterOpen(true);
+          toast.error(atomicRes.message || "You must register for the MedTrailSR Championship before attempting Pulse.");
+          return;
+        }
 
         // 1. If already submitted, lock the UI and block further attempts
         if (atomicRes.alreadySubmitted) {
@@ -1587,14 +1658,36 @@ function RouteComponent() {
                     <Sparkles className="w-4 h-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
                   </button>
                 ) : effectivePulseStatus === "live" ? (
-                  <button
-                    onClick={startPulseQuiz}
-                    className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    <Play className="w-5 h-5 fill-white animate-pulse" />
-                    <span>JOIN PULSE NOW</span>
-                    <Sparkles className="w-4 h-4 text-amber-200 group-hover:rotate-12 transition-transform" />
-                  </button>
+                  <div className="flex flex-col items-start gap-3 w-full sm:w-auto">
+                    {!registered && (
+                      <div className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>You must register for the MedTrailSR Championship before attempting Pulse.</span>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={startPulseQuiz}
+                        className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                      >
+                        <Play className="w-5 h-5 fill-white animate-pulse" />
+                        <span>JOIN PULSE NOW</span>
+                        <Sparkles className="w-4 h-4 text-amber-200 group-hover:rotate-12 transition-transform" />
+                      </button>
+                      {!registered && (
+                        <button
+                          onClick={() => {
+                            const el = document.getElementById("registration");
+                            if (el) el.scrollIntoView({ behavior: "smooth" });
+                            else setIsRegisterOpen(true);
+                          }}
+                          className="px-6 py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                        >
+                          Register for Championship
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ) : effectivePulseStatus === "paused" ? (
                   <button
                     onClick={startPulseQuiz}
@@ -1761,6 +1854,18 @@ function RouteComponent() {
                       <div className="font-mono text-slate-300 text-xs">{regEmail}</div>
                     </div>
                   )}
+                  {/* FEATURE A: Edit Registration Details */}
+                  <div className="sm:col-span-2 pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-400">Need to update college or admission year?</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditDialogOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-bold transition-all hover:scale-105 cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Edit Registration Details</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -1769,6 +1874,14 @@ function RouteComponent() {
                     className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer"
                   >
                     {seasonRemaining.isLive ? "Join Today's Pulse" : "View Daily Pulses"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditDialogOpen(true)}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 font-semibold text-sm border border-blue-500/40 transition cursor-pointer"
+                  >
+                    <Pencil className="w-4 h-4 text-blue-400" />
+                    <span>Edit Registration Details</span>
                   </button>
                   <button
                     onClick={() => setIsPassportOpen(true)}
@@ -2342,6 +2455,17 @@ function RouteComponent() {
                               ⭐ TOP 5 QUALIFIER
                             </span>
                           )}
+                          {registered && (
+                            <button
+                              type="button"
+                              onClick={() => setIsEditDialogOpen(true)}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition cursor-pointer"
+                              title="Edit College or Batch"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                              <span>Edit Details</span>
+                            </button>
+                          )}
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           {myPerformance?.display_name || regName || user?.user_metadata?.full_name || "Doctor"} &bull; Verified Championship Participant
@@ -2395,7 +2519,19 @@ function RouteComponent() {
 
                       {/* 5. College */}
                       <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-2 lg:col-span-1 text-left sm:text-center">
-                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">College</div>
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider flex items-center justify-between">
+                          <span>College</span>
+                          {registered && (
+                            <button
+                              type="button"
+                              onClick={() => setIsEditDialogOpen(true)}
+                              className="text-blue-400 hover:text-blue-300 text-[10px] cursor-pointer"
+                              title="Edit College"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
                         <div className="text-xs font-bold text-slate-200 mt-1 truncate" title={myPerformance.institution}>
                           {myPerformance.institution || "Medical College"}
                         </div>
@@ -2403,7 +2539,19 @@ function RouteComponent() {
 
                       {/* 6. Batch */}
                       <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-1 text-left sm:text-center">
-                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Batch</div>
+                        <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider flex items-center justify-between">
+                          <span>Batch</span>
+                          {registered && (
+                            <button
+                              type="button"
+                              onClick={() => setIsEditDialogOpen(true)}
+                              className="text-blue-400 hover:text-blue-300 text-[10px] cursor-pointer"
+                              title="Edit Batch"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
                         <div className="text-xs font-bold text-blue-300 mt-1 truncate" title={myPerformance.batch}>
                           {myPerformance.batch || "MBBS Batch"}
                         </div>
@@ -3383,6 +3531,23 @@ function RouteComponent() {
           </div>
         </div>
       )}
+
+      {/* Edit Registration Details Dialog */}
+      <EditRegistrationDialog
+        isOpen={isEditDialogOpen}
+        onClose={() => setIsEditDialogOpen(false)}
+        currentCollege={regCollege}
+        currentCollegeId={regCollegeId}
+        currentBatch={regBatch}
+        studentName={regName || user?.user_metadata?.full_name}
+        studentEmail={user?.email || regEmail}
+        onSuccess={(updated) => {
+          setRegCollege(updated.college);
+          setRegCollegeId(updated.collegeId || null);
+          setRegBatch(updated.batch);
+          loadLeaderboard();
+        }}
+      />
     </div>
   );
 }

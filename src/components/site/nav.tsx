@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  Pencil,
   Shield,
   Smartphone,
   Sun,
@@ -176,6 +177,20 @@ export function SiteNav() {
                       </Link>
                     </DropdownMenuItem>
 
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (window.location.pathname === "/championship") {
+                          window.dispatchEvent(new CustomEvent("open-edit-registration"));
+                        } else {
+                          window.location.href = "/championship?editRegistration=true";
+                        }
+                      }}
+                      className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-foreground hover:bg-secondary transition cursor-pointer"
+                    >
+                      <Pencil className="size-4 text-blue-400" />
+                      Edit Registration Details
+                    </DropdownMenuItem>
+
                     <DropdownMenuItem asChild>
                       <Link
                         to="/mbbs"
@@ -319,6 +334,28 @@ export function SiteNav() {
                       : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                   }`}>
                     {notifPermission === "granted" ? "ACTIVE ✓" : "ENABLE NOW"}
+                  </span>
+                </button>
+
+                {/* Edit Championship Registration Details */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    if (window.location.pathname === "/championship") {
+                      window.dispatchEvent(new CustomEvent("open-edit-registration"));
+                    } else {
+                      window.location.href = "/championship?editRegistration=true";
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-xs font-bold text-blue-300 transition hover:bg-blue-500/20"
+                >
+                  <span className="flex items-center gap-2">
+                    <Pencil className="size-4 text-blue-400" />
+                    <span>Edit Registration</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    COLLEGE & BATCH
                   </span>
                 </button>
 

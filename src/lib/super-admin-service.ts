@@ -306,14 +306,28 @@ export async function updateRegistrationApproval(
   newStatus: "approved" | "pending" | "removed"
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { error } = await supabase
-      .from("championship_registrations")
-      .update({ approval_status: newStatus })
-      .eq("id", id);
+    const { data, error } = await (supabase as any).rpc("admin_update_registration_status", {
+      p_registration_id: id,
+      p_status: newStatus,
+    });
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === "42883" || (error.message && error.message.includes("does not exist"))) {
+        console.warn("[SuperAdmin] admin_update_registration_status RPC not found, attempting direct fallback:", error.message);
+        const { error: directErr } = await supabase
+          .from("championship_registrations")
+          .update({ approval_status: newStatus })
+          .eq("id", id);
+        if (directErr) throw directErr;
+      } else {
+        throw new Error(error.message || "Failed to update registration status");
+      }
+    } else if (data && !data.success) {
+      throw new Error(data.message || "Failed to update registration status");
+    }
   } catch (err: any) {
     console.warn("[SuperAdmin] Supabase updateRegistrationApproval error:", err);
+    return { success: false, error: err.message };
   }
 
   // Update local cache
@@ -333,14 +347,27 @@ export async function updateRegistrationApproval(
 
 export async function deleteRegistrationRecord(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const { error } = await supabase
-      .from("championship_registrations")
-      .delete()
-      .eq("id", id);
+    const { data, error } = await (supabase as any).rpc("admin_delete_registration", {
+      p_registration_id: id,
+    });
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === "42883" || (error.message && error.message.includes("does not exist"))) {
+        console.warn("[SuperAdmin] admin_delete_registration RPC not found, attempting direct fallback:", error.message);
+        const { error: directErr } = await supabase
+          .from("championship_registrations")
+          .delete()
+          .eq("id", id);
+        if (directErr) throw directErr;
+      } else {
+        throw new Error(error.message || "Failed to delete registration");
+      }
+    } else if (data && !data.success) {
+      throw new Error(data.message || "Failed to delete registration");
+    }
   } catch (err: any) {
     console.warn("[SuperAdmin] Supabase deleteRegistrationRecord error:", err);
+    return { success: false, error: err.message };
   }
 
   // Update local cache

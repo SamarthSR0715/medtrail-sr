@@ -185,6 +185,8 @@ export function SuperAdminControlCenter() {
       toast.success("Registration marked as Approved");
       loadRegistrations();
       loadStats();
+    } else {
+      toast.error(res.error || "Failed to approve registration");
     }
   };
 
@@ -195,6 +197,8 @@ export function SuperAdminControlCenter() {
         toast.info(`Registration for ${name} removed`);
         loadRegistrations();
         loadStats();
+      } else {
+        toast.error(res.error || `Failed to remove registration for ${name}`);
       }
     }
   };
@@ -206,6 +210,8 @@ export function SuperAdminControlCenter() {
         toast.success("Registration permanently deleted");
         loadRegistrations();
         loadStats();
+      } else {
+        toast.error(res.error || "Failed to delete registration");
       }
     }
   };
