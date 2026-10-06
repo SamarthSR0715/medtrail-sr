@@ -175,8 +175,8 @@ export function PulseStudio() {
               explanation: existing.explanation || "",
               subject: existing.subject || DEFAULT_PULSE_SUBJECTS[idx] || "General",
               difficulty: existing.difficulty || (slotNum === 5 ? "Easy" : "Medium"),
-              xp_value: Number(existing.xp_value) || 50,
-              time_limit_seconds: Number(existing.time_limit_seconds) || 60,
+              xp_value: typeof existing.xp_value === "number" && !isNaN(existing.xp_value) ? existing.xp_value : (existing.xp_value !== undefined && !isNaN(Number(existing.xp_value)) ? Math.max(0, Math.floor(Number(existing.xp_value))) : 50),
+              time_limit_seconds: typeof existing.time_limit_seconds === "number" && !isNaN(existing.time_limit_seconds) && existing.time_limit_seconds > 0 ? existing.time_limit_seconds : (existing.time_limit_seconds !== undefined && !isNaN(Number(existing.time_limit_seconds)) && Number(existing.time_limit_seconds) > 0 ? Math.floor(Number(existing.time_limit_seconds)) : 60),
             };
           }
           return {
@@ -225,7 +225,7 @@ export function PulseStudio() {
         target_date: compSettings.competition_date || prev.target_date || todayIST,
         go_live_time: compSettings.start_time || prev.go_live_time || "19:00",
         end_time: compSettings.end_time || prev.end_time || "23:59",
-        live_status: compSettings.pulse_status || prev.live_status || "upcoming",
+        live_status: (compSettings.pulse_status as any) || prev.live_status || "upcoming",
         results_declared: Boolean(compSettings.results_published),
       }));
     } catch (err) {
@@ -512,7 +512,7 @@ const handleSendNotification = async (isScheduled: boolean) => {
       templateKey: selectedNotifTemplate,
       title: notifTitle.trim(),
       body: notifBody.trim(),
-      scheduledAt: isScheduled ? notifScheduleTime : undefined,
+      ...(isScheduled && notifScheduleTime ? { scheduledAt: notifScheduleTime } : {}),
     });
     if (res.success) {
       toast.success(isScheduled ? "Notification scheduled successfully!" : "Push notification broadcasted to all participants!");
@@ -577,6 +577,12 @@ const validationSummary = useMemo(() => {
     const norm = normalizeCorrectAnswer(q.correct_answer);
     if (!norm || !["A", "B", "C", "D"].includes(norm)) {
       issues.push("Missing correct answer (select radio A, B, C, or D)");
+    }
+    if (typeof q.xp_value !== "number" || isNaN(q.xp_value) || q.xp_value < 0 || !Number.isInteger(q.xp_value)) {
+      issues.push("XP must be a non-negative integer");
+    }
+    if (typeof q.time_limit_seconds !== "number" || isNaN(q.time_limit_seconds) || q.time_limit_seconds <= 0 || !Number.isInteger(q.time_limit_seconds)) {
+      issues.push("Time limit must be a positive integer");
     }
     if (issues.length > 0) {
       missing.push({ slot: idx + 1, issues });
@@ -1077,28 +1083,31 @@ return (
                   <label className="text-[11px] font-mono text-slate-400">XP Value</label>
                   <input
                     type="number"
-                    min={10}
-                    max={500}
-                    step={10}
-                    value={currentQ.xp_value}
-                    onChange={(e) => handleUpdateCurrentQuestion({ xp_value: Number(e.target.value) || 50 })}
+                    min={0}
+                    step={1}
+                    value={currentQ.xp_value !== undefined ? currentQ.xp_value : 50}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      handleUpdateCurrentQuestion({ xp_value: isNaN(val) ? 0 : Math.max(0, val) });
+                    }}
                     className="w-24 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-mono text-slate-400">Timer Limit</label>
-                  <select
-                    value={currentQ.time_limit_seconds || 60}
-                    onChange={(e) => handleUpdateCurrentQuestion({ time_limit_seconds: Number(e.target.value) || 60 })}
-                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
-                  >
-                    <option value={30}>30s (Rapid)</option>
-                    <option value={45}>45s (Sprint)</option>
-                    <option value={60}>60s (Standard)</option>
-                    <option value={90}>90s (Extended)</option>
-                    <option value={120}>120s (Case Study)</option>
-                  </select>
+                  <label className="text-[11px] font-mono text-slate-400">Timer Limit (sec)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={600}
+                    step={1}
+                    value={currentQ.time_limit_seconds !== undefined ? currentQ.time_limit_seconds : 60}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      handleUpdateCurrentQuestion({ time_limit_seconds: isNaN(val) ? 60 : Math.max(1, val) });
+                    }}
+                    className="w-28 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
+                  />
                 </div>
               </div>
             </div>

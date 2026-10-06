@@ -50,15 +50,27 @@ export interface LeaderboardEntry {
   season_id: string;
 }
 
+export interface SanitizedPulseQuestion {
+  id: string;
+  slot: number;
+  subject: string;
+  category: "1st MBBS" | "2nd MBBS" | "General Pulse" | string;
+  question: string;
+  options: string[];
+  xp: number;
+  points: number;
+  time_limit_seconds?: number;
+}
+
 export interface PulseQuestion {
   id: string;
   slot: number;
   subject: string;
-  category: "1st MBBS" | "2nd MBBS" | "General Pulse";
+  category: "1st MBBS" | "2nd MBBS" | "General Pulse" | string;
   question: string;
   options: string[];
-  correctIndex: number;
-  explanation: string;
+  correctIndex?: number;
+  explanation?: string;
   xp: number;
   points: number;
   time_limit_seconds?: number;
@@ -396,7 +408,170 @@ export async function fetchStudentExistingAttempt(params: {
   return { hasSubmitted: false };
 }
 
-// ── Atomic Pulse Submission (One Attempt Only + Standings Recalculation) ────────
+// ── Secure Authoritative Anti-Cheat Session Handshake ──────────────────────────
+
+export interface StartPulseSessionResult {
+  success: boolean;
+  sessionId?: string;
+  pulseId?: string;
+  pulseDate?: string;
+  questionCount?: number;
+  durationSeconds?: number;
+  expiresAt?: string;
+  questions?: SanitizedPulseQuestion[];
+  alreadySubmitted?: boolean;
+  notRegistered?: boolean;
+  attemptId?: string;
+  errorCode?: string;
+  message?: string;
+}
+
+export interface SubmitPulseAttemptSecureResult {
+  success: boolean;
+  alreadySubmitted?: boolean;
+  attemptId?: string;
+  score?: number;
+  accuracy?: number;
+  xp?: number;
+  timeTakenSeconds?: number;
+  submittedAt?: string;
+  explanations?: Array<{
+    slot: number;
+    correct_answer: string;
+    explanation: string;
+  }>;
+  errorCode?: string;
+  message?: string;
+}
+
+/**
+ * Start an official Pulse session via authoritative server handshake.
+ * Returns only sanitized questions stripped of answers, correct indices, and explanations.
+ */
+export async function startPulseSessionAtomic(
+  pulseId?: string
+): Promise<StartPulseSessionResult> {
+  try {
+    const { data, error } = await (supabase as any).rpc("start_pulse_session_atomic", {
+      p_pulse_id: pulseId || null,
+    });
+
+    if (error) {
+      console.warn("[ChampionshipService] start_pulse_session_atomic note:", error.message);
+      return {
+        success: false,
+        errorCode: error.code,
+        message: error.message || "Failed to start Pulse session.",
+      };
+    }
+
+    if (!data || !data.success) {
+      return {
+        success: false,
+        alreadySubmitted: data?.already_submitted ?? false,
+        notRegistered: data?.not_registered ?? false,
+        attemptId: data?.attempt_id,
+        errorCode: data?.error_code,
+        message: data?.message || "Could not start Pulse session.",
+      };
+    }
+
+    return {
+      success: true,
+      sessionId: data.session_id,
+      pulseId: data.pulse_id,
+      pulseDate: data.pulse_date,
+      questionCount: data.question_count || 5,
+      durationSeconds: data.duration_seconds || 300,
+      expiresAt: data.expires_at,
+      questions: (data.questions || []).map((q: any, idx: number) => ({
+        id: q.question_id || `q_${idx + 1}`,
+        slot: q.slot !== undefined ? q.slot + 1 : idx + 1,
+        subject: q.subject || "General",
+        category: q.category || "1st MBBS",
+        question: q.question || "",
+        options: Array.isArray(q.options) ? q.options : [],
+        xp: typeof q.xp === "number" && !isNaN(q.xp) ? q.xp : (q.xp !== undefined && !isNaN(Number(q.xp)) ? Math.max(0, Math.floor(Number(q.xp))) : 50),
+        points: typeof q.points === "number" && !isNaN(q.points) ? q.points : (typeof q.xp === "number" && !isNaN(q.xp) ? q.xp : 50),
+        time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? q.time_limit_seconds : (q.time_limit_seconds !== undefined && !isNaN(Number(q.time_limit_seconds)) && Number(q.time_limit_seconds) > 0 ? Math.floor(Number(q.time_limit_seconds)) : 60),
+      })),
+    };
+  } catch (err: any) {
+    console.error("[ChampionshipService] startPulseSessionAtomic exception:", err);
+    return {
+      success: false,
+      errorCode: "CLIENT_EXCEPTION",
+      message: err.message || "Unexpected network error starting Pulse session.",
+    };
+  }
+}
+
+/**
+ * Authoritative Pulse attempt submission.
+ * Client sends ONLY sessionId and chosen answer indexes (-1..3).
+ * Server computes score, accuracy, XP, and returns explanations.
+ */
+export async function submitPulseAttemptAtomicSecure(params: {
+  sessionId: string;
+  answers: number[];
+}): Promise<SubmitPulseAttemptSecureResult> {
+  const { sessionId, answers } = params;
+
+  const cleanAnswers = Array.isArray(answers)
+    ? answers.map((a) => (typeof a === "number" && !Number.isNaN(a) ? Math.floor(a) : -1))
+    : [];
+
+  try {
+    const { data, error } = await (supabase as any).rpc("submit_pulse_attempt_atomic", {
+      p_session_id: sessionId,
+      p_answers: cleanAnswers,
+    });
+
+    if (error) {
+      console.error("[ChampionshipService] submit_pulse_attempt_atomic secure RPC error:", error);
+      return {
+        success: false,
+        errorCode: error.code,
+        message: error.message || "Failed to submit exam attempt.",
+      };
+    }
+
+    if (!data || !data.success) {
+      return {
+        success: false,
+        alreadySubmitted: data?.already_submitted ?? false,
+        attemptId: data?.attempt_id,
+        errorCode: data?.error_code,
+        message: data?.message || "Failed to submit attempt.",
+      };
+    }
+
+    return {
+      success: true,
+      alreadySubmitted: data.already_submitted ?? false,
+      attemptId: data.attempt_id,
+      score: data.score,
+      accuracy: data.accuracy,
+      xp: data.xp,
+      timeTakenSeconds: data.time_taken_seconds,
+      submittedAt: data.submitted_at,
+      explanations: data.explanations || [],
+      message: data.message || "Attempt submitted successfully.",
+    };
+  } catch (err: any) {
+    console.error("[ChampionshipService] submitPulseAttemptAtomicSecure exception:", err);
+    return {
+      success: false,
+      errorCode: "CLIENT_EXCEPTION",
+      message: err.message || "Unexpected network error submitting attempt.",
+    };
+  }
+}
+
+// ── Legacy Atomic Pulse Submission (Deprecated — kept for backwards compatibility) ──
+/**
+ * @deprecated Use `submitPulseAttemptAtomicSecure` with `startPulseSessionAtomic`.
+ */
 export async function submitPulseAttemptAtomic(params: {
   pulseId: string;
   pulseDate?: string;

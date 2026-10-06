@@ -56,8 +56,8 @@ import {
   getDailyPulseTimeState,
   getISTDateString,
   registerChampionshipParticipant,
-  submitPulseAttempt,
-  submitPulseAttemptAtomic,
+  startPulseSessionAtomic,
+  submitPulseAttemptAtomicSecure,
   fetchStudentExistingAttempt,
   checkStudentChampionshipRegistration,
   DEFAULT_PULSE_TIMER_SECONDS,
@@ -69,11 +69,10 @@ import {
   type SeasonStatus,
   type TimeWindowState,
 } from "@/lib/championship-service";
+import { useAntiCheatTelemetry } from "@/lib/anti-cheat-service";
 import { CollegeSelect } from "@/components/ui/college-select";
 import { EditRegistrationDialog } from "@/components/championship/edit-registration-dialog";
 import {
-  fetchTodayPublishedPulse,
-  convertToQuizQuestions,
   fetchLiveOpsState,
 } from "@/lib/pulse-admin-service";
 import {
@@ -218,17 +217,16 @@ function RouteComponent() {
 
   // Auto-open Edit Registration Dialog if ?editRegistration=true query param is present or custom event fired
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get("editRegistration") === "true") {
-        setIsEditDialogOpen(true);
-      }
-      const handleOpen = () => setIsEditDialogOpen(true);
-      window.addEventListener("open-edit-registration", handleOpen);
-      return () => {
-        window.removeEventListener("open-edit-registration", handleOpen);
-      };
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("editRegistration") === "true") {
+      setIsEditDialogOpen(true);
     }
+    const handleOpen = () => setIsEditDialogOpen(true);
+    window.addEventListener("open-edit-registration", handleOpen);
+    return () => {
+      window.removeEventListener("open-edit-registration", handleOpen);
+    };
   }, []);
 
   // Pre-fill user profile if authenticated
@@ -378,6 +376,20 @@ function RouteComponent() {
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [hasSubmittedAnswer, setHasSubmittedAnswer] = useState(false);
 
+  // Authoritative Anti-Cheat Session State
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState<boolean>(false);
+  const [reviewExplanations, setReviewExplanations] = useState<
+    Record<number, { correctIndex: number; correctAnswer: string; explanation: string }>
+  >({});
+
+  // Mount Passive Telemetry Hook (Active ONLY during exam session)
+  useAntiCheatTelemetry({
+    sessionId: activeSessionId,
+    active: isQuizOpen && !quizFinished,
+    onWarning: (msg) => toast.warning(msg, { duration: 3000 }),
+  });
+
   // Pulse Countdown Timer (Configurable 60s per pulse) - Declared after quiz state to prevent TDZ ReferenceErrors
   const [timerSecondsLeft, setTimerSecondsLeft] = useState<number>(DEFAULT_PULSE_TIMER_SECONDS);
   const selectedOptionRef = useRef<number | null>(null);
@@ -435,151 +447,47 @@ function RouteComponent() {
     }
   }, []);
 
-  // Default Pulse questions (4 MBBS + 1 General)
-  const DEFAULT_PULSE_QUESTIONS: PulseQuestion[] = useMemo(() => [
-    {
-      id: "pulse-default-1",
-      slot: 1,
-      subject: "Anatomy",
-      category: "1st MBBS",
-      question: "Which nerve is most vulnerable to injury in fractures of the humeral shaft at the radial groove?",
-      options: ["Radial nerve", "Median nerve", "Ulnar nerve", "Axillary nerve"],
-      correctIndex: 0,
-      explanation: "The radial nerve runs directly in the spiral (radial) groove on the posterior surface of the humerus and is most commonly injured in mid-shaft fractures, causing wrist drop.",
-      xp: 50,
-      points: 50,
-      time_limit_seconds: 60,
-    },
-    {
-      id: "pulse-default-2",
-      slot: 2,
-      subject: "Physiology",
-      category: "1st MBBS",
-      question: "What is the primary site of erythropoietin production in healthy adults?",
-      options: ["Renal peritubular interstitial cells", "Hepatic hepatocytes", "Splenic red pulp", "Bone marrow stroma"],
-      correctIndex: 0,
-      explanation: "In healthy adults, approximately 85-90% of erythropoietin is produced by interstitial cells in the peritubular capillary bed of the renal cortex in response to hypoxia.",
-      xp: 50,
-      points: 50,
-      time_limit_seconds: 60,
-    },
-    {
-      id: "pulse-default-3",
-      slot: 3,
-      subject: "Biochemistry",
-      category: "1st MBBS",
-      question: "Which enzyme catalyzes the rate-limiting and committed step of glycolysis?",
-      options: ["Phosphofructokinase-1 (PFK-1)", "Hexokinase", "Pyruvate kinase", "Aldolase"],
-      correctIndex: 0,
-      explanation: "Phosphofructokinase-1 (PFK-1) converts fructose-6-phosphate to fructose-1,6-bisphosphate and serves as the key rate-limiting regulatory enzyme in glycolysis.",
-      xp: 50,
-      points: 50,
-      time_limit_seconds: 60,
-    },
-    {
-      id: "pulse-default-4",
-      slot: 4,
-      subject: "Pathology",
-      category: "2nd MBBS",
-      question: "Which of the following is the characteristic histopathological hallmark of caseous necrosis?",
-      options: [
-        "Structureless, amorphous granular debris surrounded by a granulomatous rim",
-        "Ghost cell outlines with preserved tissue architecture",
-        "Enzymatic digestion yielding liquid viscous mass",
-        "Focal fat destruction with saponification",
-      ],
-      correctIndex: 0,
-      explanation: "Caseous necrosis (classically seen in tuberculosis) appears as friable, cheese-like debris microscopically composed of amorphous granular debris surrounded by epithelioid histiocytes and Langhans giant cells.",
-      xp: 50,
-      points: 50,
-      time_limit_seconds: 60,
-    },
-    {
-      id: "pulse-default-5",
-      slot: 5,
-      subject: "General",
-      category: "General Pulse",
-      question: "In standard clinical medical ethics, which principle emphasizes the physician's obligation to do no harm ('primum non nocere')?",
-      options: ["Non-maleficence", "Beneficence", "Autonomy", "Distributive Justice"],
-      correctIndex: 0,
-      explanation: "Non-maleficence requires clinicians to avoid inflicting harm on patients, historically summarized as 'primum non nocere' (first, do no harm).",
-      xp: 50,
-      points: 50,
-      time_limit_seconds: 60,
-    },
+  // Pulse slots preview structure for pre-start display (no questions, answers, or keys leaked)
+  const PULSE_SLOT_PREVIEWS = useMemo(() => [
+    { slot: 1, subject: "Anatomy", category: "1st MBBS", xp: 50, points: 50 },
+    { slot: 2, subject: "Physiology", category: "1st MBBS", xp: 50, points: 50 },
+    { slot: 3, subject: "Biochemistry", category: "1st MBBS", xp: 50, points: 50 },
+    { slot: 4, subject: "Pathology", category: "2nd MBBS", xp: 50, points: 50 },
+    { slot: 5, subject: "General Pulse", category: "Clinical Vignette", xp: 50, points: 50 },
   ], []);
 
-  // Load today's questions and student's attempt safely from Supabase championship_pulse_sets
+  // Check student's attempt status safely without exposing questions or answer keys before exam start
   const loadTodayPulse = useCallback(async () => {
     try {
       const todayIST = getISTDateString();
-      const targetDate = pulseSettings.competition_date || todayIST;
-      let questionsToUse: PulseQuestion[] = [];
-      let setRecord: PulseSetRecord | null = null;
 
-      // 1. Fetch official Admin-published pulse from Supabase (championship_pulse_sets) for today
-      try {
-        const publishedPulse = await fetchTodayPublishedPulse(todayIST);
-
-        if (publishedPulse && Array.isArray(publishedPulse.questions) && publishedPulse.questions.length > 0) {
-          const converted = convertToQuizQuestions(publishedPulse.questions);
-          if (converted.length > 0) {
-            questionsToUse = converted;
-            setRecord = publishedPulse;
-          }
-        }
-      } catch (fetchErr) {
-        console.warn("[Student Pulse] Supabase published pulse fetch notice:", fetchErr);
-      }
-
-      // 2. Check localStorage cache if network fetch returned nothing (offline / fallback) for today
-      if (questionsToUse.length === 0) {
-        try {
-          const raw = localStorage.getItem("medtrail_admin_pulse_sets_v2");
-          if (raw) {
-            const sets = JSON.parse(raw);
-            const found = sets[todayIST];
-            if (found && found.status === "published" && Array.isArray(found.questions) && found.questions.length > 0) {
-              setRecord = found;
-              questionsToUse = convertToQuizQuestions(found.questions);
-            }
-          }
-        } catch {}
-      }
-
-      // 3. Fallback only if genuinely no published pulse exists
-      if (questionsToUse.length === 0) {
-        questionsToUse = DEFAULT_PULSE_QUESTIONS;
-        setRecord = {
-          id: `pulse-default-${todayIST}`,
-          pulse_date: todayIST,
-          status: "published",
-          questions: questionsToUse as any,
-          published_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-      }
-
-      setPublishedPulseSet(setRecord);
-      setTodayQuestions(questionsToUse);
-
-      // Always reset attempt state first when loading a pulse to avoid stale state carrying over
+      // Always reset attempt state first when loading to avoid stale state carrying over
       setHasAttemptedToday(false);
       setTodayAttempt(null);
 
-      // Check student's attempt for THIS specific pulse (Rule: user_id = current user AND pulse_id = currentPulseId)
-      const currentPulseId = setRecord?.id;
-      const dbUserId = user?.id || null;  // Only auth UUID is valid for DB operations
+      // Restore any post-submission explanations or questions cached for today
+      try {
+        const savedExpl = sessionStorage.getItem(`medtrail_pulse_expl_${todayIST}`);
+        if (savedExpl) {
+          setReviewExplanations(JSON.parse(savedExpl));
+        }
+        const savedQ = sessionStorage.getItem(`medtrail_pulse_questions_${todayIST}`);
+        if (savedQ) {
+          setTodayQuestions(JSON.parse(savedQ));
+        }
+      } catch {
+        // Ignore storage read errors
+      }
+
+      const dbUserId = user?.id || null;
       const dbUserEmail = user?.email || regEmail || null;
 
-      if (currentPulseId && (dbUserId || dbUserEmail)) {
+      if (dbUserId || dbUserEmail) {
         try {
           const remoteCheck = await fetchStudentExistingAttempt({
             userId: dbUserId,
             userEmail: dbUserEmail,
-            pulseId: currentPulseId,
-            pulseDate: setRecord?.pulse_date || todayIST,
+            pulseDate: todayIST,
           });
 
           if (remoteCheck.hasSubmitted && remoteCheck.attempt) {
@@ -595,15 +503,15 @@ function RouteComponent() {
               xp: Number(attempt.xp ?? attempt.xp_earned ?? 0),
             });
           } else {
-            // Local fallback check strictly scoped to currentPulseId
+            // Local fallback check strictly scoped to today
             const studentId = getEffectiveStudentId();
             const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
             if (rawAttempts) {
               const attempts = JSON.parse(rawAttempts);
               const attempt =
-                attempts[`${currentPulseId}_${dbUserId || dbUserEmail}`] ||
-                attempts[`${currentPulseId}_${studentId}`];
-              if (attempt && (attempt.pulse_id === currentPulseId || attempt.pulseId === currentPulseId)) {
+                attempts[`${todayIST}_${dbUserId || dbUserEmail}`] ||
+                attempts[`${todayIST}_${studentId}`];
+              if (attempt) {
                 setHasAttemptedToday(true);
                 setTodayAttempt(attempt);
                 if (attempt.answers && Array.isArray(attempt.answers)) {
@@ -614,25 +522,17 @@ function RouteComponent() {
                   accuracy: Number(attempt.accuracy ?? 0),
                   xp: Number(attempt.xp ?? attempt.xp_earned ?? 0),
                 });
-              } else {
-                setHasAttemptedToday(false);
-                setTodayAttempt(null);
               }
-            } else {
-              setHasAttemptedToday(false);
-              setTodayAttempt(null);
             }
           }
         } catch (checkErr) {
           console.warn("[Student Pulse] Check attempt error:", checkErr);
-          setHasAttemptedToday(false);
-          setTodayAttempt(null);
         }
       }
     } catch (err) {
       console.warn("[Student Pulse] loadTodayPulse warning:", err);
     }
-  }, [pulseSettings.competition_date, getEffectiveStudentId, DEFAULT_PULSE_QUESTIONS, user?.id, user?.email, regEmail]);
+  }, [getEffectiveStudentId, user?.id, user?.email, regEmail]);
 
   // Load pulse questions on mount
   useEffect(() => {
@@ -1004,8 +904,8 @@ function RouteComponent() {
     }
   };
 
-  // Start Pulse Quiz (Strict Admin-managed single attempt per day)
-  const startPulseQuiz = () => {
+  // Start Pulse Quiz (Strict Authoritative Anti-Cheat Session Handshake)
+  const startPulseQuiz = async () => {
     // FEATURE B Requirement: Only registered students can attempt Pulse
     if (!registered) {
       toast.error("You must register for the MedTrailSR Championship before attempting Pulse.");
@@ -1014,6 +914,11 @@ function RouteComponent() {
         const el = document.getElementById("registration");
         if (el) el.scrollIntoView({ behavior: "smooth" });
       }, 100);
+      return;
+    }
+
+    if (!user?.id) {
+      toast.error("Please sign in to take the official championship Pulse.");
       return;
     }
 
@@ -1034,14 +939,6 @@ function RouteComponent() {
       return;
     }
 
-    // 1. Must be published by Admin in Supabase
-    if (!publishedPulseSet || todayQuestions.length === 0) {
-      toast.info(
-        `Today's Pulse questions are being prepared by the MedTrail Admin. They will unlock shortly.`
-      );
-      return;
-    }
-
     // 2. Students can only attempt once per day
     if (hasAttemptedToday) {
       toast.info("You have already completed today's official Pulse attempt! Loading faculty explanations...");
@@ -1049,16 +946,55 @@ function RouteComponent() {
       return;
     }
 
-    const initialLimit = todayQuestions[0]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
-    setTimerSecondsLeft(initialLimit);
-    setCurrentQIndex(0);
-    setUserAnswers([]);
-    setQuizFinished(false);
-    setQuizResult(null);
-    setSelectedOption(null);
-    setHasSubmittedAnswer(false);
-    setQuizStartTime(Date.now());
-    setIsQuizOpen(true);
+    if (isStartingSession) return;
+    setIsStartingSession(true);
+
+    try {
+      const todayStr = getISTDateString();
+      // Server-authoritative session handshake
+      const sessionRes = await startPulseSessionAtomic(todayStr);
+
+      if (!sessionRes.success) {
+        if (sessionRes.notRegistered) {
+          setRegistered(false);
+          setIsRegisterOpen(true);
+          toast.error(sessionRes.message || "Registration required before attempting Pulse.");
+          return;
+        }
+        if (sessionRes.alreadySubmitted) {
+          setHasAttemptedToday(true);
+          toast.error("You have already completed this Pulse. 1 attempt permitted.");
+          setIsReviewModalOpen(true);
+          return;
+        }
+        toast.error(sessionRes.message || "Could not initialize secure exam session. Please try again.");
+        return;
+      }
+
+      if (!sessionRes.sessionId || !sessionRes.questions || sessionRes.questions.length !== 5) {
+        toast.error("Invalid session initialized by server. Expected exactly 5 questions.");
+        return;
+      }
+
+      setActiveSessionId(sessionRes.sessionId);
+      setTodayQuestions(sessionRes.questions as PulseQuestion[]);
+
+      const initialLimit = sessionRes.questions[0]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+      setTimerSecondsLeft(initialLimit);
+      setCurrentQIndex(0);
+      setUserAnswers([]);
+      setQuizFinished(false);
+      setQuizResult(null);
+      setSelectedOption(null);
+      setHasSubmittedAnswer(false);
+      hasSubmittedAnswerRef.current = false;
+      setQuizStartTime(Date.now());
+      setIsQuizOpen(true);
+    } catch (err: any) {
+      toast.error("Failed to start session: " + (err.message || "Network error"));
+    } finally {
+      setIsStartingSession(false);
+    }
   };
 
   const handleSelectOption = (idx: number) => {
@@ -1140,71 +1076,38 @@ function RouteComponent() {
           typeof a === "number" && !Number.isNaN(a) ? Math.floor(a) : -1
         );
 
-        let correctCount = 0;
-        let earnedScore = 0;
-        let earnedXP = 0;
-
-        todayQuestions.forEach((q, i) => {
-          if (cleanNumericAnswers[i] === q.correctIndex) {
-            correctCount++;
-            earnedScore += q.points;
-            earnedXP += q.xp;
-          }
-        });
-
-        const accuracy = Math.round((correctCount / todayQuestions.length) * 100);
-        const timeTaken = Math.round((Date.now() - quizStartTime) / 1000);
-        // Always use today's IST date as the authoritative date — not competition_date
-        const todayStr = getISTDateString();
-        const pulseId = publishedPulseSet?.id || `pulse_${todayStr}`;
-        // CRITICAL: use user?.id (UUID) as the DB user identifier — not studentId (email string)
-        const dbUserId = user.id;
-        const studentEmail = user.email || regEmail || null;
-        const studentName = regName || user.user_metadata?.full_name || "Doctor";
-        const studentCollege = regCollege || "Medical College";
-        const studentBatch = regBatch || "2026 Batch → Freshers";
-
-        // Atomic submission to Supabase: enforces One Attempt Only & triggers standings recalculation
-        console.log("[PULSE SUBMIT START]", {
-          userId: dbUserId,
-          pulseId,
-          pulseDate: todayStr,
-        });
-
-        const atomicRes = await submitPulseAttemptAtomic({
-          pulseId,
-          pulseDate: todayStr,
-          userId: dbUserId,
-          userEmail: studentEmail,
-          studentName,
-          college: studentCollege,
-          collegeId: regCollegeId || undefined,
-          batch: studentBatch,
-          answers: cleanNumericAnswers,
-          questions: todayQuestions,
-          timeTakenSeconds: timeTaken,
-        });
-
-        console.log("[PULSE ATOMIC RESULT]", {
-          success: atomicRes?.success,
-          alreadySubmitted: atomicRes?.alreadySubmitted,
-          notRegistered: atomicRes?.notRegistered,
-          attemptId: atomicRes?.attemptId,
-        });
-
-        // 0. If rejected because not registered in championship
-        if (atomicRes.notRegistered) {
-          setRegistered(false);
+        if (!activeSessionId) {
+          toast.error("Active exam session ID missing. Please refresh and try again.");
           hasSubmittedAnswerRef.current = false;
           setHasSubmittedAnswer(false);
-          setIsQuizOpen(false);
-          setIsRegisterOpen(true);
-          toast.error(atomicRes.message || "You must register for the MedTrailSR Championship before attempting Pulse.");
           return;
         }
 
+        const todayStr = getISTDateString();
+        const dbUserId = user.id;
+        const studentEmail = user.email || regEmail || null;
+
+        console.log("[PULSE SECURE SUBMIT START]", {
+          sessionId: activeSessionId,
+          userId: dbUserId,
+          answersCount: cleanNumericAnswers.length,
+        });
+
+        // Authoritative submission to Supabase: server evaluates score, XP, accuracy & standings
+        const submitRes = await submitPulseAttemptAtomicSecure({
+          sessionId: activeSessionId,
+          answers: cleanNumericAnswers,
+        });
+
+        console.log("[PULSE SECURE RESULT]", {
+          success: submitRes?.success,
+          alreadySubmitted: submitRes?.alreadySubmitted,
+          attemptId: submitRes?.attemptId,
+          score: submitRes?.score,
+        });
+
         // 1. If already submitted, lock the UI and block further attempts
-        if (atomicRes.alreadySubmitted) {
+        if (submitRes.alreadySubmitted) {
           setHasAttemptedToday(true);
           setQuizFinished(true);
           toast.error("You have already submitted this Pulse. Only 1 attempt is permitted.");
@@ -1212,25 +1115,20 @@ function RouteComponent() {
         }
 
         // 2. If submission failed, DO NOT mark completed. Reset state so student can retry.
-        if (!atomicRes.success) {
+        if (!submitRes.success) {
           hasSubmittedAnswerRef.current = false;
           setHasSubmittedAnswer(false);
-          toast.error(atomicRes.message || "Failed to submit Pulse. Please try again.");
+          toast.error(submitRes.message || "Failed to submit Pulse. Please try again.");
           return;
         }
 
         // 3. ONLY when success === true:
-        console.log("[PULSE COMPLETION STATE]", {
-          success: atomicRes?.success,
-          alreadySubmitted: atomicRes?.alreadySubmitted,
-        });
-
         setHasAttemptedToday(true);
         setQuizFinished(true);
 
-        const finalScore = atomicRes.score ?? earnedScore;
-        const finalAccuracy = atomicRes.accuracy ?? accuracy;
-        const finalXP = atomicRes.xp ?? earnedXP;
+        const finalScore = submitRes.score ?? 0;
+        const finalAccuracy = submitRes.accuracy ?? 0;
+        const finalXP = submitRes.xp ?? 0;
 
         setQuizResult({
           score: finalScore,
@@ -1238,28 +1136,51 @@ function RouteComponent() {
           xp: finalXP,
         });
 
+        // Store authoritative explanations returned by the server post-submission
+        if (submitRes.explanations && Array.isArray(submitRes.explanations)) {
+          const explMap: Record<number, { correctIndex: number; correctAnswer: string; explanation: string }> = {};
+          const letterMap: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+          submitRes.explanations.forEach((item, arrIdx) => {
+            const rawSlot = typeof item.slot === "number" ? item.slot : arrIdx;
+            const cIndex = typeof item.correct_answer === "string" ? (letterMap[item.correct_answer.trim().toUpperCase()] ?? -1) : -1;
+            const entry = {
+              correctIndex: cIndex,
+              correctAnswer: item.correct_answer,
+              explanation: item.explanation || "",
+            };
+            explMap[rawSlot] = entry;
+            explMap[arrIdx] = entry;
+            if (rawSlot >= 1) {
+              explMap[rawSlot - 1] = entry;
+            }
+          });
+          setReviewExplanations(explMap);
+          try {
+            sessionStorage.setItem(`medtrail_pulse_expl_${todayStr}`, JSON.stringify(explMap));
+            sessionStorage.setItem(`medtrail_pulse_questions_${todayStr}`, JSON.stringify(todayQuestions));
+          } catch {
+            // Ignore storage write issues
+          }
+        }
+
         toast.success("Pulse submitted successfully! Leaderboard & standings updated.");
 
         // Cache attempt record locally for instant UI restoration across reloads
-        // Store only safe, serializable primitive attempt data and numeric answers
         try {
           const attemptRecord: PulseAttemptRecord = {
-            id: atomicRes.attemptId || `att-${todayStr}-${dbUserId}`,
-            pulse_id: pulseId,
+            id: submitRes.attemptId || `att-${todayStr}-${dbUserId}`,
             pulse_date: todayStr,
             user_id: dbUserId,
             score: finalScore,
             accuracy: finalAccuracy,
             xp_earned: finalXP,
             answers: cleanNumericAnswers,
-            completed_at: new Date().toISOString(),
+            completed_at: submitRes.submittedAt || new Date().toISOString(),
           };
           const rawAttempts = localStorage.getItem("medtrail_pulse_attempts_v2");
           const localAttempts = JSON.parse(rawAttempts || "{}");
-          localAttempts[`${pulseId}_${dbUserId}`] = attemptRecord;
           localAttempts[`${todayStr}_${dbUserId}`] = attemptRecord;
           if (studentEmail) {
-            localAttempts[`${pulseId}_${studentEmail}`] = attemptRecord;
             localAttempts[`${todayStr}_${studentEmail}`] = attemptRecord;
           }
           localStorage.setItem("medtrail_pulse_attempts_v2", JSON.stringify(localAttempts));
@@ -1268,18 +1189,13 @@ function RouteComponent() {
           console.error("Failed to record student pulse attempt locally:", e);
         }
 
-        // Also notify client pulse service state
-        await submitPulseAttempt({
-          slot: 1,
-          answers: cleanNumericAnswers,
-          questions: todayQuestions,
-          timeTakenSeconds: timeTaken,
-        });
-
         // Immediately refetch leaderboard & standings
         await loadLeaderboard();
       } else {
-        setCurrentQIndex((prev) => prev + 1);
+        const nextIdx = currentQIndex + 1;
+        const nextLimit = todayQuestions[nextIdx]?.time_limit_seconds || DEFAULT_PULSE_TIMER_SECONDS;
+        setTimerSecondsLeft(nextLimit);
+        setCurrentQIndex(nextIdx);
         setSelectedOption(null);
         setHasSubmittedAnswer(false);
         hasSubmittedAnswerRef.current = false;
@@ -2068,14 +1984,14 @@ function RouteComponent() {
               <Clock className="w-8 h-8 text-blue-400 animate-spin" />
               <div className="text-xs font-mono text-slate-300">Connecting to MedTrail Supabase database...</div>
             </div>
-          ) : !publishedPulseSet || todayQuestions.length === 0 ? (
+          ) : !competitionIsLive && !hasAttemptedToday ? (
             /* STATE B: No Pulse Published Yet by Admin */
             <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-800/80 text-center space-y-4 shadow-xl">
               <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto text-blue-400">
                 <Clock className="w-7 h-7 text-amber-400 animate-pulse" />
               </div>
               <div className="space-y-1.5 max-w-md mx-auto">
-                <h3 className="text-xl font-bold text-white">Today's Pulse Has Not Been Published Yet</h3>
+                <h3 className="text-xl font-bold text-white">Today's Pulse Has Not Opened Yet</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>{seasonStartTimeDisplay || "the scheduled start time"}</strong>. Check back soon!
                 </p>
@@ -2083,7 +1999,7 @@ function RouteComponent() {
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-[11px] font-mono text-slate-300">
                 <span>Date: {getISTDateString()}</span>
                 <span>&bull;</span>
-                <span className="text-amber-400 font-semibold">Status: Awaiting Admin Publication</span>
+                <span className="text-amber-400 font-semibold">Status: Awaiting Scheduled Start Time</span>
               </div>
             </div>
           ) : (
@@ -2098,11 +2014,11 @@ function RouteComponent() {
                       <div className="text-emerald-300/90 text-xs">
                         {resultsPublished ? (
                           <>
-                            Attempt officially recorded. Score: <strong className="text-amber-300 font-mono">+{todayAttempt?.score ?? quizResult?.score ?? 0} Pts</strong> &bull; Accuracy: <strong className="text-white font-mono">{todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%</strong> &bull; XP: <strong className="text-blue-300 font-mono">+{todayAttempt?.xp ?? quizResult?.xp ?? 0}</strong>
+                            Attempt officially recorded. Score: <strong className="text-amber-300 font-mono">+{todayAttempt?.score ?? quizResult?.score ?? 0} Pts</strong> &bull; Accuracy: <strong className="text-white font-mono">{todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%</strong> &bull; XP: <strong className="text-blue-300 font-mono">+{todayAttempt?.xp_earned ?? quizResult?.xp ?? 0}</strong>
                           </>
                         ) : (
                           <>
-                            Attempt officially recorded & verified with anti-tamper telemetry. Official scores, rankings, and faculty solutions will be published once results are released by the admin.
+                            Attempt officially recorded &amp; verified with anti-tamper telemetry. Official scores, rankings, and faculty solutions will be published once results are released by the admin.
                           </>
                         )}
                       </div>
@@ -2127,11 +2043,11 @@ function RouteComponent() {
 
               {/* Today's 5 Cards */}
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                {todayQuestions.map((q) => {
+                {(todayQuestions.length > 0 ? todayQuestions : PULSE_SLOT_PREVIEWS).map((q: any) => {
                   const isGeneral = q.category === "General Pulse" || q.subject === "General";
                   return (
                     <div
-                      key={q.id}
+                      key={q.id || `slot-${q.slot}`}
                       className={`p-4 sm:p-5 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-4 ${
                         isGeneral
                           ? "bg-gradient-to-b from-purple-950/40 via-slate-900/80 to-slate-950 border-purple-500/40 hover:border-purple-500/70"
@@ -2152,14 +2068,14 @@ function RouteComponent() {
 
                         <div className="pt-1">
                           <h4 className="text-sm font-semibold text-white line-clamp-3 mt-1 leading-snug">
-                            {q.question}
+                            {q.question || "Official question sealed until session initialization • 60s per slot"}
                           </h4>
                         </div>
                       </div>
 
                       <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
-                        <span>+{q.xp} XP</span>
-                        <span className="text-amber-300 font-bold">+{q.points} Pts</span>
+                        <span>+{q.xp || 50} XP</span>
+                        <span className="text-amber-300 font-bold">+{q.points || 50} Pts</span>
                       </div>
                     </div>
                   );
@@ -2170,7 +2086,7 @@ function RouteComponent() {
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   <span>
-                    <strong>Admin Verified:</strong> 5 official questions curated directly in MedTrail Pulse Studio.
+                    <strong>Anti-Cheat Verified:</strong> Server-authoritative session handshake with client integrity telemetry.
                   </span>
                 </div>
                 {hasAttemptedToday ? (
@@ -2184,10 +2100,11 @@ function RouteComponent() {
                 ) : (
                   <button
                     onClick={startPulseQuiz}
-                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition cursor-pointer inline-flex items-center gap-1.5"
+                    disabled={isStartingSession}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold transition cursor-pointer inline-flex items-center gap-1.5"
                   >
                     <Play className="w-4 h-4" />
-                    <span>Start 5-Pulse Run</span>
+                    <span>{isStartingSession ? "Initializing Session..." : "Start 5-Pulse Run"}</span>
                   </button>
                 )}
               </div>
@@ -3048,11 +2965,13 @@ function RouteComponent() {
                               : "text-emerald-400"
                           }`}
                         />
-                        <span>00:{timerSecondsLeft.toString().padStart(2, "0")}</span>
+                        <span>
+                          {Math.floor(timerSecondsLeft / 60).toString().padStart(2, "0")}:{(timerSecondsLeft % 60).toString().padStart(2, "0")}
+                        </span>
                       </div>
 
                       <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                        {todayQuestions[currentQIndex]?.points ?? 50} Pts
+                        {todayQuestions[currentQIndex]?.points ?? todayQuestions[currentQIndex]?.xp ?? 50} Pts
                       </span>
                     </div>
                   </div>
@@ -3106,17 +3025,12 @@ function RouteComponent() {
                 <div className="space-y-2.5">
                   {(todayQuestions[currentQIndex]?.options || []).map((opt, optIdx) => {
                     const isSelected = selectedOption === optIdx;
-                    const isCorrect = todayQuestions[currentQIndex]?.correctIndex === optIdx;
 
                     let btnClass = "border-slate-800 bg-slate-950/70 hover:border-blue-500/50 text-slate-200";
-                    if (hasSubmittedAnswer) {
-                      if (isCorrect) {
-                        btnClass = "border-emerald-500/80 bg-emerald-500/20 text-emerald-200";
-                      } else if (isSelected) {
-                        btnClass = "border-red-500/80 bg-red-500/20 text-red-200";
-                      }
+                    if (hasSubmittedAnswer && isSelected) {
+                      btnClass = "border-blue-500 bg-blue-600/30 text-white font-semibold shadow-inner";
                     } else if (isSelected) {
-                      btnClass = "border-blue-500 bg-blue-600/20 text-white";
+                      btnClass = "border-blue-500 bg-blue-600/20 text-white font-semibold";
                     }
 
                     return (
@@ -3129,7 +3043,7 @@ function RouteComponent() {
                         } ${btnClass}`}
                       >
                         <span>{opt}</span>
-                        {hasSubmittedAnswer && isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                        {hasSubmittedAnswer && isSelected && <CheckCircle2 className="w-4 h-4 text-blue-400" />}
                       </button>
                     );
                   })}
@@ -3255,7 +3169,7 @@ function RouteComponent() {
                 <div>
                   <div className="text-[10px] text-slate-400 font-sans">XP Earned</div>
                   <div className="text-lg font-bold text-blue-400 mt-0.5">
-                    +{todayAttempt?.xp ?? quizResult?.xp ?? 0} XP
+                    +{todayAttempt?.xp_earned ?? quizResult?.xp ?? 0} XP
                   </div>
                 </div>
               </div>
@@ -3281,7 +3195,12 @@ function RouteComponent() {
               <div className="space-y-4">
               {todayQuestions.map((q, qIdx) => {
                 const userChoice = userAnswers[qIdx] !== undefined ? userAnswers[qIdx] : null;
-                const isCorrect = userChoice === q.correctIndex;
+                const serverExpl = reviewExplanations[qIdx] || reviewExplanations[q.slot] || reviewExplanations[qIdx + 1];
+                const resolvedCorrectIndex = serverExpl?.correctIndex !== undefined && serverExpl.correctIndex !== -1
+                  ? serverExpl.correctIndex
+                  : (typeof q.correctIndex === "number" ? q.correctIndex : -1);
+                const isCorrect = userChoice !== null && userChoice !== -1 && resolvedCorrectIndex !== -1 && userChoice === resolvedCorrectIndex;
+                const explanationText = serverExpl?.explanation || q.explanation || "";
 
                 return (
                   <div
@@ -3325,7 +3244,7 @@ function RouteComponent() {
                     <div className="space-y-1.5">
                       {q.options.map((opt, optIdx) => {
                         const optLetter = ["A", "B", "C", "D"][optIdx];
-                        const isThisCorrect = q.correctIndex === optIdx;
+                        const isThisCorrect = resolvedCorrectIndex !== -1 && resolvedCorrectIndex === optIdx;
                         const isThisUserPick = userChoice !== -1 && userChoice === optIdx;
 
                         let style = "bg-slate-900/60 border-slate-800 text-slate-300";
@@ -3361,15 +3280,15 @@ function RouteComponent() {
                     </div>
 
                     {/* Faculty Explanation */}
-                    {q.explanation && (
+                    {explanationText ? (
                       <div className="p-3.5 rounded-xl bg-blue-950/30 border border-blue-500/30 space-y-1 text-xs text-blue-200">
                         <div className="font-bold flex items-center gap-1.5 text-blue-300 text-[11px] uppercase tracking-wide">
                           <BookOpen className="w-3.5 h-3.5 text-amber-400" />
                           Faculty Explanation
                         </div>
-                        <p className="leading-relaxed text-slate-300">{q.explanation}</p>
+                        <p className="leading-relaxed text-slate-300">{explanationText}</p>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}

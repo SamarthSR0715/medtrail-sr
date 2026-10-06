@@ -21,7 +21,7 @@ export interface PulseQuestionInput {
   option_b: string;
   option_c: string;
   option_d: string;
-  correct_answer: PulseCorrectAnswer;
+  correct_answer: PulseCorrectAnswer | "";
   explanation: string;
   subject: PulseSubject;
   difficulty: PulseDifficulty;
@@ -50,6 +50,7 @@ export interface PulseAttemptRecord {
   accuracy: number;
   answers: number[]; // chosen indices 0..3
   completed_at: string;
+  time_taken_seconds?: number;
 }
 
 const LOCAL_STORAGE_PULSE_SETS_KEY = "medtrail_admin_pulse_sets";
@@ -162,6 +163,7 @@ export function createEmptyPulseQuestions(): PulseQuestionInput[] {
     subject: subjects[slot - 1] || "General",
     difficulty: slot === 5 ? "Easy" : "Medium",
     xp_value: 50,
+    time_limit_seconds: 60,
   }));
 }
 
@@ -193,7 +195,8 @@ export async function fetchPulseSetForDate(pulseDate: string): Promise<PulseSetR
           explanation: q.explanation || "",
           subject: q.subject || "General",
           difficulty: q.difficulty || "Medium",
-          xp_value: Number(q.xp_value) || 50,
+          xp_value: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? q.xp_value : (q.xp_value !== undefined && !isNaN(Number(q.xp_value)) ? Math.max(0, Math.floor(Number(q.xp_value))) : 50),
+          time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? q.time_limit_seconds : (q.time_limit_seconds !== undefined && !isNaN(Number(q.time_limit_seconds)) && Number(q.time_limit_seconds) > 0 ? Math.floor(Number(q.time_limit_seconds)) : 60),
         }));
       }
 
@@ -216,7 +219,8 @@ export async function fetchPulseSetForDate(pulseDate: string): Promise<PulseSetR
             explanation: q.explanation || "",
             subject: q.subject || "General",
             difficulty: q.difficulty || "Medium",
-            xp_value: Number(q.xp_value) || 50,
+            xp_value: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? q.xp_value : (q.xp_value !== undefined && !isNaN(Number(q.xp_value)) ? Math.max(0, Math.floor(Number(q.xp_value))) : 50),
+            time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? q.time_limit_seconds : (q.time_limit_seconds !== undefined && !isNaN(Number(q.time_limit_seconds)) && Number(q.time_limit_seconds) > 0 ? Math.floor(Number(q.time_limit_seconds)) : 60),
           }));
         }
       }
@@ -291,7 +295,8 @@ export async function fetchTodayPublishedPulse(
           explanation: q.explanation || "",
           subject: q.subject || "General",
           difficulty: q.difficulty || "Medium",
-          xp_value: Number(q.xp_value) || 50,
+          xp_value: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? q.xp_value : (q.xp_value !== undefined && !isNaN(Number(q.xp_value)) ? Math.max(0, Math.floor(Number(q.xp_value))) : 50),
+          time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? q.time_limit_seconds : (q.time_limit_seconds !== undefined && !isNaN(Number(q.time_limit_seconds)) && Number(q.time_limit_seconds) > 0 ? Math.floor(Number(q.time_limit_seconds)) : 60),
         }));
       }
 
@@ -314,7 +319,8 @@ export async function fetchTodayPublishedPulse(
             explanation: q.explanation || "",
             subject: q.subject || "General",
             difficulty: q.difficulty || "Medium",
-            xp_value: Number(q.xp_value) || 50,
+            xp_value: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? q.xp_value : (q.xp_value !== undefined && !isNaN(Number(q.xp_value)) ? Math.max(0, Math.floor(Number(q.xp_value))) : 50),
+            time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? q.time_limit_seconds : (q.time_limit_seconds !== undefined && !isNaN(Number(q.time_limit_seconds)) && Number(q.time_limit_seconds) > 0 ? Math.floor(Number(q.time_limit_seconds)) : 60),
           }));
         }
       }
@@ -379,9 +385,9 @@ export function convertToQuizQuestions(questions: PulseQuestionInput[]): PulseQu
       options: [q.option_a, q.option_b, q.option_c, q.option_d],
       correctIndex,
       explanation: q.explanation,
-      xp: q.xp_value || 50,
-      points: q.xp_value || 50,
-      time_limit_seconds: q.time_limit_seconds ? Number(q.time_limit_seconds) : 60,
+      xp: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? q.xp_value : (q.xp_value !== undefined && !isNaN(Number(q.xp_value)) ? Math.max(0, Math.floor(Number(q.xp_value))) : 50),
+      points: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? q.xp_value : (q.xp_value !== undefined && !isNaN(Number(q.xp_value)) ? Math.max(0, Math.floor(Number(q.xp_value))) : 50),
+      time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? q.time_limit_seconds : (q.time_limit_seconds !== undefined && !isNaN(Number(q.time_limit_seconds)) && Number(q.time_limit_seconds) > 0 ? Math.floor(Number(q.time_limit_seconds)) : 60),
     };
   });
 }
@@ -399,7 +405,8 @@ export async function savePulseDraft(
       ...q,
       slot: idx + 1,
       correct_answer: normalizeCorrectAnswer(q.correct_answer),
-      xp_value: Number(q.xp_value) || 50,
+      xp_value: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? Math.max(0, Math.floor(q.xp_value)) : 50,
+      time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? Math.floor(q.time_limit_seconds) : 60,
     }));
 
     const now = new Date().toISOString();
@@ -445,6 +452,7 @@ export async function savePulseDraft(
           subject: q.subject,
           difficulty: q.difficulty,
           xp_value: q.xp_value,
+          time_limit_seconds: q.time_limit_seconds,
         }));
         await supabase
           .from("championship_pulse_questions")
@@ -509,13 +517,20 @@ export async function publishTodayPulse(
     if (!normAns || !["A", "B", "C", "D"].includes(normAns)) {
       return { success: false, error: `Question ${num} must have a valid correct answer (select radio A, B, C, or D).` };
     }
+    if (typeof q.xp_value === "number" && (isNaN(q.xp_value) || q.xp_value < 0)) {
+      return { success: false, error: `Question ${num} XP must be a non-negative integer.` };
+    }
+    if (typeof q.time_limit_seconds === "number" && (isNaN(q.time_limit_seconds) || q.time_limit_seconds <= 0)) {
+      return { success: false, error: `Question ${num} time limit must be a positive integer.` };
+    }
   }
 
   const cleanQuestions = questions.slice(0, 5).map((q, idx) => ({
     ...q,
     slot: idx + 1,
     correct_answer: normalizeCorrectAnswer(q.correct_answer) as PulseCorrectAnswer,
-    xp_value: Number(q.xp_value) || 50,
+    xp_value: typeof q.xp_value === "number" && !isNaN(q.xp_value) ? Math.max(0, Math.floor(q.xp_value)) : 50,
+    time_limit_seconds: typeof q.time_limit_seconds === "number" && !isNaN(q.time_limit_seconds) && q.time_limit_seconds > 0 ? Math.floor(q.time_limit_seconds) : 60,
   }));
 
   const now = new Date().toISOString();
@@ -600,6 +615,7 @@ export async function publishTodayPulse(
           subject: q.subject,
           difficulty: q.difficulty,
           xp_value: q.xp_value,
+          time_limit_seconds: q.time_limit_seconds,
         }));
 
         await supabase
