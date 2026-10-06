@@ -43,6 +43,7 @@ import { AdminPanel } from "@/components/trips/admin-panel";
 import { CompetitionSettings } from "@/components/admin/competition-settings";
 import { ResultControl } from "@/components/admin/result-control";
 import { OverallLeaderboard } from "@/components/admin/overall-leaderboard";
+import { AntiCheatDashboard } from "@/components/admin/anti-cheat-dashboard";
 import { Settings2 } from "lucide-react";
 import { sendRealFCMPush, requestAndRegisterNotificationPermission, detectDevicePlatform } from "@/lib/fcm-client";
 import {
@@ -78,7 +79,7 @@ export function SuperAdminControlCenter() {
 
   // Top Section Tab
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "pulse_studio" | "result_control" | "registrations" | "leaderboard" | "overall_leaderboard" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
+    "dashboard" | "pulse_studio" | "result_control" | "registrations" | "leaderboard" | "overall_leaderboard" | "anti_cheat" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
   >("dashboard");
 
   // ── 1. Dashboard State ──────────────────────────────────────────────────────
@@ -558,6 +559,7 @@ export function SuperAdminControlCenter() {
             { id: "registrations", label: `Registrations (${registrations.length})`, icon: Users },
             { id: "leaderboard", label: "Leaderboard Standings", icon: Award },
             { id: "overall_leaderboard", label: "Championship Analytics", icon: BarChart3 },
+            { id: "anti_cheat", label: "🛡️ Anti-Cheat", icon: ShieldAlert },
             { id: "notifications", label: "Notification Center", icon: Bell },
             { id: "hall_of_fame", label: "Hall of Fame", icon: Crown },
             { id: "trips", label: "Trip Admin", icon: MapPin },
@@ -1759,6 +1761,13 @@ export function SuperAdminControlCenter() {
       {activeTab === "overall_leaderboard" && (
         <div className="space-y-6">
           <OverallLeaderboard />
+        </div>
+      )}
+
+      {/* ── TAB: ANTI-CHEAT SURVEILLANCE & REVIEW ── */}
+      {activeTab === "anti_cheat" && (
+        <div className="space-y-6">
+          <AntiCheatDashboard />
         </div>
       )}
     </div>
