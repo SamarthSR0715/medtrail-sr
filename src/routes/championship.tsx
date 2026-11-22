@@ -93,21 +93,34 @@ export const Route = createFileRoute("/championship")({
 
 const RULES = [
   {
-    title: "5 Dynamic Pulses Daily (4 MBBS + 1 General)",
-    content: "Each 24-hour cycle automatically rotates four questions from 1st and 2nd MBBS subjects (Anatomy, Physiology, Biochemistry, Pathology, Pharmacology, Microbiology, FMT, etc.) plus one General Pulse. Never hardcoded, fully dynamic.",
+    title: "3-Day Sequential Grand Finale",
+    content: "The championship climax unfolds across 3 consecutive competition days. Each day features 10 server-authoritative clinical slots unlocking promptly at 7:00 PM IST.",
   },
   {
-    title: "Window Schedule: Synchronized Daily Unlocks",
-    content: "Pulses unlock promptly at the official scheduled start time configured by the MedTrail Admin. Prior to opening, challenge slots are locked under dynamic countdown.",
+    title: "90-Second Speed & Accuracy Cap",
+    content: "Each finalist must solve 10 advanced clinical scenarios within a strict 90.000-second session time limit. Submissions are atomic and server-timestamped.",
   },
   {
-    title: "Anti-Cheating Algorithmic Telemetry",
-    content: "Server-side submission validation checks response latency, duplicate idempotency keys, and tab telemetry. Unfair tampering triggers immediate disqualification.",
+    title: "Cryptographic Anti-Cheating & Audit Trail",
+    content: "Server-side submission verification checks latency, tab telemetry, and client integrity. Dual-approval administrative consensus governs result publication.",
   },
   {
     title: "Official Reward Hierarchy",
-    content: "Rank 1 exclusively receives the Physical 24K Gold & Obsidian Trophy. Rank 2 exclusively receives the Limited Edition MedTrail Champion Hoodie. Top 10 receive the Founder Badge and Elite Profile Frame.",
+    content: "Rank 1 exclusively receives the Physical Obsidian Championship Trophy. Rank 2 exclusively receives the Limited Edition MedTrail Champion Hoodie. Top 10 receive Founder Badges, Elite Profile Frames, and permanent enshrinement in the Hall of Fame.",
   },
+];
+
+const TIE_BREAKERS = [
+  { rank: "Tier 1", label: "Cumulative 3-Day Score", desc: "Sum of points across all three finale days (max 3,000 pts)." },
+  { rank: "Tier 2", label: "Cumulative Elapsed Time", desc: "Lowest total time across all 3 days, measured to millisecond precision." },
+  { rank: "Tier 3", label: "Day 3 Score", desc: "Highest individual score on the Day 3 championship decider." },
+  { rank: "Tier 4", label: "Day 3 Elapsed Time", desc: "Fastest completion time on Day 3 decider." },
+  { rank: "Tier 5", label: "Day 2 Score", desc: "Highest individual score on Day 2 competition." },
+  { rank: "Tier 6", label: "Day 2 Elapsed Time", desc: "Fastest completion time on Day 2 competition." },
+  { rank: "Tier 7", label: "Day 1 Score", desc: "Highest individual score on Day 1 competition." },
+  { rank: "Tier 8", label: "Day 1 Elapsed Time", desc: "Fastest completion time on Day 1 competition." },
+  { rank: "Tier 9", label: "Most Correct Answers", desc: "Highest total count of verified correct clinical responses." },
+  { rank: "Tier 10", label: "Fewest Skipped Slots", desc: "Highest submission rate with fewest unanswered slots." },
 ];
 
 function RouteComponent() {
@@ -115,7 +128,7 @@ function RouteComponent() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"global" | "college" | "batch" | "weekly">("global");
 
-  // Dynamic Pulse Settings — single source of truth strictly from pulse_settings table
+  // Dynamic Pulse Settings ΓÇö single source of truth strictly from pulse_settings table
   const [pulseSettings, setPulseSettings] = useState<{
     competition_date: string | null;
     competition_end_date?: string | null;
@@ -184,6 +197,62 @@ function RouteComponent() {
     [pulseSettings.end_time]
   );
 
+  // Finale Day 1 Schedule & Sealed Finalist Roster
+  const [finaleDay1, setFinaleDay1] = useState<{
+    competition_date: string | null;
+    window_opens_at: string | null;
+    window_closes_at: string | null;
+    status: string | null;
+  } | null>(null);
+
+  const [finaleRoster, setFinaleRoster] = useState<Array<{
+    id: string;
+    seat_type: "finalist" | "reserve";
+    seat_number: number;
+    student_name: string;
+    college: string;
+    batch: string;
+    qualification_rank: number;
+    verification_status: string;
+    attendance_confirmed: boolean;
+    participation_status: string;
+  }>>([]);
+  const [loadingRoster, setLoadingRoster] = useState(false);
+
+  // Authoritative Finale Target Date (Day 1 Window Opens At, or pulse_settings)
+  const finalEventTargetUTC = useMemo(() => {
+    if (finaleDay1?.window_opens_at) {
+      const d = new Date(finaleDay1.window_opens_at);
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (seasonStartUTC && !isNaN(seasonStartUTC.getTime())) {
+      return seasonStartUTC;
+    }
+    return null;
+  }, [finaleDay1?.window_opens_at, seasonStartUTC]);
+
+  const finalEventDisplay = useMemo(() => {
+    if (!finalEventTargetUTC) return null;
+    return finalEventTargetUTC.toLocaleDateString("en-IN", {
+      timeZone: EVENT_TZ,
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }, [finalEventTargetUTC]);
+
+  const finalEventTimeDisplay = useMemo(() => {
+    if (!finalEventTargetUTC) return null;
+    return (
+      finalEventTargetUTC.toLocaleTimeString("en-IN", {
+        timeZone: EVENT_TZ,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }) + " IST"
+    );
+  }, [finalEventTargetUTC]);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [myPerformance, setMyPerformance] = useState<LeaderboardStudentEntry | null>(null);
   const [liveElapsed, setLiveElapsed] = useState({
@@ -208,7 +277,7 @@ function RouteComponent() {
   const [regName, setRegName] = useState("");
   const [regCollege, setRegCollege] = useState("");
   const [regCollegeId, setRegCollegeId] = useState<string | null>(null);
-  const [regBatch, setRegBatch] = useState<string>("2026 Batch → Freshers");
+  const [regBatch, setRegBatch] = useState<string>("2026 Batch ΓåÆ Freshers");
   const [regPassportId, setRegPassportId] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [isSubmittingReg, setIsSubmittingReg] = useState(false);
@@ -261,7 +330,7 @@ function RouteComponent() {
           setRegName(r.full_name);
           setRegCollege(r.medical_college);
           setRegCollegeId(r.medical_college_id || null);
-          setRegBatch(r.batch || "2026 Batch → Freshers");
+          setRegBatch(r.batch || "2026 Batch ΓåÆ Freshers");
           setRegPassportId(r.passport_id || "");
           setRegEmail(r.email);
           setRegistered(true);
@@ -283,7 +352,7 @@ function RouteComponent() {
             setRegName(data.full_name);
             setRegCollege(data.medical_college);
             setRegCollegeId(data.medical_college_id || null);
-            setRegBatch(data.batch || "2026 Batch → Freshers");
+            setRegBatch(data.batch || "2026 Batch ΓåÆ Freshers");
             setRegPassportId(data.passport_id || "");
             setRegEmail(data.email);
             setRegistered(true);
@@ -435,7 +504,7 @@ function RouteComponent() {
           setRegName(parsed.fullName);
           setRegCollege(parsed.medicalCollege || "");
           setRegCollegeId(parsed.medicalCollegeId || null);
-          setRegBatch(parsed.batch || "2026 Batch → Freshers");
+          setRegBatch(parsed.batch || "2026 Batch ΓåÆ Freshers");
           setRegPassportId(parsed.passportId || "");
           setRegEmail(parsed.email || "");
           setRegistered(true);
@@ -569,6 +638,42 @@ function RouteComponent() {
 
     initPulseSettings();
 
+    // Fetch Finale Day 1 & Finalist Roster
+    async function loadFinaleMetadata() {
+      try {
+        const { data: day1Data } = await (supabase as any)
+          .from("championship_finale_days")
+          .select("competition_date, window_opens_at, window_closes_at, status")
+          .eq("day_number", 1)
+          .maybeSingle();
+
+        if (isMounted && day1Data) {
+          setFinaleDay1(day1Data);
+        }
+      } catch (e) {
+        console.warn("[Pulse Final] Days fetch note:", e);
+      }
+
+      try {
+        setLoadingRoster(true);
+        const { data: rosterData } = await (supabase as any)
+          .from("championship_finale_roster")
+          .select("*")
+          .order("seat_type", { ascending: true })
+          .order("seat_number", { ascending: true });
+
+        if (isMounted && rosterData && rosterData.length > 0) {
+          setFinaleRoster(rosterData);
+        }
+      } catch (e) {
+        console.warn("[Pulse Final] Roster fetch note:", e);
+      } finally {
+        if (isMounted) setLoadingRoster(false);
+      }
+    }
+
+    loadFinaleMetadata();
+
     // 2. Subscribe to "pulse_settings" using Supabase Realtime ("postgres_changes" on UPDATE)
     const channel = supabase
       .channel("student_pulse_realtime_sync")
@@ -664,7 +769,7 @@ function RouteComponent() {
         }) + " IST";
       setCurrentISTTime(formattedIST);
 
-      // Dynamic automatic status transition without refresh: Upcoming → LIVE → ENDED
+      // Dynamic automatic status transition without refresh: Upcoming ΓåÆ LIVE ΓåÆ ENDED
       let currentStatus: PulseStatus = "upcoming";
       if (adminPulseStatus === "paused") {
         currentStatus = "paused";
@@ -1237,7 +1342,7 @@ function RouteComponent() {
     if (navigator.share) {
       navigator
         .share({
-          title: "MedTrail Championship Season 1",
+          title: "PULSE FINAL — MedTrail Championship Season 1",
           text: "Join me in the MedTrail Season 1 Championship! Rise Through Every Pulse.",
           url: window.location.href,
         })
@@ -1288,8 +1393,8 @@ function RouteComponent() {
             <span className="text-amber-400 font-extrabold text-sm tracking-wider flex items-center gap-1.5">
               <Trophy className="w-4 h-4" /> MEDTRAIL
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold uppercase border border-blue-500/30">
-              CHAMPIONSHIP S1
+            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] font-black uppercase border border-amber-500/40 tracking-wider">
+              PULSE FINAL • S1 GRAND FINALE
             </span>
           </div>
         </div>
@@ -1335,7 +1440,7 @@ function RouteComponent() {
       {/* Main Container */}
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12 sm:space-y-16">
 
-        {/* HERO SECTION — EXACT 3D TROPHY PRESERVED */}
+        {/* HERO SECTION ΓÇö EXACT 3D TROPHY PRESERVED */}
         <section className="relative rounded-3xl border border-slate-800/80 bg-gradient-to-b from-slate-900/90 via-[#0B132B]/80 to-[#070B14]/90 p-6 sm:p-10 lg:p-14 overflow-hidden shadow-2xl backdrop-blur-xl">
           <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
             
@@ -1348,24 +1453,24 @@ function RouteComponent() {
                   SEASON 1
                 </span>
 
-                {/* Status badge — driven by dynamic status (auto-computed + admin override) */}
+                {/* Status badge ΓÇö driven by dynamic status (auto-computed + admin override) */}
                 {effectivePulseStatus === "live" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-black tracking-wider uppercase shadow-lg shadow-red-500/20 animate-pulse">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                    🔴 CHAMPIONSHIP LIVE
+                    ≡ƒö┤ CHAMPIONSHIP LIVE
                   </span>
                 ) : effectivePulseStatus === "ended" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-slate-700/60 border border-slate-600 text-slate-300 text-xs font-black tracking-wider uppercase">
-                    🏁 SEASON ENDED
+                    ≡ƒÅü SEASON ENDED
                   </span>
                 ) : effectivePulseStatus === "paused" ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-black tracking-wider uppercase">
-                    ⏸️ PULSE PAUSED
+                    ΓÅ╕∩╕Å PULSE PAUSED
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-black tracking-wider uppercase shadow-lg shadow-emerald-500/20">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    🟢 UPCOMING / REGISTRATION OPEN
+                    ≡ƒƒó UPCOMING / REGISTRATION OPEN
                   </span>
                 )}
 
@@ -1377,294 +1482,145 @@ function RouteComponent() {
                 </span>
               </div>
 
-              <div className="space-y-2">
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-white leading-[1.1]">
-                  MEDTRAIL <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-amber-200 bg-clip-text text-transparent">CHAMPIONSHIP</span>
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold tracking-widest uppercase">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  SEASON 1 GRAND FINALE
+                </div>
+                <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white leading-[1.05]">
+                  PULSE <span className="bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-200 bg-clip-text text-transparent drop-shadow-sm">FINAL</span>
                 </h1>
-                <p className="text-lg sm:text-xl font-medium text-blue-200/90 tracking-wide">
-                  Rise Through Every Pulse &bull; <span className="text-slate-400">Discover. Compete. Become.</span>
+                <p className="text-xl sm:text-2xl font-bold text-amber-200/90 tracking-wide">
+                  The Final Showdown of MedTrail Championship Season 1
                 </p>
+                <p className="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
+                  The ultimate 3-day arena where India's top medical minds collide. 10 finalists, 2 reserves, 10 high-yield clinical decision slots daily, and the quest for sovereign championship glory.
+                </p>
+
+                {/* Quick Navigation Anchor Bar */}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <a
+                    href="#final-overview"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition shadow-sm"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-blue-400" />
+                    Overview
+                  </a>
+                  <a
+                    href="#format-rules"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition shadow-sm"
+                  >
+                    <Scale className="w-3.5 h-3.5 text-indigo-400" />
+                    Format & Tiebreakers
+                  </a>
+                  <a
+                    href="#finalists"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-amber-500/30 text-xs font-semibold text-amber-300 hover:text-amber-200 transition shadow-sm"
+                  >
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    Qualified Finalists
+                  </a>
+                  <a
+                    href="#leaderboards"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition shadow-sm"
+                  >
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    Standings
+                  </a>
+                  <a
+                    href="#rewards"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition shadow-sm"
+                  >
+                    <Award className="w-3.5 h-3.5 text-amber-400" />
+                    Grand Trophy
+                  </a>
+                </div>
               </div>
 
-              {/* Dynamic hero timer block — automatically switches: Upcoming → LIVE → ENDED */}
-              {effectivePulseStatus === "upcoming" ? (
-                /* BEFORE LAUNCH: Show countdown & prominent header */
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-950/70 via-slate-900/80 to-indigo-950/70 border border-blue-500/30 backdrop-blur-md shadow-xl space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-500/20 pb-3">
-                    <div>
-                      <div className="text-xs font-mono font-black tracking-widest text-blue-400 uppercase">
-                        OFFICIAL COMPETITION LAUNCH
-                      </div>
-                      <div className="text-2xl sm:text-3xl font-black text-white tracking-wide flex items-center gap-2">
-                        <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
-                        LIVE PULSE BEGINS IN
-                      </div>
+              {/* PROMINENT LIVE COUNTDOWN TIMER BLOCK */}
+              <div className="p-6 rounded-3xl bg-gradient-to-b from-slate-900/90 via-[#0B1224]/90 to-slate-950/95 border border-amber-500/30 backdrop-blur-xl shadow-2xl shadow-amber-500/5 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                      <span className="text-xs font-mono font-black tracking-widest text-amber-400 uppercase">
+                        OFFICIAL GRAND FINALE COUNTDOWN
+                      </span>
                     </div>
-                    <div className="sm:text-right font-mono">
-                      <div className="text-base font-extrabold text-amber-300">
-                        {seasonStartDisplay ?? "Date to be announced"}
-                      </div>
-                      <div className="text-xs font-semibold text-slate-300">
-                        {seasonStartUTC ? (seasonStartTimeDisplay ?? "") : ""}
-                      </div>
+                    <div className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-amber-400" />
+                      <span>{seasonRemaining.label}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="flex items-center gap-1.5 font-medium text-emerald-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Registration Open &bull; Enrolling Batches 2023–2026
-                    </span>
-                    <span className="font-mono text-[11px] text-slate-400">Asia/Kolkata (IST, UTC+5:30)</span>
+                  <div className="sm:text-right font-mono">
+                    <div className="text-sm font-bold text-amber-300">
+                      {finalEventDisplay || seasonStartDisplay || "24 November 2026"}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {finalEventTimeDisplay || (seasonStartUTC ? seasonStartTimeDisplay : "") || "7:00 PM IST"}
+                    </div>
                   </div>
+                </div>
 
-                  {/* Countdown Timer — only show if date is configured */}
-                  {seasonStartUTC ? (
-                    <div className="grid grid-cols-4 gap-2 sm:gap-3 max-w-md pt-1">
+                {/* 4 Countdown Units or Fallback State */}
+                {seasonRemaining.status === "live" ? (
+                  <div className="p-6 rounded-2xl bg-gradient-to-r from-red-950/60 via-slate-900/80 to-amber-950/60 border border-red-500/40 text-center space-y-2">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-xs font-bold uppercase tracking-widest border border-red-500/30">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                      ARENA OPEN
+                    </div>
+                    <h3 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                      THE FINAL HAS BEGUN
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-300 font-mono">
+                      Sequential slot challenges are currently active for qualified finalists.
+                    </p>
+                  </div>
+                ) : (finalEventTargetUTC || seasonStartUTC || finaleDay1) ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-4 gap-2.5 sm:gap-4">
                       {[
                         { label: "DAYS", val: seasonRemaining.days },
                         { label: "HOURS", val: seasonRemaining.hours },
-                        { label: "MINS", val: seasonRemaining.minutes },
-                        { label: "SECS", val: seasonRemaining.seconds },
+                        { label: "MINUTES", val: seasonRemaining.minutes },
+                        { label: "SECONDS", val: seasonRemaining.seconds },
                       ].map((unit, idx) => (
                         <div
                           key={idx}
-                          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-blue-500/20 shadow-inner"
+                          className="flex flex-col items-center justify-center p-3.5 sm:p-5 rounded-2xl bg-slate-950/90 border border-amber-500/25 shadow-lg shadow-black/40 hover:border-amber-400/50 transition-colors"
                         >
-                          <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
+                          <span className="text-2xl sm:text-4xl lg:text-5xl font-black text-white font-mono tracking-tight">
                             {String(unit.val).padStart(2, "0")}
                           </span>
-                          <span className="text-[10px] font-semibold text-blue-300/80 tracking-widest mt-0.5">
+                          <span className="text-[10px] sm:text-xs font-bold text-amber-300/80 tracking-widest mt-1 uppercase">
                             {unit.label}
                           </span>
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="pt-2">
-                      <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 text-sm font-semibold">
-                        <Calendar className="w-4 h-4 text-amber-400" />
-                        Competition date will be announced.
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : effectivePulseStatus === "live" ? (
-                /* LIVE: Real-time Elapsed Time & Concludes In */
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/70 via-slate-900/90 to-amber-950/50 border border-red-500/50 backdrop-blur-md shadow-2xl space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-red-500/20 pb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
-                      <span className="text-xs font-mono font-black text-red-400 uppercase tracking-wider">
-                        CHAMPIONSHIP PULSE IS LIVE
-                      </span>
-                    </div>
-                    <div className="sm:text-right font-mono text-xs text-slate-300">
-                      <span className="text-slate-400">Ends at: </span>
-                      <strong className="text-amber-300 font-bold">
-                        {seasonEndTimeDisplay || "Official Session Close"}
-                      </strong>
-                      <span className="text-slate-400 text-[11px] block sm:inline sm:ml-1">
-                        ({seasonEndDisplay || "Today"}, Asia/Kolkata)
-                      </span>
-                    </div>
-                  </div>
 
-                  <div>
-                    <h3 className="text-2xl font-black text-white">Daily Pulses Are Now Active</h3>
-                    <p className="text-sm text-slate-300 mt-1">
-                      The competition is live! Complete your daily 5 challenges (4 MBBS + 1 General) to claim points, elevate your college, and win the 24K Gold &amp; Obsidian Trophy.
-                    </p>
-                  </div>
-
-                  {/* Real-time Tickers: Elapsed Time + Time Remaining */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-lg pt-1">
-                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 shadow-inner">
-                      <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
-                        ELAPSED HRS
+                    <div className="flex items-center justify-between text-xs text-slate-400 px-1 pt-1 font-mono">
+                      <span className="flex items-center gap-1.5 text-emerald-400 font-sans font-medium">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        10 Clinical Slots Daily &bull; 90s Duration Limit
                       </span>
-                      <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
-                        {String(liveElapsed.hours).padStart(2, "0")}
-                      </span>
-                      <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
-                        HOURS
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 shadow-inner">
-                      <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
-                        ELAPSED MIN
-                      </span>
-                      <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
-                        {String(liveElapsed.minutes).padStart(2, "0")}
-                      </span>
-                      <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
-                        MINUTES
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 shadow-inner">
-                      <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
-                        ELAPSED SEC
-                      </span>
-                      <span className="text-2xl sm:text-3xl font-extrabold text-amber-300 font-mono tracking-tight">
-                        {String(liveElapsed.seconds).padStart(2, "0")}
-                      </span>
-                      <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
-                        SECONDS
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-950/90 border border-amber-500/30 shadow-inner">
-                      <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest">
-                        REMAINING
-                      </span>
-                      <span className="text-2xl sm:text-3xl font-extrabold text-amber-300 font-mono tracking-tight">
-                        {String(seasonRemaining.minutes).padStart(2, "0")}:{String(seasonRemaining.seconds).padStart(2, "0")}
-                      </span>
-                      <span className="text-[9px] font-semibold text-amber-400/80 tracking-widest mt-0.5">
-                        MIN : SEC
-                      </span>
+                      <span>Asia/Kolkata (IST, UTC+5:30)</span>
                     </div>
                   </div>
-                </div>
-              ) : effectivePulseStatus === "ended" ? (
-                /* ENDED: Dedicated ended state */
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-700/60 backdrop-blur-md shadow-xl space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-                      <span className="text-xs font-mono font-black text-slate-300 uppercase tracking-wider">
-                        CHAMPIONSHIP PULSE CONCLUDED
-                      </span>
-                    </div>
-                    <span className="text-xs font-mono text-amber-400 font-semibold">
-                      Session Closed &bull; {seasonEndTimeDisplay || "Official Window End"} IST
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black text-white">Today's Pulse Has Ended</h3>
-                    <p className="text-sm text-slate-300 mt-1">
-                      Submissions for today's championship pulse are now closed. All student attempts have been verified and securely recorded in Supabase. Check the Leaderboard below for current standings.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                /* PAUSED */
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-950/50 via-slate-900 to-amber-950/30 border border-amber-500/40 backdrop-blur-md shadow-xl space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                    <span className="text-xs font-mono font-black text-amber-300 uppercase tracking-wider">
-                      CHAMPIONSHIP PULSE PAUSED
-                    </span>
-                  </div>
-                  <h3 className="text-2xl font-black text-white">Pulse Paused by Administrator</h3>
-                  <p className="text-sm text-slate-300">
-                    The competition pulse is temporarily paused. Real-time standings will resume shortly.
-                  </p>
-                </div>
-              )}
-
-              {/* Action Buttons: Join Pulse becomes active at start time */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
-                {hasAttemptedToday ? (
-                  <button
-                    onClick={() => setIsReviewModalOpen(true)}
-                    className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-blue-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-emerald-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    <BookOpen className="w-5 h-5 text-emerald-100" />
-                    <span>VIEW EXPLANATIONS & RESULTS</span>
-                    <Sparkles className="w-4 h-4 text-emerald-200 group-hover:rotate-12 transition-transform" />
-                  </button>
-                ) : effectivePulseStatus === "live" ? (
-                  <div className="flex flex-col items-start gap-3 w-full sm:w-auto">
-                    {!registered && (
-                      <div className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>You must register for the MedTrailSR Championship before attempting Pulse.</span>
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        onClick={startPulseQuiz}
-                        className="relative group inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm tracking-wider uppercase shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-                      >
-                        <Play className="w-5 h-5 fill-white animate-pulse" />
-                        <span>JOIN PULSE NOW</span>
-                        <Sparkles className="w-4 h-4 text-amber-200 group-hover:rotate-12 transition-transform" />
-                      </button>
-                      {!registered && (
-                        <button
-                          onClick={() => {
-                            const el = document.getElementById("registration");
-                            if (el) el.scrollIntoView({ behavior: "smooth" });
-                            else setIsRegisterOpen(true);
-                          }}
-                          className="px-6 py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-                        >
-                          Register for Championship
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : effectivePulseStatus === "paused" ? (
-                  <button
-                    onClick={startPulseQuiz}
-                    className="inline-flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-amber-950/40 text-amber-300 border border-amber-500/40 font-bold text-sm cursor-pointer"
-                  >
-                    <Pause className="w-4 h-4 text-amber-400" />
-                    <span>PULSE PAUSED</span>
-                  </button>
-                ) : effectivePulseStatus === "ended" ? (
-                  <button
-                    onClick={startPulseQuiz}
-                    className="inline-flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-slate-800 text-slate-400 border border-slate-700 font-bold text-sm cursor-pointer"
-                  >
-                    <Square className="w-4 h-4 text-slate-500" />
-                    <span>PULSE CONCLUDED</span>
-                  </button>
                 ) : (
-                  <>
-                    <button
-                      onClick={() => {
-                        const el = document.getElementById("registration");
-                        if (el) el.scrollIntoView({ behavior: "smooth" });
-                        else setIsRegisterOpen(true);
-                      }}
-                      className="relative group inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm tracking-wide shadow-xl shadow-blue-600/30 hover:shadow-blue-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      <Trophy className="w-4 h-4 text-amber-300" />
-                      <span>{registered ? "REGISTRATION CONFIRMED" : "REGISTER FOR SEASON 1"}</span>
-                      <Sparkles className="w-4 h-4 text-amber-200 group-hover:rotate-12 transition-transform" />
-                    </button>
-
-                    <button
-                      onClick={startPulseQuiz}
-                      className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-sm border border-slate-700 transition cursor-pointer"
-                    >
-                      <Play className="w-4 h-4 text-emerald-400" />
-                      <span>Join Pulse ({seasonStartTimeDisplay || "Scheduled Window"})</span>
-                    </button>
-                  </>
+                  <div className="p-6 rounded-2xl bg-slate-950/80 border border-slate-800 text-center space-y-2">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-amber-500/30 text-amber-300 text-sm font-semibold">
+                      <Calendar className="w-4 h-4 text-amber-400" />
+                      Final Date To Be Announced
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      The official dates and time window for Season 1 Grand Finale will be published upon conclusion of the administrative validation window.
+                    </p>
+                  </div>
                 )}
               </div>
 
-              {/* Stats Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-800/80">
-                <div>
-                  <div className="text-xl sm:text-2xl font-black text-white">{leaderboard.length.toLocaleString()}</div>
-                  <div className="text-xs text-slate-400">Doctors Registered</div>
-                </div>
-                <div>
-                  <div className="text-xl sm:text-2xl font-black text-amber-400">18</div>
-                  <div className="text-xs text-slate-400">Colleges Competing</div>
-                </div>
-                <div>
-                  <div className="text-xl sm:text-2xl font-black text-blue-400">5 Daily</div>
-                  <div className="text-xs text-slate-400">Pulses / Day</div>
-                </div>
-                <div>
-                  <div className="text-xl sm:text-2xl font-black text-indigo-300">Obsidian</div>
-                  <div className="text-xs text-slate-400">Grand Founder Trophy</div>
-                </div>
-              </div>
             </div>
 
             {/* Right Column: Existing 3D Trophy Showcase (PRESERVED) */}
@@ -1683,7 +1639,7 @@ function RouteComponent() {
                   <div className="absolute bottom-4 left-4 right-4 p-3 rounded-xl bg-slate-900/80 backdrop-blur-md border border-amber-500/30 flex items-center justify-between">
                     <div>
                       <span className="text-[10px] font-bold tracking-widest text-amber-400 uppercase">Season 1 Grand Trophy</span>
-                      <h4 className="text-sm font-bold text-white">Obsidian & 24K Gold Plated</h4>
+                      <h4 className="text-sm font-bold text-white">Obsidian & Obsidian Championship Plated</h4>
                     </div>
                     <span className="px-2 py-1 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/40">
                       MT-S1-001
@@ -1692,7 +1648,7 @@ function RouteComponent() {
                 </div>
               </div>
               <p className="text-xs text-slate-400 text-center mt-3 max-w-xs font-mono">
-                Exclusive physical reward forged with natural volcanic obsidian and pure 24-karat gold inlay.
+                Exclusive physical reward forged with natural volcanic obsidian and handcrafted championship inlay.
               </p>
             </div>
 
@@ -1844,21 +1800,21 @@ function RouteComponent() {
                     />
                   </div>
 
-                  {/* Batch (2023–2026) — Requirement 2 exact mapping */}
+                  {/* Batch (2023ΓÇô2026) ΓÇö Requirement 2 exact mapping */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                       <Layers className="w-3.5 h-3.5 text-blue-400" />
-                      Batch (2023–2026) <span className="text-red-400">*</span>
+                      Batch (2023ΓÇô2026) <span className="text-red-400">*</span>
                     </label>
                     <select
                       value={regBatch}
                       onChange={(e) => setRegBatch(e.target.value)}
                       className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:border-blue-500 transition"
                     >
-                      <option value="2026 Batch → Freshers">2026 Batch → Freshers</option>
-                      <option value="2025 Batch → 1st Year MBBS">2025 Batch → 1st Year MBBS</option>
-                      <option value="2024 Batch → 2nd Year MBBS">2024 Batch → 2nd Year MBBS</option>
-                      <option value="2023 Batch → 3rd Year MBBS">2023 Batch → 3rd Year MBBS</option>
+                      <option value="2026 Batch ΓåÆ Freshers">2026 Batch ΓåÆ Freshers</option>
+                      <option value="2025 Batch ΓåÆ 1st Year MBBS">2025 Batch ΓåÆ 1st Year MBBS</option>
+                      <option value="2024 Batch ΓåÆ 2nd Year MBBS">2024 Batch ΓåÆ 2nd Year MBBS</option>
+                      <option value="2023 Batch ΓåÆ 3rd Year MBBS">2023 Batch ΓåÆ 3rd Year MBBS</option>
                     </select>
                   </div>
 
@@ -1934,182 +1890,291 @@ function RouteComponent() {
           </div>
         </section>
 
-        {/* 2. DYNAMIC DAILY PULSES (STRICT MEDTRAIL ADMIN DATABASE ONLY) */}
-        <section id="daily-pulses" className="space-y-6">
+        {/* 2. GRAND FINALE ARCHITECTURE & OVERVIEW */}
+        <section id="final-overview" className="space-y-6 pt-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 text-xs font-mono font-bold text-blue-400 uppercase tracking-widest">
-                <Flame className="w-4 h-4 text-amber-400" />
-                Admin-Verified Daily Pulse
+              <div className="flex items-center gap-2 text-xs font-mono font-bold text-amber-400 uppercase tracking-widest">
+                <Crown className="w-4 h-4 text-amber-400" />
+                Tournament Structure
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
-                Today's 5 Pulse Slots
+                PULSE FINAL: Arena Overview
               </h2>
-              <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                Created strictly by MedTrail Admin &bull; 5 High-Yield Questions &bull; Unlocks at {seasonStartTimeDisplay || "scheduled window"}.
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                The pinnacle of MedTrail Championship Season 1. A 3-day sequential clinical test engineered strictly for the top 10 qualified medical students in India.
               </p>
             </div>
 
-            {/* Time window status pill */}
-            <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3">
-              <span className={`w-2.5 h-2.5 rounded-full ${
-                timeWindowState.status === "active_pulse"
-                  ? "bg-emerald-400 animate-ping"
-                  : timeWindowState.status === "day_ended"
-                  ? "bg-slate-500"
-                  : "bg-amber-400"
-              }`} />
-              <div>
-                <div className="text-xs font-bold text-white">
-                  {timeWindowState.status === "active_pulse"
-                    ? "WINDOW IS LIVE"
-                    : timeWindowState.status === "day_ended"
-                    ? "PULSE CONCLUDED"
-                    : `LOCKED UNTIL ${seasonStartTimeDisplay || "START TIME"}`}
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-amber-500/30 text-amber-300 font-mono text-xs font-bold shadow-md">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span>7:00 PM – 8:00 PM IST Daily</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-5 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-amber-500/40 transition-colors shadow-lg space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white">3 Consecutive Days</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                November 24, 25 &amp; 26, 2026. Each day features an exclusive 1-hour synchronized competition window.
+              </p>
+              <div className="text-[11px] font-mono text-amber-300/80 pt-1">
+                Days 1 &amp; 2: Core MBBS &bull; Day 3: Climax
+              </div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-amber-500/40 transition-colors shadow-lg space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                <Clock className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white">90-Second Time Cap</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                10 clinical slots daily. Finalists race against a 90.000-second session countdown to maximize accuracy and reaction speed.
+              </p>
+              <div className="text-[11px] font-mono text-blue-300/80 pt-1">
+                100 pts per correct answer (1,000 pts/day)
+              </div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-amber-500/40 transition-colors shadow-lg space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                <Users className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white">10 Finalists + 2 Reserves</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Strict seat allocation. The 10 verified finalists compete in sovereign slots, with 2 standby reserves on standby.
+              </p>
+              <div className="text-[11px] font-mono text-indigo-300/80 pt-1">
+                Sealed Roster &bull; Seats 1–10 &amp; Reserves 1–2
+              </div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-slate-800 hover:border-amber-500/40 transition-colors shadow-lg space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <Shield className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white">Cryptographic Security</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Lockstep advisory locks, server-side timing validation, tab telemetry, and 2-person administrative consensus.
+              </p>
+              <div className="text-[11px] font-mono text-emerald-300/80 pt-1">
+                Audited &amp; Reconciled Offline
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. COMPETITION FORMAT & 10-TIER TIEBREAKERS */}
+        <section id="format-rules" className="space-y-6 pt-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-mono font-bold text-indigo-400 uppercase tracking-widest">
+                <Scale className="w-4 h-4 text-indigo-400" />
+                Deterministic Scoring Protocol
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
+                Rules &amp; 10-Tier Tiebreak Hierarchy
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                Every millisecond matters. Rankings are determined mathematically through the championship's strict tiebreak hierarchy.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-5 space-y-4">
+              <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-amber-400" />
+                  Championship Code &amp; Conduct
+                </h3>
+                <ul className="space-y-3 text-xs text-slate-300">
+                  <li className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Server Authoritative Timing:</strong> The session timer runs strictly on the database engine. Local browser clock manipulation has zero effect.</span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Sequential Slot Lockstep:</strong> Finalists must submit or skip slot actions in ascending order. Jumping ahead or out-of-order ingress is blocked.</span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Dual Approval Publication:</strong> Daily standings require two independent administrator signatures before official leaderboard release.</span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Immutable Results:</strong> Once published, official standings are permanently sealed with database-level immutability triggers.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="lg:col-span-7">
+              <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-indigo-400" />
+                    10-Tier Tiebreak Progression
+                  </h3>
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                    Fail-Closed Protocol
+                  </span>
                 </div>
-                <div className="text-[11px] font-mono text-slate-400">
-                  {timeWindowState.status === "active_pulse"
-                    ? `Elapsed: ${liveElapsed.formatted}`
-                    : timeWindowState.status === "day_ended"
-                    ? "Submissions closed"
-                    : `Opens in ${formatCountdown(timeWindowState.countdownSeconds)}`}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {TIE_BREAKERS.map((tb, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 hover:border-indigo-500/40 transition-colors flex items-start gap-3"
+                    >
+                      <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-mono font-bold border border-indigo-500/30 shrink-0">
+                        {tb.rank}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white truncate">{tb.label}</div>
+                        <div className="text-[11px] text-slate-400 leading-tight mt-0.5">{tb.desc}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
+        </section>
 
-          {/* STATE A: Pulse Loading */}
-          {isLoadingPulse ? (
-            <div className="p-12 rounded-3xl bg-slate-900/50 border border-slate-800 flex flex-col items-center justify-center space-y-3">
-              <Clock className="w-8 h-8 text-blue-400 animate-spin" />
-              <div className="text-xs font-mono text-slate-300">Connecting to MedTrail Supabase database...</div>
+        {/* 4. QUALIFIED FINALISTS & RESERVES */}
+        <section id="finalists" className="space-y-6 pt-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-mono font-bold text-amber-400 uppercase tracking-widest">
+                <Crown className="w-4 h-4 text-amber-400" />
+                Arena Roster
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
+                Qualified Finalists &amp; Reserves
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                The 10 finalists and 2 reserves competing in PULSE FINAL Season 1. Only verified medical candidates hold seats in the official arena.
+              </p>
             </div>
-          ) : !competitionIsLive && !hasAttemptedToday ? (
-            /* STATE B: No Pulse Published Yet by Admin */
-            <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-slate-800/80 text-center space-y-4 shadow-xl">
-              <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto text-blue-400">
-                <Clock className="w-7 h-7 text-amber-400 animate-pulse" />
-              </div>
-              <div className="space-y-1.5 max-w-md mx-auto">
-                <h3 className="text-xl font-bold text-white">Today's Pulse Has Not Opened Yet</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Per MedTrail Championship rules, all Pulse questions are crafted strictly by the MedTrail Admin and release at <strong>{seasonStartTimeDisplay || "the scheduled start time"}</strong>. Check back soon!
-                </p>
-              </div>
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-[11px] font-mono text-slate-300">
-                <span>Date: {getISTDateString()}</span>
-                <span>&bull;</span>
-                <span className="text-amber-400 font-semibold">Status: Awaiting Scheduled Start Time</span>
-              </div>
+
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
+              <span>{finaleRoster.length > 0 ? "Official Roster Sealed" : "Live Qualification Standings"}</span>
             </div>
-          ) : (
-            /* STATE C: Published 5-Question Pulse */
-            <>
-              {hasAttemptedToday && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-emerald-950/30">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
-                    <div>
-                      <div className="font-bold text-white text-sm">Today's Pulse Completed!</div>
-                      <div className="text-emerald-300/90 text-xs">
-                        {resultsPublished ? (
-                          <>
-                            Attempt officially recorded. Score: <strong className="text-amber-300 font-mono">+{todayAttempt?.score ?? quizResult?.score ?? 0} Pts</strong> &bull; Accuracy: <strong className="text-white font-mono">{todayAttempt?.accuracy ?? quizResult?.accuracy ?? 0}%</strong> &bull; XP: <strong className="text-blue-300 font-mono">+{todayAttempt?.xp_earned ?? quizResult?.xp ?? 0}</strong>
-                          </>
-                        ) : (
-                          <>
-                            Attempt officially recorded &amp; verified with anti-tamper telemetry. Official scores, rankings, and faculty solutions will be published once results are released by the admin.
-                          </>
-                        )}
-                      </div>
-                    </div>
+          </div>
+
+          {/* Finalists Grid */}
+          <div className="space-y-4">
+            <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Crown className="w-3.5 h-3.5 text-amber-400" />
+              Championship Finalists (Seats 1–10)
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {(finaleRoster.length > 0
+                ? finaleRoster.filter(r => r.seat_type === "finalist")
+                : leaderboard.slice(0, 10).map((p, idx) => ({
+                    id: p.participant_id || String(idx),
+                    seat_type: "finalist" as const,
+                    seat_number: idx + 1,
+                    student_name: p.display_name || "Verified Finalist",
+                    college: p.institution || "Medical College",
+                    batch: p.batch || "MBBS",
+                    qualification_rank: idx + 1,
+                    verification_status: "verified",
+                    attendance_confirmed: true,
+                    participation_status: "active",
+                  }))
+              ).map((f) => (
+                <div
+                  key={f.id || f.seat_number}
+                  className="p-4 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-amber-500/25 hover:border-amber-400/50 transition-colors shadow-lg space-y-2 relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-mono font-black border border-amber-500/40 flex items-center justify-center">
+                      #{f.seat_number}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      Verified
+                    </span>
                   </div>
-                  {resultsPublished ? (
-                    <button
-                      onClick={() => setIsReviewModalOpen(true)}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer shrink-0 inline-flex items-center gap-2 shadow-md shadow-emerald-600/30"
-                    >
-                      <BookOpen className="w-4 h-4" />
-                      <span>View Explanations & Solutions</span>
-                    </button>
-                  ) : (
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-300 font-mono text-[11px] shrink-0">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Solutions unlock on Result Release</span>
-                    </div>
-                  )}
+
+                  <div>
+                    <h4 className="text-sm font-bold text-white truncate" title={f.student_name}>
+                      {f.student_name}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 truncate mt-0.5" title={f.college}>
+                      {f.college}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
+                    <span>Rank {f.qualification_rank}</span>
+                    <span className="text-amber-300">{f.batch}</span>
+                  </div>
                 </div>
-              )}
+              ))}
+            </div>
+          </div>
 
-              {/* Today's 5 Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                {(todayQuestions.length > 0 ? todayQuestions : PULSE_SLOT_PREVIEWS).map((q: any) => {
-                  const isGeneral = q.category === "General Pulse" || q.subject === "General";
-                  return (
-                    <div
-                      key={q.id || `slot-${q.slot}`}
-                      className={`p-4 sm:p-5 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-4 ${
-                        isGeneral
-                          ? "bg-gradient-to-b from-purple-950/40 via-slate-900/80 to-slate-950 border-purple-500/40 hover:border-purple-500/70"
-                          : "bg-slate-900/70 border-slate-800/80 hover:border-blue-500/50"
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs font-mono">
-                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-bold">
-                            Slot #{q.slot}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-md font-bold ${
-                            isGeneral ? "bg-purple-500/20 text-purple-300 border border-purple-500/40" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                          }`}>
-                            {q.subject}
-                          </span>
-                        </div>
+          {/* Reserves Grid */}
+          <div className="space-y-4 pt-2">
+            <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Shield className="w-3.5 h-3.5 text-blue-400" />
+              Championship Reserves (Seats 1–2)
+            </div>
 
-                        <div className="pt-1">
-                          <h4 className="text-sm font-semibold text-white line-clamp-3 mt-1 leading-snug">
-                            {q.question || "Official question sealed until session initialization • 60s per slot"}
-                          </h4>
-                        </div>
-                      </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {(finaleRoster.length > 0
+                ? finaleRoster.filter(r => r.seat_type === "reserve")
+                : leaderboard.slice(10, 12).map((p, idx) => ({
+                    id: p.participant_id || String(idx),
+                    seat_type: "reserve" as const,
+                    seat_number: idx + 1,
+                    student_name: p.display_name || "Verified Reserve",
+                    college: p.institution || "Medical College",
+                    batch: p.batch || "MBBS",
+                    qualification_rank: 10 + idx + 1,
+                    verification_status: "verified",
+                    attendance_confirmed: true,
+                    participation_status: "active",
+                  }))
+              ).map((r) => (
+                <div
+                  key={r.id || r.seat_number}
+                  className="p-4 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-blue-500/25 hover:border-blue-400/50 transition-colors shadow-md space-y-2 relative"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-mono font-bold border border-blue-500/40">
+                      Reserve #{r.seat_number}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      Standby Seat
+                    </span>
+                  </div>
 
-                      <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
-                        <span>+{q.xp || 50} XP</span>
-                        <span className="text-amber-300 font-bold">+{q.points || 50} Pts</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white truncate" title={r.student_name}>
+                      {r.student_name}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 truncate mt-0.5" title={r.college}>
+                      {r.college}
+                    </p>
+                  </div>
 
-              <div className="flex flex-wrap items-center justify-between p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30 text-xs text-blue-200 gap-3">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>
-                    <strong>Anti-Cheat Verified:</strong> Server-authoritative session handshake with client integrity telemetry.
-                  </span>
+                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
+                    <span>Rank {r.qualification_rank}</span>
+                    <span className="text-blue-300">{r.batch}</span>
+                  </div>
                 </div>
-                {hasAttemptedToday ? (
-                  <button
-                    onClick={() => setIsReviewModalOpen(true)}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    <span>View Explanations & Solutions</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={startPulseQuiz}
-                    disabled={isStartingSession}
-                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold transition cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <Play className="w-4 h-4" />
-                    <span>{isStartingSession ? "Initializing Session..." : "Start 5-Pulse Run"}</span>
-                  </button>
-                )}
-              </div>
-            </>
-          )}
+              ))}
+            </div>
+          </div>
         </section>
 
         {/* 3. REAL-TIME LEADERBOARD TABS */}
@@ -2195,14 +2260,14 @@ function RouteComponent() {
               {loadingLeaderboard && (
                 <div className="flex items-center justify-center gap-3 py-8 text-slate-400 text-sm">
                   <Clock className="w-5 h-5 animate-spin text-blue-400" />
-                  Loading live leaderboard…
+                  Loading live leaderboardΓÇª
                 </div>
               )}
 
               {/* No entries yet */}
               {!loadingLeaderboard && filteredLeaderboard.length === 0 && (
                 <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-                  <div className="text-4xl">🏆</div>
+                  <div className="text-4xl">≡ƒÅå</div>
                   <h3 className="text-base font-bold text-white">No Submissions Recorded</h3>
                   <p className="text-xs text-slate-400">
                     Official rankings will compute and appear dynamically as verified pulse submissions are recorded.
@@ -2332,7 +2397,7 @@ function RouteComponent() {
                                 </div>
                                 <div className="text-[10px] text-slate-500 sm:hidden">{student.institution}</div>
                               </td>
-                              <td className="py-3 px-4 text-slate-300">{student.institution ?? "—"}</td>
+                              <td className="py-3 px-4 text-slate-300">{student.institution ?? "ΓÇö"}</td>
                               <td className="py-3 px-4 text-center font-mono text-emerald-400 font-semibold">{student.accuracy}%</td>
                               <td className="py-3 px-4 text-center font-mono text-blue-300 font-semibold">{formatTimeTaken(student.time_taken_seconds ?? 0)}</td>
                               <td className="py-3 px-4 text-right font-mono font-bold text-white">{(student.score ?? 0).toLocaleString()}</td>
@@ -2345,13 +2410,13 @@ function RouteComponent() {
 
                   <div className="text-center py-1">
                     <span className="text-[11px] font-mono text-slate-500">
-                      🔒 Under Championship Privacy Rules, only the Top 5 ranked students are displayed publicly. All ranks below #5 remain private.
+                      ≡ƒöÆ Under Championship Privacy Rules, only the Top 5 ranked students are displayed publicly. All ranks below #5 remain private.
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* ── REQUIREMENT 2: PERSONAL RANK CARD (PRIVATE) ── */}
+              {/* ΓöÇΓöÇ REQUIREMENT 2: PERSONAL RANK CARD (PRIVATE) ΓöÇΓöÇ */}
               {(user || regEmail || hasAttemptedToday) && (
                 <div className="mt-6 p-6 rounded-2xl bg-gradient-to-r from-blue-950/60 via-slate-900/90 to-indigo-950/60 border border-blue-500/40 shadow-xl backdrop-blur-md relative overflow-hidden">
                   <div className="absolute top-0 right-0 -mr-10 -mt-10 w-36 h-36 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
@@ -2369,7 +2434,7 @@ function RouteComponent() {
                           </span>
                           {myPerformance && myPerformance.rank <= 5 && (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 border border-amber-500/40 text-amber-300">
-                              ⭐ TOP 5 QUALIFIER
+                              Γ¡É TOP 5 QUALIFIER
                             </span>
                           )}
                           {registered && (
@@ -2509,7 +2574,7 @@ function RouteComponent() {
                       <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 sm:col-span-1 text-left sm:text-center">
                         <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider">Batch</div>
                         <div className="text-xs font-bold text-blue-300 mt-1 truncate">
-                          {regBatch || "2026 Batch → Freshers"}
+                          {regBatch || "2026 Batch ΓåÆ Freshers"}
                         </div>
                       </div>
                     </div>
@@ -2536,7 +2601,7 @@ function RouteComponent() {
             <div className="space-y-4">
               {collegeRankings.length === 0 ? (
                 <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-                  <div className="text-4xl">🏛️</div>
+                  <div className="text-4xl">≡ƒÅ¢∩╕Å</div>
                   <h3 className="text-base font-bold text-white">No College Submissions Recorded</h3>
                   <p className="text-xs text-slate-400">Institutional standings will calculate dynamically once verified pulse attempts are recorded.</p>
                 </div>
@@ -2559,7 +2624,7 @@ function RouteComponent() {
                             <span className="text-xs text-slate-400">{c.city || "Medical Institution"}</span>
                           </div>
                         </div>
-                        <span className="font-mono text-xs font-bold text-emerald-400">{c.movement || "• 0"}</span>
+                        <span className="font-mono text-xs font-bold text-emerald-400">{c.movement || "ΓÇó 0"}</span>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/60">
@@ -2583,7 +2648,7 @@ function RouteComponent() {
             </div>
           )}
 
-          {/* TAB 3: BATCH RANKINGS — Requirement 2 Mapping */}
+          {/* TAB 3: BATCH RANKINGS ΓÇö Requirement 2 Mapping */}
           {activeTab === "batch" && (
             <div className="space-y-4">
               {!resultsPublished ? (
@@ -2611,7 +2676,7 @@ function RouteComponent() {
 
                   {batchRankings.length === 0 ? (
                     <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-                      <div className="text-4xl">📚</div>
+                      <div className="text-4xl">≡ƒôÜ</div>
                       <h3 className="text-base font-bold text-white">No Batch Submissions Recorded</h3>
                       <p className="text-xs text-slate-400">MBBS cohort standings will calculate dynamically once verified pulse attempts are recorded.</p>
                     </div>
@@ -2646,7 +2711,7 @@ function RouteComponent() {
                             </div>
                             <div className="p-2 rounded-xl bg-slate-950/60">
                               <div className="text-[10px] text-slate-400">Avg Accuracy</div>
-                              <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{b.avgAccuracy || "—"}</div>
+                              <div className="font-mono text-xs font-bold text-emerald-400 mt-0.5">{b.avgAccuracy || "ΓÇö"}</div>
                             </div>
                             <div className="p-2 rounded-xl bg-slate-950/60">
                               <div className="text-[10px] text-slate-400">Avg Score</div>
@@ -2709,7 +2774,7 @@ function RouteComponent() {
               Season 1 Founder Rewards
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Rank 1 wins the physical 24K Gold & Obsidian Trophy. Rank 2 wins the Limited Edition Champion Hoodie.
+              Rank 1 wins the physical Obsidian Championship Trophy. Rank 2 wins the Limited Edition Champion Hoodie.
             </p>
           </div>
 
@@ -2735,7 +2800,7 @@ function RouteComponent() {
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-transparent to-transparent" />
                 <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
                   <div>
-                    <h3 className="text-lg font-black text-white">The Obsidian & 24K Gold Trophy</h3>
+                    <h3 className="text-lg font-black text-white">The Obsidian & Obsidian Championship Trophy</h3>
                     <p className="text-xs text-amber-300/80 font-mono">Trophy ID: MT-S1-001</p>
                   </div>
                   <span className="px-3 py-1 rounded-xl bg-amber-500 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/30">
@@ -2800,12 +2865,12 @@ function RouteComponent() {
           </div>
         </section>
 
-        {/* 5. HALL OF FAME — Requirement 1 */}
+        {/* 5. HALL OF FAME ΓÇö Requirement 1 */}
         <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-r from-slate-950 via-[#10172A] to-slate-950 p-6 sm:p-10 space-y-6 shadow-2xl relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 text-xl font-bold">
-                🏆
+                ≡ƒÅå
               </div>
               <div>
                 <span className="text-xs font-mono font-bold tracking-widest text-amber-400 uppercase">Permanent Archive</span>
@@ -2818,7 +2883,7 @@ function RouteComponent() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Dynamic Champion Card — Connected to Super Admin Hall of Fame Manager */}
+            {/* Dynamic Champion Card ΓÇö Connected to Super Admin Hall of Fame Manager */}
             <div className="p-6 rounded-2xl bg-slate-900/80 border border-amber-500/40 space-y-4 relative overflow-hidden shadow-xl backdrop-blur-md">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-mono font-bold text-amber-400">
@@ -2878,8 +2943,8 @@ function RouteComponent() {
 
             {/* Upcoming Season 2 Slot */}
             <div className="p-6 rounded-2xl bg-slate-900/40 border border-dashed border-slate-800 flex flex-col items-center justify-center text-center space-y-3">
-              <span className="text-3xl">⏳</span>
-              <h4 className="text-base font-bold text-slate-300">Season 2 — Winter 2026</h4>
+              <span className="text-3xl">ΓÅ│</span>
+              <h4 className="text-base font-bold text-slate-300">Season 2 ΓÇö Winter 2026</h4>
               <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
                 The next sovereign champion will be permanently inscribed into the Hall of Fame upon the conclusion of Season 2.
               </p>
@@ -2997,7 +3062,7 @@ function RouteComponent() {
                         </div>
                         {timerSecondsLeft <= 10 && !hasSubmittedAnswer && (
                           <div className="flex items-center justify-between text-[10px] font-mono text-rose-400 font-semibold px-0.5 animate-pulse">
-                            <span>⚡ Final seconds!</span>
+                            <span>ΓÜí Final seconds!</span>
                             <span>Auto-submitting in {timerSecondsLeft}s</span>
                           </div>
                         )}
@@ -3320,7 +3385,7 @@ function RouteComponent() {
 
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold">
-                🏅
+                ≡ƒÅà
               </div>
               <div>
                 <h3 className="text-xl font-bold text-white">Season 1 Founder Badges</h3>
@@ -3391,16 +3456,16 @@ function RouteComponent() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-300 font-semibold">Batch (2023–2026) *</label>
+                <label className="text-slate-300 font-semibold">Batch (2023ΓÇô2026) *</label>
                 <select
                   value={regBatch}
                   onChange={(e) => setRegBatch(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-blue-500 transition"
                 >
-                  <option value="2026 Batch → Freshers">2026 Batch → Freshers</option>
-                  <option value="2025 Batch → 1st Year MBBS">2025 Batch → 1st Year MBBS</option>
-                  <option value="2024 Batch → 2nd Year MBBS">2024 Batch → 2nd Year MBBS</option>
-                  <option value="2023 Batch → 3rd Year MBBS">2023 Batch → 3rd Year MBBS</option>
+                  <option value="2026 Batch ΓåÆ Freshers">2026 Batch ΓåÆ Freshers</option>
+                  <option value="2025 Batch ΓåÆ 1st Year MBBS">2025 Batch ΓåÆ 1st Year MBBS</option>
+                  <option value="2024 Batch ΓåÆ 2nd Year MBBS">2024 Batch ΓåÆ 2nd Year MBBS</option>
+                  <option value="2023 Batch ΓåÆ 3rd Year MBBS">2023 Batch ΓåÆ 3rd Year MBBS</option>
                 </select>
               </div>
 

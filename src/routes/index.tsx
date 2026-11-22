@@ -70,8 +70,8 @@ const pillars = [
   {
     to: "/championship",
     icon: Trophy,
-    title: "Championship",
-    copy: "Daily 60-second high-yield clinical pulses, live student leaderboard, college standings, and season rewards.",
+    title: "PULSE FINAL",
+    copy: "The Final Showdown of MedTrail Championship Season 1. Live countdown, verified finalist standings, and official championship rewards.",
   },
   {
     to: "/mbbs",
@@ -151,7 +151,7 @@ function Index() {
                 to="/championship"
                 className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-transform hover:scale-[1.03]"
               >
-                Championship
+                PULSE FINAL
               </Link>
             </div>
           </Reveal>

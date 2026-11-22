@@ -2,7 +2,7 @@ export type NavItem = { to: string; label: string };
 
 export const navItems: NavItem[] = [
   { to: "/", label: "Home" },
-  { to: "/championship", label: "🏆 Championship" },
+  { to: "/championship", label: "🏆 PULSE FINAL" },
   { to: "/notes", label: "Notes" },
   { to: "/mbbs", label: "MBBS Hub" },
   { to: "/travel", label: "🔒 Expeditions" },
@@ -22,7 +22,7 @@ export type SearchEntry = { to: string; title: string; group: string; keywords: 
 
 export const searchIndex: SearchEntry[] = [
   { to: "/", title: "Home overview", group: "Pages", keywords: "start landing medtrail hero" },
-  { to: "/championship", title: "MedTrail Championship — Season 1", group: "Championship", keywords: "championship season 1 leaderboard pulse badges founder rewards esports compete ranking college batch" },
+  { to: "/championship", title: "PULSE FINAL — MedTrail Championship Season 1", group: "Championship", keywords: "pulse final championship season 1 finale grand finale leaderboard pulse badges founder rewards esports compete ranking college batch" },
   { to: "/notes", title: "MBBS Notes & PDFs", group: "MBBS Hub", keywords: "notes study notes pdf clinical microbiology summaries mbbs resources storage" },
   { to: "/mbbs", title: "MBBS Hub Dashboard", group: "MBBS Hub", keywords: "medical student dashboard productivity tasks goals streak exams notes mbbs" },
   { to: "/mbbs", title: "Daily Tasks Checklist", group: "MBBS Hub", keywords: "daily tasks priority checklist study time streak completion" },
