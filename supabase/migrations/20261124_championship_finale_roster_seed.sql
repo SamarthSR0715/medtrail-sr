@@ -89,20 +89,28 @@ BEGIN
       v_auth_mismatch_count;
   END IF;
 
-  -- Detect duplicate identities already present in the current roster.
+  -- Detect duplicate user IDs.
   SELECT count(*)
     INTO v_existing_duplicate_identity_count
   FROM (
     SELECT user_id
     FROM public.championship_finale_approved_roster
     WHERE user_id IS NOT NULL
-    GROUP BY user_id HAVING count(*) > 1
-    UNION ALL
+    GROUP BY user_id
+    HAVING count(*) > 1
+  ) duplicate_user_ids;
+
+  -- Detect duplicate normalized email addresses.
+  SELECT v_existing_duplicate_identity_count
+    + count(*)
+    INTO v_existing_duplicate_identity_count
+  FROM (
     SELECT lower(btrim(email)) AS email_key
     FROM public.championship_finale_approved_roster
     WHERE email IS NOT NULL
-    GROUP BY lower(btrim(email)) HAVING count(*) > 1
-  ) duplicates;
+    GROUP BY lower(btrim(email))
+    HAVING count(*) > 1
+  ) duplicate_emails;
 
   IF v_existing_duplicate_identity_count <> 0 THEN
     RAISE EXCEPTION
@@ -195,16 +203,27 @@ BEGIN
     RAISE EXCEPTION 'Post-seed validation failed: unexpected seat number(s) exist';
   END IF;
 
-  SELECT count(*) INTO v_duplicate_identity_count
+  -- Check duplicate user IDs separately.
+  SELECT count(*)
+    INTO v_duplicate_identity_count
   FROM (
     SELECT user_id
     FROM public.championship_finale_approved_roster
-    GROUP BY user_id HAVING count(*) > 1
-    UNION ALL
-    SELECT lower(btrim(email))
+    WHERE user_id IS NOT NULL
+    GROUP BY user_id
+    HAVING count(*) > 1
+  ) duplicate_user_ids;
+
+  -- Add duplicate normalized email groups.
+  SELECT v_duplicate_identity_count + count(*)
+    INTO v_duplicate_identity_count
+  FROM (
+    SELECT lower(btrim(email)) AS email_key
     FROM public.championship_finale_approved_roster
-    GROUP BY lower(btrim(email)) HAVING count(*) > 1
-  ) d;
+    WHERE email IS NOT NULL
+    GROUP BY lower(btrim(email))
+    HAVING count(*) > 1
+  ) duplicate_emails;
 
   IF v_duplicate_identity_count <> 0 THEN
     RAISE EXCEPTION 'Post-seed validation failed: duplicate finalist identities found';
