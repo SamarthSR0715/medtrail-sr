@@ -85,6 +85,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import trophyImg from "@/assets/championship-trophy.jpg";
 import hoodieImg from "@/assets/championship-hoodie.jpg";
+// Grand Finale Format B — isolated, no shared state with Daily Pulse
+import { FinaleRapidFireModal } from "@/components/championship/finale-rapid-fire-modal";
+import { DEFAULT_FINALE_CODE } from "@/lib/finale-service";
 
 export const Route = createFileRoute("/championship")({
   component: RouteComponent,
@@ -268,6 +271,8 @@ function RouteComponent() {
   const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
+  // Grand Finale Format B modal (isolated from Daily Pulse)
+  const [isFinaleModalOpen, setIsFinaleModalOpen] = useState(false);
 
   // Authentication context
   const { user } = useAuth();
@@ -1576,6 +1581,14 @@ function RouteComponent() {
                     <p className="text-xs sm:text-sm text-slate-300 font-mono">
                       Sequential slot challenges are currently active for qualified finalists.
                     </p>
+                    {/* Grand Finale Format B — Enter Exam Button */}
+                    <button
+                      onClick={() => setIsFinaleModalOpen(true)}
+                      className="mt-2 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-sm uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/40 animate-in fade-in"
+                    >
+                      <Trophy className="w-4 h-4" />
+                      Enter Grand Finale Examination
+                    </button>
                   </div>
                 ) : (finalEventTargetUTC || seasonStartUTC || finaleDay1) ? (
                   <div className="space-y-3">
@@ -3531,6 +3544,13 @@ function RouteComponent() {
           setRegBatch(updated.batch);
           loadLeaderboard();
         }}
+      />
+
+      {/* Grand Finale Format B — Isolated Rapid Fire Modal */}
+      <FinaleRapidFireModal
+        isOpen={isFinaleModalOpen}
+        onClose={() => setIsFinaleModalOpen(false)}
+        finaleCode={DEFAULT_FINALE_CODE}
       />
     </div>
   );

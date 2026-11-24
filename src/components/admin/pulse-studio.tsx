@@ -80,6 +80,17 @@ import {
 } from "@/lib/pulse-service";
 import { fetchRegisteredDeviceStats } from "@/lib/fcm-client";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  createEmptyFinaleQuestions,
+  publishFinaleSet,
+  fetchFinaleSetAdmin,
+  getPublicFinaleRoster,
+  getPublicFinaleLeaderboard,
+  DEFAULT_FINALE_CODE,
+  type FinaleQuestionAdminInput,
+  type FinaleRosterEntry,
+  type FinaleLeaderboardEntry,
+} from "@/lib/finale-service";
 
 export function PulseStudio() {
   const todayIST = getISTDateString();
@@ -97,7 +108,102 @@ export function PulseStudio() {
   const [simulatedSubmitted, setSimulatedSubmitted] = useState<boolean>(false);
 
   // Sub-tabs in Pulse Studio
-  const [studioTab, setStudioTab] = useState<"editor" | "live_ops" | "analytics" | "notifications" | "export">("editor");
+  const [studioTab, setStudioTab] = useState<"editor" | "live_ops" | "analytics" | "notifications" | "export" | "grand_finale">("editor");
+
+  // ── GRAND FINALE (FORMAT B) STATE ──────────────────────────────────────────
+  const [finaleQuestions, setFinaleQuestions] = useState<FinaleQuestionAdminInput[]>(createEmptyFinaleQuestions());
+  const [finaleActiveSlot, setFinaleActiveSlot] = useState<number>(1);
+  const [finaleStatus, setFinaleStatus] = useState<"draft" | "published" | "empty">("empty");
+  const [isSavingFinale, setIsSavingFinale] = useState<boolean>(false);
+  const [isPublishingFinale, setIsPublishingFinale] = useState<boolean>(false);
+  const [finaleSubTab, setFinaleSubTab] = useState<"questions" | "roster" | "leaderboard">("questions");
+  const [finaleRoster, setFinaleRoster] = useState<FinaleRosterEntry[]>([]);
+  const [finaleLeaderboard, setFinaleLeaderboard] = useState<FinaleLeaderboardEntry[]>([]);
+  const [isLoadingFinaleData, setIsLoadingFinaleData] = useState<boolean>(false);
+
+  const loadFinaleAdminData = useCallback(async () => {
+    setIsLoadingFinaleData(true);
+    try {
+      const [setRes, rosterRes, lbRes] = await Promise.all([
+        fetchFinaleSetAdmin(DEFAULT_FINALE_CODE),
+        getPublicFinaleRoster(),
+        getPublicFinaleLeaderboard(DEFAULT_FINALE_CODE),
+      ]);
+
+      if (setRes && setRes.questions && setRes.questions.length > 0) {
+        setFinaleQuestions(setRes.questions);
+        setFinaleStatus(setRes.status as any || "draft");
+      }
+      setFinaleRoster(rosterRes);
+      setFinaleLeaderboard(lbRes);
+    } catch (err) {
+      console.error("Failed to load finale admin data:", err);
+    } finally {
+      setIsLoadingFinaleData(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (studioTab === "grand_finale") {
+      loadFinaleAdminData();
+    }
+  }, [studioTab, loadFinaleAdminData]);
+
+  const handleSaveFinaleDraft = async () => {
+    setIsSavingFinale(true);
+    try {
+      const res = await publishFinaleSet({
+        finaleCode: DEFAULT_FINALE_CODE,
+        questions: finaleQuestions,
+        status: "draft",
+      });
+      if (res.success) {
+        setFinaleStatus("draft");
+        toast.success("Grand Finale draft saved successfully (10 slots preserved).");
+      } else {
+        toast.error(res.error || "Failed to save Grand Finale draft.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save draft.");
+    } finally {
+      setIsSavingFinale(false);
+    }
+  };
+
+  const handlePublishFinale = async () => {
+    for (let i = 0; i < 10; i++) {
+      const q = finaleQuestions[i];
+      if (!q || !q.question.trim()) {
+        toast.error(`Question ${i + 1} is empty. All 10 questions required for Grand Finale.`);
+        setFinaleActiveSlot(i + 1);
+        return;
+      }
+      if (!q.option_a.trim() || !q.option_b.trim() || !q.option_c.trim() || !q.option_d.trim()) {
+        toast.error(`Question ${i + 1} is missing one or more options.`);
+        setFinaleActiveSlot(i + 1);
+        return;
+      }
+    }
+
+    setIsPublishingFinale(true);
+    try {
+      const res = await publishFinaleSet({
+        finaleCode: DEFAULT_FINALE_CODE,
+        questions: finaleQuestions,
+        status: "published",
+      });
+      if (res.success) {
+        setFinaleStatus("published");
+        toast.success("Grand Finale published! 10 questions are now live for approved finalists.");
+      } else {
+        toast.error(res.error || "Failed to publish Grand Finale.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to publish.");
+    } finally {
+      setIsPublishingFinale(false);
+    }
+  };
 
   // ── LIVE OPS STATE ───────────────────────────────────────────────────────────
   const [liveOps, setLiveOps] = useState<LiveOpsState>({
@@ -728,6 +834,7 @@ return (
           { id: "analytics", label: "Live Dashboard & Analytics", icon: Flame },
           { id: "notifications", label: "Push Notifications", icon: Bell },
           { id: "export", label: "Export CSV Reports", icon: Download },
+          { id: "grand_finale", label: "Grand Finale Ops (10 Slots / 90s)", icon: Trophy },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = studioTab === tab.id;
@@ -1743,6 +1850,330 @@ return (
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── TAB 6: GRAND FINALE OPS (10 SLOTS / 90s) ── */}
+      {studioTab === "grand_finale" && (
+        <div className="space-y-6 pt-2">
+          {/* Header & Sub-Tabs */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-6 rounded-3xl bg-slate-900/80 border border-amber-500/30 shadow-xl">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase tracking-wider">
+                <Trophy className="w-3.5 h-3.5" />
+                Format B: 90-Second Rapid Fire
+              </div>
+              <h3 className="text-xl font-black text-white">Grand Finale Control & Authoritative Bank</h3>
+              <p className="text-xs text-slate-400">
+                10 questions · 90s continuous countdown · 100 pts per correct · Max 1,000 pts · Whitelist-gated
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center rounded-xl bg-slate-950 p-1 border border-slate-800">
+                {[
+                  { id: "questions", label: "10-Slot Editor", icon: FileEdit },
+                  { id: "roster", label: `Roster (${finaleRoster.length}/10)`, icon: Users },
+                  { id: "leaderboard", label: "Standings", icon: Award },
+                ].map((st) => {
+                  const Icon = st.icon;
+                  const isCur = finaleSubTab === st.id;
+                  return (
+                    <button
+                      key={st.id}
+                      onClick={() => setFinaleSubTab(st.id as any)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        isCur ? "bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20" : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{st.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {finaleSubTab === "questions" && (
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={isSavingFinale || isPublishingFinale}
+                    onClick={handleSaveFinaleDraft}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Save className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isSavingFinale ? "Saving..." : "Save Draft"}</span>
+                  </button>
+
+                  <button
+                    disabled={isSavingFinale || isPublishingFinale}
+                    onClick={handlePublishFinale}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/30 disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{isPublishingFinale ? "Publishing..." : "Publish 10-Q Finale"}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SUB-VIEW 1: 10-SLOT QUESTIONS EDITOR */}
+          {finaleSubTab === "questions" && (
+            <div className="space-y-6">
+              {/* 10 Slot Palette */}
+              <div className="grid grid-cols-5 sm:grid-cols-10 gap-2 p-4 rounded-2xl bg-slate-950/70 border border-slate-800">
+                {finaleQuestions.map((q, idx) => {
+                  const slotNum = idx + 1;
+                  const isActive = finaleActiveSlot === slotNum;
+                  const isFilled = q.question.trim().length > 0 && q.option_a.trim().length > 0;
+                  return (
+                    <button
+                      key={slotNum}
+                      onClick={() => setFinaleActiveSlot(slotNum)}
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
+                        isActive
+                          ? "bg-amber-500/20 border-amber-500 text-amber-300 ring-2 ring-amber-500/40"
+                          : isFilled
+                          ? "bg-slate-900 border-emerald-500/40 text-emerald-300 hover:border-emerald-400"
+                          : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <span className="text-[10px] font-mono uppercase text-slate-400">Slot</span>
+                      <span className="text-base font-black">{slotNum}</span>
+                      <span className={`w-2 h-2 rounded-full ${isFilled ? "bg-emerald-400" : "bg-slate-700"}`} />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Slot Editor Form */}
+              {(() => {
+                const curIdx = finaleActiveSlot - 1;
+                const curQ = finaleQuestions[curIdx] || {
+                  slot: finaleActiveSlot,
+                  question: "",
+                  option_a: "",
+                  option_b: "",
+                  option_c: "",
+                  option_d: "",
+                  correct_answer: "A" as const,
+                  explanation: "",
+                  subject: "Clinical Medicine",
+                };
+
+                const updateCurQ = (patch: Partial<FinaleQuestionAdminInput>) => {
+                  setFinaleQuestions((prev) => {
+                    const next = [...prev];
+                    next[curIdx] = { ...curQ, ...patch, slot: finaleActiveSlot };
+                    return next;
+                  });
+                };
+
+                return (
+                  <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black text-sm">
+                          {finaleActiveSlot}
+                        </span>
+                        <div>
+                          <h4 className="text-base font-bold text-white">Grand Finale Slot #{finaleActiveSlot}</h4>
+                          <span className="text-xs text-slate-400">100 points · 90-second overall timer pool</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <label className="text-xs font-bold text-slate-400">Subject:</label>
+                        <input
+                          type="text"
+                          value={curQ.subject || ""}
+                          onChange={(e) => updateCurQ({ subject: e.target.value })}
+                          placeholder="e.g. Clinical Medicine, Surgery"
+                          className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-amber-500 outline-none w-48"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Question text */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-300">Question Text (Clinical Vignette)</label>
+                      <textarea
+                        rows={4}
+                        value={curQ.question}
+                        onChange={(e) => updateCurQ({ question: e.target.value })}
+                        placeholder="Enter the clinical scenario or rapid-fire medical question..."
+                        className="w-full p-4 rounded-2xl bg-slate-950 border border-slate-800 text-white text-sm focus:border-amber-500 outline-none resize-none"
+                      />
+                    </div>
+
+                    {/* 4 Options */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {(["A", "B", "C", "D"] as const).map((letter) => {
+                        const optKey = `option_${letter.toLowerCase()}` as "option_a" | "option_b" | "option_c" | "option_d";
+                        const isCorrect = curQ.correct_answer === letter;
+                        return (
+                          <div
+                            key={letter}
+                            className={`p-4 rounded-2xl border transition ${
+                              isCorrect ? "bg-amber-500/10 border-amber-500/50" : "bg-slate-950/80 border-slate-800"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-black text-amber-400">Option {letter}</span>
+                              <button
+                                type="button"
+                                onClick={() => updateCurQ({ correct_answer: letter })}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                                  isCorrect
+                                    ? "bg-amber-500 text-slate-950 font-black"
+                                    : "bg-slate-800 text-slate-400 hover:text-white"
+                                }`}
+                              >
+                                {isCorrect ? "✓ Correct Answer" : "Mark Correct"}
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              value={curQ[optKey] || ""}
+                              onChange={(e) => updateCurQ({ [optKey]: e.target.value })}
+                              placeholder={`Option ${letter} text...`}
+                              className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-sm focus:border-amber-500 outline-none"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Explanation */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-300">Faculty Explanation & Reference (Post-Exam Review)</label>
+                      <textarea
+                        rows={3}
+                        value={curQ.explanation || ""}
+                        onChange={(e) => updateCurQ({ explanation: e.target.value })}
+                        placeholder="Detailed clinical rationale displayed to contestants after final submission..."
+                        className="w-full p-4 rounded-2xl bg-slate-950 border border-slate-800 text-white text-sm focus:border-amber-500 outline-none resize-none"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* SUB-VIEW 2: FINALIST APPROVED ROSTER */}
+          {finaleSubTab === "roster" && (
+            <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-base font-bold text-white">Approved Grand Finale Roster (10 Finalists)</h4>
+                  <p className="text-xs text-slate-400">
+                    Sourced from <span className="font-mono text-amber-400">championship_finale_approved_roster</span> via secure RPC
+                  </p>
+                </div>
+                <button
+                  onClick={loadFinaleAdminData}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFinaleData ? "animate-spin" : ""}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {finaleRoster.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800/80 text-slate-400 space-y-2">
+                  <Users className="w-8 h-8 mx-auto text-slate-600" />
+                  <p className="text-sm font-semibold text-slate-300">No Finalists Seeded in Database</p>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Execute the migration SQL and insert the 10 qualified finalist seats into the approved roster.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Seat #</th>
+                        <th className="py-3 px-4">Student Name</th>
+                        <th className="py-3 px-4">College</th>
+                        <th className="py-3 px-4">Batch</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {finaleRoster.map((r) => (
+                        <tr key={r.seatNumber} className="hover:bg-slate-850 transition">
+                          <td className="py-3 px-4 font-mono font-bold text-amber-400">Seat #{r.seatNumber}</td>
+                          <td className="py-3 px-4 font-semibold text-white">{r.studentName}</td>
+                          <td className="py-3 px-4 text-slate-300">{r.college}</td>
+                          <td className="py-3 px-4 font-mono text-slate-400">{r.batch}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SUB-VIEW 3: FINALE LEADERBOARD */}
+          {finaleSubTab === "leaderboard" && (
+            <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-base font-bold text-white">Live Grand Finale Standings</h4>
+                  <p className="text-xs text-slate-400">
+                    Ranked by score DESC, accuracy DESC, elapsed seconds ASC (isolated from Season 1 Daily Pulse)
+                  </p>
+                </div>
+                <button
+                  onClick={loadFinaleAdminData}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFinaleData ? "animate-spin" : ""}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {finaleLeaderboard.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800/80 text-slate-400 space-y-2">
+                  <Award className="w-8 h-8 mx-auto text-slate-600" />
+                  <p className="text-sm font-semibold text-slate-300">No Submissions Recorded Yet</p>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Standings will populate dynamically as finalists complete their 90-second rapid fire attempts.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Rank</th>
+                        <th className="py-3 px-4">Seat</th>
+                        <th className="py-3 px-4">Contestant</th>
+                        <th className="py-3 px-4">College</th>
+                        <th className="py-3 px-4">Score</th>
+                        <th className="py-3 px-4">Accuracy</th>
+                        <th className="py-3 px-4">Time Taken</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {finaleLeaderboard.map((lb) => (
+                        <tr key={lb.seatNumber} className="hover:bg-slate-850 transition">
+                          <td className="py-3 px-4 font-mono font-bold text-amber-400">#{lb.rank}</td>
+                          <td className="py-3 px-4 font-mono text-slate-400">Seat {lb.seatNumber}</td>
+                          <td className="py-3 px-4 font-semibold text-white">{lb.studentName}</td>
+                          <td className="py-3 px-4 text-slate-300">{lb.college}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-emerald-400">{lb.score} / 1000</td>
+                          <td className="py-3 px-4 font-mono text-blue-400">{lb.accuracy}%</td>
+                          <td className="py-3 px-4 font-mono text-slate-300">{Number(lb.elapsedSeconds).toFixed(1)}s</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>

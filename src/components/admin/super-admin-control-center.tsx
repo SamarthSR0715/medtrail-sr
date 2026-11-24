@@ -44,6 +44,7 @@ import { CompetitionSettings } from "@/components/admin/competition-settings";
 import { ResultControl } from "@/components/admin/result-control";
 import { OverallLeaderboard } from "@/components/admin/overall-leaderboard";
 import { AntiCheatDashboard } from "@/components/admin/anti-cheat-dashboard";
+import { FinaleAdminCenter } from "@/components/admin/finale-admin-center";
 import { Settings2 } from "lucide-react";
 import { sendRealFCMPush, requestAndRegisterNotificationPermission, detectDevicePlatform } from "@/lib/fcm-client";
 import {
@@ -79,7 +80,7 @@ export function SuperAdminControlCenter() {
 
   // Top Section Tab
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "pulse_studio" | "result_control" | "registrations" | "leaderboard" | "overall_leaderboard" | "anti_cheat" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
+    "dashboard" | "grand_finale_ops" | "pulse_studio" | "result_control" | "registrations" | "leaderboard" | "overall_leaderboard" | "anti_cheat" | "notifications" | "hall_of_fame" | "trips" | "competition_settings"
   >("dashboard");
 
   // ── 1. Dashboard State ──────────────────────────────────────────────────────
@@ -554,6 +555,7 @@ export function SuperAdminControlCenter() {
         <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-slate-800/80 pt-4">
           {[
             { id: "dashboard", label: "Dashboard", icon: Sparkles },
+            { id: "grand_finale_ops", label: "Grand Finale Ops", icon: Trophy },
             { id: "pulse_studio", label: "Pulse Studio", icon: Flame },
             { id: "result_control", label: "Result Control", icon: Trophy },
             { id: "registrations", label: `Registrations (${registrations.length})`, icon: Users },
@@ -1768,6 +1770,13 @@ export function SuperAdminControlCenter() {
       {activeTab === "anti_cheat" && (
         <div className="space-y-6">
           <AntiCheatDashboard />
+        </div>
+      )}
+
+      {/* ── TAB: GRAND FINALE OPERATIONS ── */}
+      {activeTab === "grand_finale_ops" && (
+        <div className="space-y-6">
+          <FinaleAdminCenter />
         </div>
       )}
     </div>
