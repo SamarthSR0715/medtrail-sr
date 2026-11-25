@@ -103,6 +103,29 @@ CREATE POLICY "Admin read finale leaderboard"
   FOR SELECT TO authenticated
   USING (public.is_finale_admin());
 
+-- Explicit Data API privilege hardening on all 5 existing Format B tables:
+-- Strip any default PUBLIC/anon/authenticated write, TRUNCATE, REFERENCES, TRIGGER, or anon SELECT privileges,
+-- preserving only RLS-gated SELECT for authenticated (admin/own rows) and full access for service_role.
+REVOKE ALL ON TABLE public.championship_finale_approved_roster FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_approved_roster TO authenticated;
+GRANT ALL ON TABLE public.championship_finale_approved_roster TO service_role;
+
+REVOKE ALL ON TABLE public.championship_finale_sets FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_sets TO authenticated;
+GRANT ALL ON TABLE public.championship_finale_sets TO service_role;
+
+REVOKE ALL ON TABLE public.championship_finale_sessions FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_sessions TO authenticated;
+GRANT ALL ON TABLE public.championship_finale_sessions TO service_role;
+
+REVOKE ALL ON TABLE public.championship_finale_attempts FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_attempts TO authenticated;
+GRANT ALL ON TABLE public.championship_finale_attempts TO service_role;
+
+REVOKE ALL ON TABLE public.championship_finale_leaderboard FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_leaderboard TO authenticated;
+GRANT ALL ON TABLE public.championship_finale_leaderboard TO service_role;
+
 -- ════════════════════════════════════════════════════════════════════════════════
 -- 2. LIFECYCLE SCHEMA EVOLUTION: championship_finale_sets + public_state
 -- ════════════════════════════════════════════════════════════════════════════════
@@ -160,9 +183,9 @@ CREATE POLICY "Public read sanitized finale status"
   FOR SELECT TO anon, authenticated
   USING (true);
 
-REVOKE INSERT, UPDATE, DELETE ON public.championship_finale_public_state FROM authenticated, anon, public;
-GRANT SELECT ON public.championship_finale_public_state TO anon, authenticated;
-GRANT ALL ON public.championship_finale_public_state TO service_role;
+REVOKE ALL ON TABLE public.championship_finale_public_state FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_public_state TO anon, authenticated;
+GRANT ALL ON TABLE public.championship_finale_public_state TO service_role;
 
 -- Trigger function to keep championship_finale_public_state synchronized automatically
 CREATE OR REPLACE FUNCTION public.trg_fn_sync_finale_public_state()
@@ -286,12 +309,12 @@ CREATE POLICY "Tester or admin reads test devices"
   FOR SELECT TO authenticated
   USING (user_id = auth.uid() OR public.is_finale_admin());
 
-REVOKE INSERT, UPDATE, DELETE ON public.championship_finale_test_access FROM authenticated, anon, public;
-REVOKE INSERT, UPDATE, DELETE ON public.championship_finale_test_devices FROM authenticated, anon, public;
-GRANT SELECT ON public.championship_finale_test_access TO authenticated;
-GRANT SELECT ON public.championship_finale_test_devices TO authenticated;
-GRANT ALL ON public.championship_finale_test_access TO service_role;
-GRANT ALL ON public.championship_finale_test_devices TO service_role;
+REVOKE ALL ON TABLE public.championship_finale_test_access FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.championship_finale_test_devices FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.championship_finale_test_access TO authenticated;
+GRANT SELECT ON TABLE public.championship_finale_test_devices TO authenticated;
+GRANT ALL ON TABLE public.championship_finale_test_access TO service_role;
+GRANT ALL ON TABLE public.championship_finale_test_devices TO service_role;
 
 -- Guard trigger: prevent any overlap between official approved finalists & tester table
 CREATE OR REPLACE FUNCTION public.trg_fn_finale_prevent_tester_roster_overlap()
@@ -1974,5 +1997,7 @@ $$;
 
 REVOKE ALL ON FUNCTION public.get_public_finale_leaderboard(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_public_finale_leaderboard(TEXT) TO anon, authenticated, service_role;
+
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;
