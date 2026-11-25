@@ -4,66 +4,67 @@
  *
  * FULLY ISOLATED from Daily Pulse UI. Zero shared state with championship.tsx quiz.
  *
- * State machine:
- *   IDLE → LOADING → ACTIVE_EXAM → CONFIRMING → SUBMITTING → RESULTS
- *
- * Key design decisions:
- *   - Timer anchored to server-authoritative expiresAt, not client start time.
- *   - Timer uses requestAnimationFrame loop; never resets on question navigation.
- *   - Answers persisted to sessionStorage on every change for refresh-recovery.
- *   - Auto-submit fires when countdown reaches 0.
- *   - Manual submit requires explicit confirmation dialog.
- *   - Duplicate submission prevention: submitOnceRef + already_submitted guard.
- *   - Score = correctCount * 100 (max 1000, as per Format B rules).
+ * Phases:
+ *   IDLE | LOADING | WAITING_ROOM | TEST_DEVICE_GATE | ACTIVE_EXAM | CONFIRMING | SUBMITTING | RESULTS
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Trophy,
-  Clock,
+  AlertCircle,
+  BookOpen,
   CheckCircle2,
-  XCircle,
   ChevronLeft,
   ChevronRight,
-  AlertCircle,
+  Clock,
+  FlaskConical,
+  Hourglass,
+  Laptop,
   Loader2,
-  X,
-  Zap,
-  BookOpen,
+  Lock,
   Medal,
+  RefreshCw,
+  RotateCcw,
+  ShieldAlert,
   SkipForward,
+  Trophy,
+  X,
+  XCircle,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  clearFinaleSessionCache,
+  DEFAULT_FINALE_CODE,
+  encodeAnswer,
+  FINALE_DURATION_SECONDS,
+  FINALE_MAX_SCORE,
+  FINALE_POINTS_PER_CORRECT,
+  FINALE_QUESTION_COUNT,
+  getOrCreateFinaleDeviceId,
+  getPublicFinaleStatus,
+  letterToIndex,
+  loadFinaleSessionCache,
+  requestFinaleTestDevice,
+  saveFinaleSessionCache,
   startFinaleSession,
   submitFinaleAttempt,
-  saveFinaleSessionCache,
-  loadFinaleSessionCache,
-  clearFinaleSessionCache,
-  encodeAnswer,
-  letterToIndex,
-  DEFAULT_FINALE_CODE,
-  FINALE_QUESTION_COUNT,
-  FINALE_DURATION_SECONDS,
-  FINALE_POINTS_PER_CORRECT,
-  FINALE_MAX_SCORE,
-  type FinaleQuestion,
+  subscribeToFinalePublicState,
   type FinaleExplanation,
+  type FinaleQuestion,
 } from '@/lib/finale-service';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
 
 type ExamPhase =
   | 'IDLE'
   | 'LOADING'
+  | 'WAITING_ROOM'
+  | 'TEST_DEVICE_GATE'
   | 'ACTIVE_EXAM'
   | 'CONFIRMING'
   | 'SUBMITTING'
   | 'RESULTS';
 
 interface SubmitResult {
+  isTest: boolean;
   score: number;
   accuracy: number;
   correctCount: number;
@@ -75,11 +76,8 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   finaleCode?: string;
+  onCompleted?: () => void;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 function formatTime(seconds: number): string {
   const s = Math.max(0, Math.ceil(seconds));
@@ -108,43 +106,36 @@ function timerBarClass(secs: number): string {
   return 'bg-emerald-500';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
+export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted }: Props) {
   const code = finaleCode || DEFAULT_FINALE_CODE;
+  const deviceId = getOrCreateFinaleDeviceId();
 
-  // Phase state machine
   const [phase, setPhase] = useState<ExamPhase>('IDLE');
-
-  // Session data (from server)
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [expiresAt, setExpiresAt] = useState<number>(0); // epoch ms
+  const [expiresAt, setExpiresAt] = useState<number>(0);
   const [questions, setQuestions] = useState<FinaleQuestion[]>([]);
   const [seatNumber, setSeatNumber] = useState<number>(0);
   const [studentName, setStudentName] = useState<string>('');
+  const [isTestSession, setIsTestSession] = useState<boolean>(false);
 
-  // Answer state: 10-slot array, each in {-1,0,1,2,3}. -1 = not answered.
   const [answers, setAnswers] = useState<number[]>(Array(FINALE_QUESTION_COUNT).fill(-1));
-  const [currentSlot, setCurrentSlot] = useState<number>(0); // 0-based
+  const [currentSlot, setCurrentSlot] = useState<number>(0);
 
-  // Timer
   const [timeLeft, setTimeLeft] = useState<number>(FINALE_DURATION_SECONDS);
   const rafRef = useRef<number | null>(null);
 
-  // Results
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [expandedExpl, setExpandedExpl] = useState<number | null>(null);
 
-  // Error display
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isExpiredTestRun, setIsExpiredTestRun] = useState<boolean>(false);
+  const [devicePending, setDevicePending] = useState<boolean>(false);
+  const [registeringDevice, setRegisteringDevice] = useState<boolean>(false);
+  const [deviceLabelInput, setDeviceLabelInput] = useState<string>('');
 
-  // Submission guard — prevent duplicate submit calls
   const submitOnceRef = useRef<boolean>(false);
   const isSubmittingRef = useRef<boolean>(false);
 
-  // Answers ref for auto-submit (avoids stale closure)
   const answersRef = useRef<number[]>(answers);
   useEffect(() => {
     answersRef.current = answers;
@@ -155,11 +146,14 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
-  // ── Reset when modal is closed ───────────────────────────────────────────────
+  const onCompletedRef = useRef(onCompleted);
+  useEffect(() => {
+    onCompletedRef.current = onCompleted;
+  }, [onCompleted]);
+
   const handleClose = useCallback(() => {
-    // If exam is active, don't allow accidental close (session remains server-side)
     if (phase === 'ACTIVE_EXAM' || phase === 'CONFIRMING') {
-      toast.warning('The exam is running. Use "Submit All" to finish, or wait for auto-submit.');
+      toast.warning('The exam is active. Click "Submit All" to finish or wait for auto-submit.');
       return;
     }
     if (rafRef.current !== null) {
@@ -176,12 +170,14 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     setResult(null);
     setExpandedExpl(null);
     setErrorMsg(null);
+    setIsTestSession(false);
+    setIsExpiredTestRun(false);
+    setDevicePending(false);
     submitOnceRef.current = false;
     isSubmittingRef.current = false;
     onClose();
   }, [phase, onClose]);
 
-  // ── Persist answers to sessionStorage on every change ────────────────────────
   const persistCache = useCallback(
     (newAnswers: number[], newSlot: number) => {
       if (!sessionId || expiresAt === 0 || questions.length === 0) return;
@@ -192,81 +188,90 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
         expiresAt: new Date(expiresAt).toISOString(),
         seatNumber,
         studentName,
+        isTest: isTestSession,
         questions,
         answers: newAnswers,
         currentSlot: newSlot,
       });
     },
-    [sessionId, expiresAt, questions, seatNumber, studentName, code]
+    [sessionId, expiresAt, questions, seatNumber, studentName, isTestSession, code]
   );
 
-  // ── Core submit (used by both auto and manual) ────────────────────────────────
-  const doSubmit = useCallback(
-    async (finalAnswers: number[]) => {
-      if (submitOnceRef.current || isSubmittingRef.current) return;
-      if (!sessionIdRef.current) return;
+  const doSubmit = useCallback(async (finalAnswers: number[]) => {
+    if (submitOnceRef.current || isSubmittingRef.current) return;
+    if (!sessionIdRef.current) return;
 
-      submitOnceRef.current = true;
-      isSubmittingRef.current = true;
-      setPhase('SUBMITTING');
+    submitOnceRef.current = true;
+    isSubmittingRef.current = true;
+    setPhase('SUBMITTING');
 
-      // Stop timer
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
 
-      // Ensure exactly 10 answers (replace any stale nulls with -1)
-      const safeAnswers = Array.from({ length: FINALE_QUESTION_COUNT }, (_, i) => {
-        const a = finalAnswers[i] ?? -1;
-        return a >= -1 && a <= 3 ? a : -1;
+    const safeAnswers = Array.from({ length: FINALE_QUESTION_COUNT }, (_, i) => {
+      const a = finalAnswers[i] ?? -1;
+      return a >= -1 && a <= 3 ? a : -1;
+    });
+
+    try {
+      const res = await submitFinaleAttempt({
+        sessionId: sessionIdRef.current,
+        answers: safeAnswers,
       });
 
-      try {
-        const res = await submitFinaleAttempt({
-          sessionId: sessionIdRef.current!,
-          answers: safeAnswers,
-        });
+      clearFinaleSessionCache();
 
-        clearFinaleSessionCache();
-
-        if (!res.success) {
-          if (res.alreadySubmitted) {
-            toast.info('Your submission was already recorded.');
-            setErrorMsg('Your answers have already been submitted. Only 1 attempt is permitted.');
-            setPhase('IDLE');
-            return;
-          }
-          if (res.deadlineExceeded) {
-            setErrorMsg('The 90-second deadline has passed. Your answers were not accepted.');
-            setPhase('IDLE');
-            return;
-          }
-          setErrorMsg(res.error || 'Submission failed. Please contact the administrator.');
+      if (!res.success) {
+        if (res.alreadySubmitted) {
+          toast.info('Submission already recorded.');
+          setErrorMsg('Your submission has already been recorded. Only 1 official attempt is permitted.');
+          setPhase('IDLE');
+          onCompletedRef.current?.();
+          return;
+        }
+        if (res.eventEnded) {
+          setErrorMsg('The Grand Finale has been ended by the administrator. Late submissions are rejected.');
+          setPhase('IDLE');
+          onCompletedRef.current?.();
+          return;
+        }
+        if (res.deadlineExceeded) {
+          setErrorMsg('The 90-second server deadline expired before your answers arrived.');
           setPhase('IDLE');
           return;
         }
-
-        setResult({
-          score: res.score,
-          accuracy: res.accuracy,
-          correctCount: res.correctCount,
-          elapsedSeconds: res.elapsedSeconds,
-          explanations: res.explanations,
-        });
-        setPhase('RESULTS');
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Network error during submission.';
-        setErrorMsg(msg);
+        if (res.deviceMismatch) {
+          setErrorMsg('Device mismatch: submission must come from the same device that started the session.');
+          setPhase('IDLE');
+          return;
+        }
+        setErrorMsg(res.error || 'Submission failed. Please contact the administrator.');
         setPhase('IDLE');
-      } finally {
-        isSubmittingRef.current = false;
+        return;
       }
-    },
-    [] // stable — reads from refs
-  );
 
-  // ── RAF timer loop ────────────────────────────────────────────────────────────
+      setResult({
+        isTest: res.isTest,
+        score: res.score,
+        accuracy: res.accuracy,
+        correctCount: res.correctCount,
+        elapsedSeconds: res.elapsedSeconds,
+        explanations: res.explanations,
+      });
+      setPhase('RESULTS');
+      if (!res.isTest) {
+        onCompletedRef.current?.();
+      }
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Network error during submission.');
+      setPhase('IDLE');
+    } finally {
+      isSubmittingRef.current = false;
+    }
+  }, []);
+
   const startTimer = useCallback(
     (expMs: number) => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
@@ -275,7 +280,6 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
         const remaining = (expMs - Date.now()) / 1000;
         if (remaining <= 0) {
           setTimeLeft(0);
-          // Auto-submit with current answers
           doSubmit(answersRef.current);
           return;
         }
@@ -288,48 +292,62 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     [doSubmit]
   );
 
-  // ── Open: try to restore from cache, then start fresh ────────────────────────
+  // Always verify session state against server; merge local answers ONLY if same active sessionId
   const handleOpen = useCallback(async () => {
     setErrorMsg(null);
+    setIsExpiredTestRun(false);
+    setDevicePending(false);
     submitOnceRef.current = false;
     isSubmittingRef.current = false;
-
-    // Attempt refresh-recovery from sessionStorage
-    const cached = loadFinaleSessionCache();
-    if (cached && cached.finaleCode === code) {
-      const expMs = new Date(cached.expiresAt).getTime();
-      setSessionId(cached.sessionId);
-      setExpiresAt(expMs);
-      setQuestions(cached.questions);
-      setAnswers(cached.answers);
-      setCurrentSlot(cached.currentSlot);
-      setSeatNumber(cached.seatNumber);
-      setStudentName(cached.studentName);
-      setPhase('ACTIVE_EXAM');
-      startTimer(expMs);
-      toast.success('Session restored. Your timer is continuing from where you left off.');
-      return;
-    }
-
-    // No valid cache — start fresh from server
     setPhase('LOADING');
+
     const res = await startFinaleSession(code);
 
     if (!res.success) {
+      if (res.waitingRoom) {
+        setSeatNumber(res.seatNumber ?? 0);
+        setStudentName(res.studentName || '');
+        setErrorMsg(res.error || 'Questions are published. Waiting for the administrator to click Go Live Finale.');
+        setPhase('WAITING_ROOM');
+        return;
+      }
+      if (res.testDeviceUnauthorized) {
+        setIsTestSession(true);
+        setDevicePending(Boolean(res.devicePending));
+        setErrorMsg(res.error || 'Authorize this device before starting Classic crew test runs.');
+        setPhase('TEST_DEVICE_GATE');
+        return;
+      }
+
       setPhase('IDLE');
+      setIsTestSession(Boolean(res.isTest));
       if (res.notFinalist) {
-        setErrorMsg(
-          'Access restricted. Only the 10 approved Grand Finale contestants may participate.'
-        );
+        setErrorMsg('Access restricted. Only the 10 approved Grand Finale finalists may participate.');
         return;
       }
       if (res.alreadySubmitted) {
-        setErrorMsg('You have already completed the Grand Finale. Only 1 attempt is permitted.');
+        setErrorMsg('You have already submitted your official Grand Finale attempt. Only 1 attempt is permitted.');
+        onCompletedRef.current?.();
+        return;
+      }
+      if (res.eventEnded) {
+        clearFinaleSessionCache();
+        setErrorMsg('The Grand Finale has ended and submissions are closed.');
+        onCompletedRef.current?.();
+        return;
+      }
+      if (res.deviceMismatch) {
+        setErrorMsg('Device mismatch detected: resume from the same browser/device that opened your session.');
         return;
       }
       if (res.sessionExpired) {
-        setErrorMsg('Your 90-second examination window has expired. The session cannot be resumed.');
         clearFinaleSessionCache();
+        setIsExpiredTestRun(Boolean(res.isTest));
+        setErrorMsg(
+          res.isTest
+            ? 'Previous 90-second test window expired. You can start a fresh isolated test run below.'
+            : 'Your 90-second examination window has expired. The session cannot be resumed.'
+        );
         return;
       }
       setErrorMsg(res.error || 'Could not start session. Please try again.');
@@ -337,19 +355,31 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     }
 
     const expMs = new Date(res.expiresAt).getTime();
-    const initAnswers = Array(FINALE_QUESTION_COUNT).fill(-1) as number[];
+    const cached = loadFinaleSessionCache();
+    const restoredAnswers =
+      cached &&
+      cached.sessionId === res.sessionId &&
+      cached.finaleCode === code &&
+      Array.isArray(cached.answers) &&
+      cached.answers.length === FINALE_QUESTION_COUNT
+        ? cached.answers
+        : (Array(FINALE_QUESTION_COUNT).fill(-1) as number[]);
+    const restoredSlot =
+      cached && cached.sessionId === res.sessionId && typeof cached.currentSlot === 'number'
+        ? Math.max(0, Math.min(FINALE_QUESTION_COUNT - 1, cached.currentSlot))
+        : 0;
 
     setSessionId(res.sessionId);
     setExpiresAt(expMs);
     setQuestions(res.questions);
-    setAnswers(initAnswers);
-    setCurrentSlot(0);
+    setAnswers(restoredAnswers);
+    setCurrentSlot(restoredSlot);
     setSeatNumber(res.seatNumber);
     setStudentName(res.studentName);
+    setIsTestSession(res.isTest);
     setPhase('ACTIVE_EXAM');
     startTimer(expMs);
 
-    // Persist immediately
     saveFinaleSessionCache({
       sessionId: res.sessionId,
       finaleCode: code,
@@ -357,10 +387,15 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
       expiresAt: res.expiresAt,
       seatNumber: res.seatNumber,
       studentName: res.studentName,
+      isTest: res.isTest,
       questions: res.questions,
-      answers: initAnswers,
-      currentSlot: 0,
+      answers: restoredAnswers,
+      currentSlot: restoredSlot,
     });
+
+    if (cached && cached.sessionId === res.sessionId) {
+      toast.success('Active session synced with server clock.');
+    }
   }, [code, startTimer]);
 
   // Auto-open when modal becomes visible
@@ -368,23 +403,37 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     if (isOpen && phase === 'IDLE') {
       handleOpen();
     }
-    // Clean up RAF when closed externally
     if (!isOpen && rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cleanup on unmount
+  // Realtime auto-transition from WAITING_ROOM -> ACTIVE_EXAM when Admin clicks Go Live,
+  // and detect ENDED event during Waiting Room
+  useEffect(() => {
+    if (!isOpen || phase !== 'WAITING_ROOM') return;
+    const unsub = subscribeToFinalePublicState(code, async () => {
+      const pub = await getPublicFinaleStatus(code);
+      if (pub.status === 'live') {
+        toast.success('Grand Finale is now LIVE! Opening examination...');
+        handleOpen();
+      } else if (pub.status === 'ended' || pub.status === 'closed') {
+        setErrorMsg('The Grand Finale has ended.');
+        setPhase('IDLE');
+      }
+    });
+    return () => {
+      unsub();
+    };
+  }, [isOpen, phase, code, handleOpen]);
+
   useEffect(() => {
     return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-      }
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
-  // ── Answer selection ──────────────────────────────────────────────────────────
   const handleSelectAnswer = useCallback(
     (optionIdx: number) => {
       if (phase !== 'ACTIVE_EXAM') return;
@@ -398,7 +447,6 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     [phase, currentSlot, persistCache]
   );
 
-  // ── Question navigation ───────────────────────────────────────────────────────
   const goToSlot = useCallback(
     (idx: number) => {
       if (phase !== 'ACTIVE_EXAM') return;
@@ -409,78 +457,202 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     [phase, persistCache]
   );
 
-  // ── Manual submit trigger ─────────────────────────────────────────────────────
-  const handleManualSubmitRequest = useCallback(() => {
-    if (phase !== 'ACTIVE_EXAM') return;
-    setPhase('CONFIRMING');
-  }, [phase]);
-
-  const handleConfirmSubmit = useCallback(() => {
-    doSubmit(answersRef.current);
-  }, [doSubmit]);
-
-  const handleCancelConfirm = useCallback(() => {
-    if (phase === 'CONFIRMING') setPhase('ACTIVE_EXAM');
-  }, [phase]);
+  const handleRegisterTestDevice = async () => {
+    setRegisteringDevice(true);
+    try {
+      const res = await requestFinaleTestDevice(deviceLabelInput);
+      if (!res.success) {
+        toast.error(res.error || 'Could not register test device.');
+        return;
+      }
+      if (res.isAuthorized) {
+        toast.success('Device already authorized! Starting test run...');
+        handleOpen();
+      } else {
+        setDevicePending(true);
+        toast.success('Device registered as PENDING. Approve it in Grand Finale Ops, then click Retry Launch.');
+      }
+    } finally {
+      setRegisteringDevice(false);
+    }
+  };
 
   if (!isOpen) return null;
 
-  // ── Computed values ───────────────────────────────────────────────────────────
   const answeredCount = answers.filter((a) => a >= 0).length;
   const timerPct = Math.max(0, Math.min(100, (timeLeft / FINALE_DURATION_SECONDS) * 100));
   const currentQ = questions[currentSlot] ?? null;
   const currentAnswer = answers[currentSlot] ?? -1;
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // RENDER: LOADING
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (phase === 'LOADING') {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
         <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-amber-500/30 p-8 text-center space-y-4 shadow-2xl">
           <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto">
             <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
           </div>
-          <h3 className="text-xl font-black text-white">Connecting to Secure Exam Server…</h3>
-          <p className="text-sm text-slate-400">Validating your finalist credentials and loading your examination.</p>
+          <h3 className="text-xl font-black text-white">Connecting to Exam Server…</h3>
+          <p className="text-sm text-slate-400">Verifying credentials, device lock, and server timer.</p>
         </div>
       </div>
     );
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // RENDER: WAITING ROOM (Published but not yet Live)
+  if (phase === 'WAITING_ROOM') {
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+        <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-blue-500/40 p-8 text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center mx-auto">
+            <Hourglass className="w-8 h-8 text-blue-400 animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-[11px] font-bold uppercase tracking-wider">
+              <Lock className="w-3 h-3" />
+              Finalist Waiting Room
+            </span>
+            <h3 className="text-xl font-black text-white">
+              {studentName ? `Welcome, ${studentName}` : 'Approved Finalist Verified'}
+              {seatNumber > 0 ? ` · Seat #${seatNumber}` : ''}
+            </h3>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              {errorMsg || 'The 10 Finale questions are published and locked. Questions unlock automatically when the administrator clicks Go Live Finale.'}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleOpen}
+              className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer inline-flex items-center justify-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Check Status</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // RENDER: CLASSIC CREW TEST DEVICE AUTHORIZATION GATE
+  if (phase === 'TEST_DEVICE_GATE') {
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+        <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-indigo-500/40 p-7 space-y-5 shadow-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center shrink-0">
+              <Laptop className="w-6 h-6 text-indigo-400" />
+            </div>
+            <div>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                <FlaskConical className="w-3 h-3" /> Classic crew · Device Verification
+              </span>
+              <h3 className="text-lg font-black text-white">Authorize This Test Device</h3>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-300 leading-relaxed">{errorMsg}</p>
+
+          <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+            <div className="text-[10px] font-mono uppercase text-slate-500">Current Browser Device Fingerprint</div>
+            <div className="text-xs font-mono text-indigo-300 break-all select-all">{deviceId}</div>
+          </div>
+
+          {!devicePending && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">Optional Device Label</label>
+              <input
+                type="text"
+                value={deviceLabelInput}
+                onChange={(e) => setDeviceLabelInput(e.target.value)}
+                placeholder="e.g. Organiser Chrome Testing"
+                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-indigo-500 outline-none"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2.5">
+            {!devicePending && (
+              <button
+                type="button"
+                disabled={registeringDevice}
+                onClick={handleRegisterTestDevice}
+                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer disabled:opacity-50"
+              >
+                {registeringDevice ? 'Registering Device…' : 'Register This Device for Admin Approval'}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleOpen}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer inline-flex items-center justify-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Re-Check Approval &amp; Start Test</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClose}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // RENDER: IDLE / ERROR
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (phase === 'IDLE') {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
         <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-rose-500/30 p-8 text-center space-y-5 shadow-2xl">
           <div className="w-16 h-16 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center mx-auto">
             <AlertCircle className="w-8 h-8 text-rose-400" />
           </div>
           <div>
             <h3 className="text-xl font-black text-white mb-1">Grand Finale</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              {errorMsg || 'Session could not be started.'}
-            </p>
+            <p className="text-sm text-slate-400 leading-relaxed">{errorMsg || 'Session could not be started.'}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
-          >
-            Close
-          </button>
+          <div className="space-y-2.5">
+            {isExpiredTestRun && (
+              <button
+                type="button"
+                onClick={handleOpen}
+                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer inline-flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Retry Fresh Test Run</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // RENDER: SUBMITTING
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (phase === 'SUBMITTING') {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
         <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-indigo-500/30 p-8 text-center space-y-4 shadow-2xl">
           <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center mx-auto">
             <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
@@ -492,9 +664,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     );
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // RENDER: RESULTS
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (phase === 'RESULTS' && result !== null) {
     const r = result;
     const scorePercent = (r.score / FINALE_MAX_SCORE) * 100;
@@ -503,20 +673,29 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     const timeDisplay = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in overflow-y-auto">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md overflow-y-auto">
         <div className="w-full max-w-2xl rounded-3xl bg-slate-900 border border-amber-500/40 p-6 sm:p-8 space-y-6 shadow-2xl my-4">
-          {/* Header */}
+          {r.isTest && (
+            <div className="flex items-center gap-2 p-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/40 text-indigo-200 text-xs">
+              <FlaskConical className="w-4 h-4 text-indigo-400 shrink-0" />
+              <span>
+                <strong>ISOLATED TEST MODE (is_test = true)</strong> — Attempt saved for verification only and excluded from official standings and prizes.
+              </span>
+            </div>
+          )}
+
           <div className="text-center space-y-2">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto">
               <Trophy className="w-8 h-8 text-amber-400" />
             </div>
-            <h2 className="text-2xl font-black text-white">Grand Finale Complete!</h2>
+            <h2 className="text-2xl font-black text-white">
+              {r.isTest ? 'Test Run Complete!' : 'Grand Finale Complete!'}
+            </h2>
             <p className="text-sm text-slate-400">
-              {studentName && `${studentName} · `}Seat #{seatNumber}
+              {studentName} · {r.isTest ? 'Isolated Tester' : `Seat #${seatNumber}`}
             </p>
           </div>
 
-          {/* Score banner */}
           <div className="rounded-2xl bg-slate-800/60 border border-slate-700/60 p-5 text-center space-y-1">
             <div className="text-5xl font-black text-white">{r.score}</div>
             <div className="text-sm text-slate-400 font-medium">/ {FINALE_MAX_SCORE} Points</div>
@@ -528,7 +707,6 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             </div>
           </div>
 
-          {/* Stats row */}
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: 'Correct', value: `${r.correctCount}/10`, icon: CheckCircle2, color: 'text-emerald-400' },
@@ -543,7 +721,6 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             ))}
           </div>
 
-          {/* Per-question explanations */}
           <div className="space-y-2">
             <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-indigo-400" />
@@ -555,11 +732,9 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
               const expanded = expandedExpl === expl.slot;
 
               return (
-                <div
-                  key={expl.slot}
-                  className="rounded-2xl bg-slate-800/50 border border-slate-700/40 overflow-hidden"
-                >
+                <div key={expl.slot} className="rounded-2xl bg-slate-800/50 border border-slate-700/40 overflow-hidden">
                   <button
+                    type="button"
                     onClick={() => setExpandedExpl(expanded ? null : expl.slot)}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer hover:bg-slate-700/30 transition"
                   >
@@ -576,13 +751,15 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
                         <XCircle className="w-4 h-4 text-rose-400" />
                       )}
                     </span>
-                    <span className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${
-                      isSkipped
-                        ? 'bg-slate-700 text-slate-400'
-                        : isCorrect
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : 'bg-rose-500/20 text-rose-400'
-                    }`}>
+                    <span
+                      className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${
+                        isSkipped
+                          ? 'bg-slate-700 text-slate-400'
+                          : isCorrect
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-rose-500/20 text-rose-400'
+                      }`}
+                    >
                       {isSkipped ? 'Skipped' : isCorrect ? `+${FINALE_POINTS_PER_CORRECT}` : '0'}
                     </span>
                   </button>
@@ -596,9 +773,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
                           const isUserPick = expl.userAnswer === idx;
                           const isAnswer = letterToIndex(expl.correctAnswer) === idx;
                           const qItem = questions[expl.slot - 1];
-                          const optText = qItem
-                            ? getOptionText(qItem, idx)
-                            : `Option ${letter}`;
+                          const optText = qItem ? getOptionText(qItem, idx) : `Option ${letter}`;
                           return (
                             <div
                               key={idx}
@@ -635,32 +810,49 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             })}
           </div>
 
-          <button
-            onClick={onClose}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-sm uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/30"
-          >
-            Return to Championship Board
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            {r.isTest && (
+              <button
+                type="button"
+                onClick={() => {
+                  clearFinaleSessionCache();
+                  setResult(null);
+                  handleOpen();
+                }}
+                className="flex-1 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm uppercase tracking-wider transition cursor-pointer inline-flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Run Another Test Attempt
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-sm uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/30"
+            >
+              Return to Championship Board
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // RENDER: CONFIRMING
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (phase === 'CONFIRMING') {
     const unanswered = FINALE_QUESTION_COUNT - answeredCount;
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
         <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-amber-500/40 p-7 space-y-5 shadow-2xl">
           <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto">
             <AlertCircle className="w-7 h-7 text-amber-400" />
           </div>
           <div className="text-center space-y-1">
-            <h3 className="text-xl font-black text-white">Confirm Final Submission</h3>
+            <h3 className="text-xl font-black text-white">
+              {isTestSession ? 'Submit Test Run' : 'Confirm Final Submission'}
+            </h3>
             <p className="text-sm text-slate-400 leading-relaxed">
-              You have answered <span className="text-white font-bold">{answeredCount}</span> of{' '}
+              You answered <span className="text-white font-bold">{answeredCount}</span> of{' '}
               <span className="text-white font-bold">{FINALE_QUESTION_COUNT}</span> questions.
               {unanswered > 0 && (
                 <>
@@ -670,19 +862,23 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
                 </>
               )}
             </p>
-            <p className="text-xs text-rose-400 font-semibold pt-1">
-              ⚠ This action is irreversible. Only 1 attempt is permitted.
-            </p>
+            {!isTestSession && (
+              <p className="text-xs text-rose-400 font-semibold pt-1 inline-flex items-center gap-1">
+                <ShieldAlert className="w-3.5 h-3.5" /> This action is irreversible. Only 1 official attempt is permitted.
+              </p>
+            )}
           </div>
           <div className="flex gap-3">
             <button
-              onClick={handleCancelConfirm}
+              type="button"
+              onClick={() => setPhase('ACTIVE_EXAM')}
               className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
             >
               Go Back
             </button>
             <button
-              onClick={handleConfirmSubmit}
+              type="button"
+              onClick={() => doSubmit(answersRef.current)}
               className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/30"
             >
               Submit Now
@@ -693,28 +889,29 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     );
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // RENDER: ACTIVE EXAM
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-slate-950/92 backdrop-blur-md animate-in fade-in">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-slate-950/92 backdrop-blur-md">
       <div className="w-full max-w-2xl rounded-3xl bg-slate-900 border border-indigo-500/30 shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
+        {isTestSession && (
+          <div className="px-4 py-2 bg-indigo-600/25 border-b border-indigo-500/40 flex items-center justify-center gap-2 text-[11px] font-bold text-indigo-200 shrink-0">
+            <FlaskConical className="w-3.5 h-3.5 text-indigo-400" />
+            <span>ISOLATED TEST MODE ({studentName}) · Excluded from Official Standings</span>
+          </div>
+        )}
 
-        {/* ── TOP BAR: Timer + Progress ─────────────────────────────────────── */}
         <div className="flex items-center gap-4 px-5 py-3 border-b border-slate-800/60 shrink-0">
-          {/* Trophy */}
           <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
-            <Trophy className="w-4.5 h-4.5 text-amber-400" />
+            <Trophy className="w-4 h-4 text-amber-400" />
           </div>
 
           <div className="flex-1 min-w-0">
             <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">Grand Finale</div>
             <div className="text-xs text-slate-300 font-medium truncate">
-              {studentName || 'Contestant'} · Seat #{seatNumber}
+              {studentName || 'Contestant'} · {isTestSession ? 'Test Seat #0' : `Seat #${seatNumber}`}
             </div>
           </div>
 
-          {/* Timer */}
           <div className="flex items-center gap-2 shrink-0">
             <Clock className={`w-4 h-4 ${timerColorClass(timeLeft)}`} />
             <span className={`text-xl font-black tabular-nums ${timerColorClass(timeLeft)}`}>
@@ -722,8 +919,8 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             </span>
           </div>
 
-          {/* Close (non-blocking: warning on active exam) */}
           <button
+            type="button"
             onClick={handleClose}
             className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition shrink-0 cursor-pointer"
           >
@@ -731,15 +928,10 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
           </button>
         </div>
 
-        {/* Timer bar */}
         <div className="h-1 w-full bg-slate-800 shrink-0">
-          <div
-            className={`h-full transition-all ${timerBarClass(timeLeft)}`}
-            style={{ width: `${timerPct}%` }}
-          />
+          <div className={`h-full transition-all ${timerBarClass(timeLeft)}`} style={{ width: `${timerPct}%` }} />
         </div>
 
-        {/* ── QUESTION NAVIGATION PALETTE ───────────────────────────────────── */}
         <div className="flex items-center gap-1.5 px-5 py-3 border-b border-slate-800/60 shrink-0 flex-wrap">
           {Array.from({ length: FINALE_QUESTION_COUNT }, (_, i) => {
             const ans = answers[i] ?? -1;
@@ -747,13 +939,14 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             const isCurrent = i === currentSlot;
             return (
               <button
+                type="button"
                 key={i}
                 onClick={() => goToSlot(i)}
-                className={`w-8 h-8 rounded-lg text-xs font-black transition cursor-pointer ${
+                className={`w-8 h-8 rounded-xl text-xs font-black transition cursor-pointer ${
                   isCurrent
-                    ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 ring-offset-1 ring-offset-slate-900'
+                    ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400/50'
                     : isAnswered
-                    ? 'bg-emerald-600/80 text-white hover:bg-emerald-500'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
               >
@@ -761,31 +954,27 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
               </button>
             );
           })}
-          <div className="ml-auto flex items-center gap-2 text-[10px] text-slate-500">
-            <span className="w-3 h-3 rounded-sm bg-indigo-600 inline-block" /> Current
-            <span className="w-3 h-3 rounded-sm bg-emerald-600 inline-block" /> Answered
-            <span className="w-3 h-3 rounded-sm bg-slate-800 inline-block" /> Skipped
-          </div>
         </div>
 
-        {/* ── QUESTION BODY ──────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 min-h-0">
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {currentQ ? (
             <>
-              {/* Subject + slot badge */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">
+                  Question {currentSlot + 1} / {FINALE_QUESTION_COUNT}
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-xs font-bold">
                   {currentQ.subject}
                 </span>
-                <span className="text-xs text-slate-500">Q{currentSlot + 1} of {FINALE_QUESTION_COUNT}</span>
+                {currentQ.difficulty && (
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-bold">
+                    {currentQ.difficulty}
+                  </span>
+                )}
               </div>
 
-              {/* Question text */}
-              <p className="text-base sm:text-lg font-semibold text-white leading-relaxed">
-                {currentQ.question}
-              </p>
+              <p className="text-base sm:text-lg font-bold text-white leading-relaxed">{currentQ.question}</p>
 
-              {/* Options */}
               <div className="space-y-2.5">
                 {[0, 1, 2, 3].map((idx) => {
                   const letter = optionLabel(idx);
@@ -793,6 +982,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
                   const isSelected = currentAnswer === idx;
                   return (
                     <button
+                      type="button"
                       key={idx}
                       onClick={() => handleSelectAnswer(idx)}
                       className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition cursor-pointer text-sm ${
@@ -803,9 +993,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
                     >
                       <span
                         className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black ${
-                          isSelected
-                            ? 'bg-indigo-500 text-white'
-                            : 'bg-slate-700 text-slate-300'
+                          isSelected ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300'
                         }`}
                       >
                         {letter}
@@ -818,16 +1006,13 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-center h-32 text-slate-500 text-sm">
-              Question not available.
-            </div>
+            <div className="flex items-center justify-center h-32 text-slate-500 text-sm">Question not available.</div>
           )}
         </div>
 
-        {/* ── BOTTOM NAV + SUBMIT ────────────────────────────────────────────── */}
         <div className="shrink-0 px-5 py-4 border-t border-slate-800/60 flex items-center gap-3">
-          {/* Prev */}
           <button
+            type="button"
             onClick={() => goToSlot(currentSlot - 1)}
             disabled={currentSlot === 0}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
@@ -836,13 +1021,12 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             Prev
           </button>
 
-          {/* Progress badge */}
           <div className="flex-1 text-center text-xs text-slate-500 font-medium">
             <span className="text-emerald-400 font-bold">{answeredCount}</span>/{FINALE_QUESTION_COUNT} answered
           </div>
 
-          {/* Next */}
           <button
+            type="button"
             onClick={() => goToSlot(currentSlot + 1)}
             disabled={currentSlot === FINALE_QUESTION_COUNT - 1}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
@@ -851,9 +1035,11 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
             <ChevronRight className="w-4 h-4" />
           </button>
 
-          {/* Submit */}
           <button
-            onClick={handleManualSubmitRequest}
+            type="button"
+            onClick={() => {
+              if (phase === 'ACTIVE_EXAM') setPhase('CONFIRMING');
+            }}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/30"
           >
             <Medal className="w-4 h-4" />
@@ -864,4 +1050,3 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode }: Props) {
     </div>
   );
 }
-

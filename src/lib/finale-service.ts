@@ -1,29 +1,16 @@
 /**
  * finale-service.ts
- * Student-facing service layer for MedTrail Grand Finale Format B.
+ * MedTrail Championship Season 1 Grand Finale (Format B)
  *
- * STRICTLY ISOLATED from championship_pulse_* tables.
- * All RPC names and argument types match the production migration:
- *   supabase/migrations/20261124_championship_finale_format_b.sql
- *
- * RPC catalogue (production signatures):
- *   start_finale_pulse_session_atomic(p_finale_code TEXT)   → JSONB
- *   submit_finale_pulse_attempt_atomic(p_session_id UUID, p_answers JSONB) → JSONB
- *   get_public_finale_roster()                              → TABLE(seat_number, student_name, college, batch)
- *   get_public_finale_leaderboard(p_finale_code TEXT)       → TABLE(rank, seat_number, student_name, college, batch, score, accuracy, elapsed_seconds, submitted_at)
- *
- * Answer encoding (server requirement):
- *   -1 = skipped / not answered
- *    0 = A
- *    1 = B
- *    2 = C
- *    3 = D
+ * Strictly isolated from Daily Pulse services (pulse-service.ts, pulse-admin-service.ts,
+ * championship-service.ts). Communicates exclusively via server-authoritative Format B RPCs
+ * and reads sanitized lifecycle state from championship_finale_public_state.
  */
 
 import { supabase } from '@/integrations/supabase/client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constants
+// Constants (Format B Rules — Locked)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_FINALE_CODE = 'FINALE_S1_20261124';
@@ -32,40 +19,91 @@ export const FINALE_DURATION_SECONDS = 90;
 export const FINALE_POINTS_PER_CORRECT = 100;
 export const FINALE_MAX_SCORE = 1000;
 
-/** sessionStorage key for local answer persistence */
+export const FINALE_DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
+export type FinaleDifficulty = (typeof FINALE_DIFFICULTIES)[number];
+
+export type FinaleLifecycleStatus = 'draft' | 'published' | 'live' | 'ended' | 'closed';
+
+/** sessionStorage key for local answer persistence during active 90s run */
 export const FINALE_SESSION_STORAGE_KEY = 'medtrail_finale_session_v1';
 
+/** localStorage key for device binding & tester device verification */
+export const FINALE_DEVICE_ID_STORAGE_KEY = 'medtrail_finale_device_id_v1';
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Types — derived from actual DB schema / RPC return shapes
+// Device Fingerprint Helper (for session lock & authorized test devices)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Sanitized question delivered by start_finale_pulse_session_atomic (no correct_answer / explanation). */
+export function getOrCreateFinaleDeviceId(): string {
+  if (typeof window === 'undefined') return 'server-ssr-device';
+  try {
+    const existing = window.localStorage.getItem(FINALE_DEVICE_ID_STORAGE_KEY);
+    if (existing && existing.trim().length >= 12) {
+      return existing.trim();
+    }
+    const generated =
+      typeof window.crypto?.randomUUID === 'function'
+        ? `dev_${window.crypto.randomUUID()}`
+        : `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+    window.localStorage.setItem(FINALE_DEVICE_ID_STORAGE_KEY, generated);
+    return generated;
+  } catch {
+    try {
+      const ss = window.sessionStorage.getItem(FINALE_DEVICE_ID_STORAGE_KEY);
+      if (ss && ss.trim().length >= 12) return ss.trim();
+      const generated = `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+      window.sessionStorage.setItem(FINALE_DEVICE_ID_STORAGE_KEY, generated);
+      return generated;
+    } catch {
+      return 'dev_ephemeral_browser_client';
+    }
+  }
+}
+
+function getDefaultDeviceLabel(): string {
+  if (typeof navigator === 'undefined') return 'Browser Device';
+  const ua = navigator.userAgent || '';
+  if (ua.includes('Android')) return 'Android Browser';
+  if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS Safari/Browser';
+  if (ua.includes('Edg/')) return 'Desktop Edge';
+  if (ua.includes('Chrome/')) return 'Desktop Chrome';
+  if (ua.includes('Firefox/')) return 'Desktop Firefox';
+  return 'Web Browser';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Sanitized question delivered by start_finale_pulse_session_atomic (no answer key/explanation). */
 export interface FinaleQuestion {
-  slot: number;        // 1-based, 1..10
+  slot: number; // 1-based, 1..10
   question: string;
   option_a: string;
   option_b: string;
   option_c: string;
   option_d: string;
   subject: string;
+  difficulty?: string;
 }
 
 /** Payload persisted to sessionStorage for refresh-recovery. */
 export interface FinaleSessionCache {
   sessionId: string;
   finaleCode: string;
-  startedAt: string;   // ISO string
-  expiresAt: string;   // ISO string
+  startedAt: string; // ISO string
+  expiresAt: string; // ISO string
   seatNumber: number;
   studentName: string;
+  isTest: boolean;
   questions: FinaleQuestion[];
-  answers: number[];   // length 10, each in {-1,0,1,2,3}
+  answers: number[]; // length 10, each in {-1,0,1,2,3}
   currentSlot: number; // 0-based index
 }
 
-/** Result returned from startFinaleSession(). */
 export interface StartFinaleResult {
   success: true;
+  isTest: boolean;
   sessionId: string;
   startedAt: string;
   expiresAt: string;
@@ -75,30 +113,38 @@ export interface StartFinaleResult {
   questions: FinaleQuestion[];
 }
 
-/** Error shapes returned by both RPCs. */
 export interface FinaleRPCError {
   success: false;
   error?: string;
+  isTest?: boolean;
   notFinalist?: boolean;
   alreadySubmitted?: boolean;
   sessionExpired?: boolean;
   deadlineExceeded?: boolean;
+  waitingRoom?: boolean;
+  eventEnded?: boolean;
+  eventStatus?: string;
+  deviceMismatch?: boolean;
+  deviceRequired?: boolean;
+  testDeviceUnauthorized?: boolean;
+  devicePending?: boolean;
+  seatNumber?: number;
+  studentName?: string;
 }
 
 export type StartFinaleResponse = StartFinaleResult | FinaleRPCError;
 
-/** Per-question result included in submit response. */
 export interface FinaleExplanation {
   slot: number;
   question: string;
-  userAnswer: number;    // -1..3
+  userAnswer: number; // -1..3
   correctAnswer: string; // 'A'|'B'|'C'|'D'
   explanation: string;
 }
 
-/** Result returned from submitFinaleAttempt(). */
 export interface SubmitFinaleResult {
   success: true;
+  isTest: boolean;
   attemptId: string;
   score: number;
   accuracy: number;
@@ -109,7 +155,6 @@ export interface SubmitFinaleResult {
 
 export type SubmitFinaleResponse = SubmitFinaleResult | FinaleRPCError;
 
-/** Public roster entry returned by get_public_finale_roster(). */
 export interface FinaleRosterEntry {
   seatNumber: number;
   studentName: string;
@@ -117,7 +162,6 @@ export interface FinaleRosterEntry {
   batch: string;
 }
 
-/** Leaderboard row returned by get_public_finale_leaderboard(). */
 export interface FinaleLeaderboardEntry {
   rank: number;
   seatNumber: number;
@@ -130,12 +174,131 @@ export interface FinaleLeaderboardEntry {
   submittedAt: string;
 }
 
+export interface PublicFinaleStatus {
+  finaleCode: string;
+  title: string;
+  status: FinaleLifecycleStatus;
+  questionCount: number;
+  durationSeconds: number;
+  questionsFrozen: boolean;
+  publishedAt: string | null;
+  liveStartedAt: string | null;
+  endedAt: string | null;
+  callerIsAdmin: boolean;
+  callerIsFinalist: boolean;
+  callerSeatNumber: number | null;
+  callerStudentName: string | null;
+  callerHasSubmitted: boolean;
+  callerActiveExpiresAt: string | null;
+  callerIsTester: boolean;
+  callerTesterName: string | null;
+  callerTestPreLiveAllowed: boolean;
+  callerTestDeviceRegistered: boolean;
+  callerTestDeviceAuthorized: boolean;
+}
+
+export interface FinaleQuestionAdminInput {
+  slot: number;
+  question: string;
+  option_a: string;
+  option_b: string;
+  option_c: string;
+  option_d: string;
+  correct_answer: 'A' | 'B' | 'C' | 'D';
+  explanation: string;
+  subject: string;
+  difficulty: FinaleDifficulty;
+}
+
+export interface FinaleAdminRosterMonitor {
+  seatNumber: number;
+  studentName: string;
+  college: string;
+  batch: string;
+  isActive: boolean;
+  accountLinked: boolean;
+  sessionStatus: string | null;
+  sessionStartedAt: string | null;
+  sessionExpiresAt: string | null;
+  deviceBound: boolean;
+  attemptScore: number | null;
+  attemptAccuracy: number | null;
+  attemptElapsedSeconds: number | null;
+  attemptSubmittedAt: string | null;
+}
+
+export interface FinaleTestDeviceEntry {
+  deviceId: string;
+  deviceLabel: string | null;
+  userAgent: string | null;
+  isAuthorized: boolean;
+  requestedAt: string;
+  authorizedAt: string | null;
+  revokedAt: string | null;
+  lastSeenAt: string;
+}
+
+export interface FinaleTestAttemptEntry {
+  id: string;
+  sessionId: string;
+  score: number;
+  accuracy: number;
+  correctCount: number;
+  elapsedSeconds: number;
+  isTest: boolean;
+  deviceId: string | null;
+  submittedAt: string;
+}
+
+export interface FinaleAdminOverview {
+  success: boolean;
+  error?: string;
+  finaleCode: string;
+  set: {
+    id: string;
+    title: string;
+    status: FinaleLifecycleStatus;
+    questions: FinaleQuestionAdminInput[];
+    questionCount: number;
+    durationSeconds: number;
+    questionsFrozen: boolean;
+    officialSessionCount: number;
+    publishedAt: string | null;
+    liveStartedAt: string | null;
+    endedAt: string | null;
+    updatedAt: string;
+  } | null;
+  roster: FinaleAdminRosterMonitor[];
+  leaderboard: FinaleLeaderboardEntry[];
+  tester: {
+    displayName: string;
+    email: string;
+    isActive: boolean;
+    allowPreLive: boolean;
+    devices: FinaleTestDeviceEntry[];
+    attempts: FinaleTestAttemptEntry[];
+  } | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Raw RPC shapes
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface StartSessionRaw {
   success: boolean;
   error?: string;
+  message?: string;
+  is_test?: boolean;
   not_finalist?: boolean;
   already_submitted?: boolean;
   session_expired?: boolean;
+  waiting_room?: boolean;
+  event_ended?: boolean;
+  event_status?: string;
+  device_mismatch?: boolean;
+  device_required?: boolean;
+  test_device_unauthorized?: boolean;
+  device_pending?: boolean;
   session_id?: string;
   started_at?: string;
   expires_at?: string;
@@ -150,14 +313,21 @@ interface StartSessionRaw {
     option_c: string;
     option_d: string;
     subject?: string;
+    difficulty?: string;
   }>;
 }
 
 interface SubmitAttemptRaw {
   success: boolean;
   error?: string;
+  message?: string;
+  is_test?: boolean;
   already_submitted?: boolean;
   deadline_exceeded?: boolean;
+  event_ended?: boolean;
+  device_mismatch?: boolean;
+  device_required?: boolean;
+  test_device_unauthorized?: boolean;
   attempt_id?: string;
   score?: number;
   accuracy?: number;
@@ -191,33 +361,156 @@ interface LeaderboardRowRaw {
   submitted_at: string;
 }
 
-interface PublishSetRaw {
-  success: boolean;
-  error?: string;
-  set_id?: string;
+interface PublicStatusRaw {
+  finale_code: string;
+  title: string;
+  status: string;
+  question_count: number;
+  duration_seconds: number;
+  questions_frozen: boolean;
+  published_at: string | null;
+  live_started_at: string | null;
+  ended_at: string | null;
+  caller_is_admin: boolean;
+  caller_is_finalist: boolean;
+  caller_seat_number: number | null;
+  caller_student_name: string | null;
+  caller_has_submitted: boolean;
+  caller_active_expires_at: string | null;
+  caller_is_tester: boolean;
+  caller_tester_name: string | null;
+  caller_test_pre_live_allowed: boolean;
+  caller_test_device_registered: boolean;
+  caller_test_device_authorized: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RPC 2: start_finale_pulse_session_atomic
+// Public Lifecycle & Realtime Status
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Start or resume a Grand Finale session for the authenticated user.
- *
- * The server validates:
- *   - User is in the approved roster (by user_id or email).
- *   - The question set for finaleCode is published and has exactly 10 questions.
- *   - The user has not already submitted an attempt.
- *   - If a session already exists and has time remaining, it is resumed.
- *
- * Returns sanitized questions (no correct_answer, no explanation).
- */
+export async function getPublicFinaleStatus(
+  finaleCode: string = DEFAULT_FINALE_CODE
+): Promise<PublicFinaleStatus> {
+  const deviceId = getOrCreateFinaleDeviceId();
+  try {
+    const { data, error } = await (supabase.rpc as any)('get_public_finale_status', {
+      p_finale_code: finaleCode,
+      p_device_id: deviceId,
+    });
+
+    if (error || !data) {
+      return {
+        finaleCode,
+        title: 'MedTrail Championship Season 1 Grand Finale',
+        status: 'draft',
+        questionCount: 0,
+        durationSeconds: FINALE_DURATION_SECONDS,
+        questionsFrozen: false,
+        publishedAt: null,
+        liveStartedAt: null,
+        endedAt: null,
+        callerIsAdmin: false,
+        callerIsFinalist: false,
+        callerSeatNumber: null,
+        callerStudentName: null,
+        callerHasSubmitted: false,
+        callerActiveExpiresAt: null,
+        callerIsTester: false,
+        callerTesterName: null,
+        callerTestPreLiveAllowed: false,
+        callerTestDeviceRegistered: false,
+        callerTestDeviceAuthorized: false,
+      };
+    }
+
+    const r = data as PublicStatusRaw;
+    return {
+      finaleCode: r.finale_code || finaleCode,
+      title: r.title || 'MedTrail Championship Season 1 Grand Finale',
+      status: (r.status as FinaleLifecycleStatus) || 'draft',
+      questionCount: Number(r.question_count || 0),
+      durationSeconds: Number(r.duration_seconds || FINALE_DURATION_SECONDS),
+      questionsFrozen: Boolean(r.questions_frozen),
+      publishedAt: r.published_at || null,
+      liveStartedAt: r.live_started_at || null,
+      endedAt: r.ended_at || null,
+      callerIsAdmin: Boolean(r.caller_is_admin),
+      callerIsFinalist: Boolean(r.caller_is_finalist),
+      callerSeatNumber: r.caller_seat_number ?? null,
+      callerStudentName: r.caller_student_name ?? null,
+      callerHasSubmitted: Boolean(r.caller_has_submitted),
+      callerActiveExpiresAt: r.caller_active_expires_at ?? null,
+      callerIsTester: Boolean(r.caller_is_tester),
+      callerTesterName: r.caller_tester_name ?? null,
+      callerTestPreLiveAllowed: Boolean(r.caller_test_pre_live_allowed),
+      callerTestDeviceRegistered: Boolean(r.caller_test_device_registered),
+      callerTestDeviceAuthorized: Boolean(r.caller_test_device_authorized),
+    };
+  } catch {
+    return {
+      finaleCode,
+      title: 'MedTrail Championship Season 1 Grand Finale',
+      status: 'draft',
+      questionCount: 0,
+      durationSeconds: FINALE_DURATION_SECONDS,
+      questionsFrozen: false,
+      publishedAt: null,
+      liveStartedAt: null,
+      endedAt: null,
+      callerIsAdmin: false,
+      callerIsFinalist: false,
+      callerSeatNumber: null,
+      callerStudentName: null,
+      callerHasSubmitted: false,
+      callerActiveExpiresAt: null,
+      callerIsTester: false,
+      callerTesterName: null,
+      callerTestPreLiveAllowed: false,
+      callerTestDeviceRegistered: false,
+      callerTestDeviceAuthorized: false,
+    };
+  }
+}
+
+export function subscribeToFinalePublicState(
+  finaleCode: string,
+  onChange: () => void
+): () => void {
+  const channel = supabase
+    .channel(`finale_public_state_${finaleCode}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'championship_finale_public_state',
+      },
+      (payload: any) => {
+        const changedCode = payload?.new?.finale_code || payload?.old?.finale_code;
+        if (!changedCode || changedCode === finaleCode) {
+          onChange();
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exam Session & Submission RPCs
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function startFinaleSession(
   finaleCode: string = DEFAULT_FINALE_CODE
 ): Promise<StartFinaleResponse> {
+  const deviceId = getOrCreateFinaleDeviceId();
   try {
     const { data, error } = await (supabase.rpc as any)('start_finale_pulse_session_atomic', {
       p_finale_code: finaleCode,
+      p_device_id: deviceId,
     });
 
     if (error) {
@@ -227,33 +520,45 @@ export async function startFinaleSession(
     const result = data as StartSessionRaw;
 
     if (!result.success) {
-      return {
+      const errObj: FinaleRPCError = {
         success: false,
-        error: result.error || 'Failed to start session.',
+        error: result.error || result.message || 'Failed to start session.',
+        isTest: Boolean(result.is_test),
         notFinalist: Boolean(result.not_finalist),
         alreadySubmitted: Boolean(result.already_submitted),
         sessionExpired: Boolean(result.session_expired),
+        waitingRoom: Boolean(result.waiting_room),
+        eventEnded: Boolean(result.event_ended),
+        deviceMismatch: Boolean(result.device_mismatch),
+        deviceRequired: Boolean(result.device_required),
+        testDeviceUnauthorized: Boolean(result.test_device_unauthorized),
+        devicePending: Boolean(result.device_pending),
       };
+      if (result.event_status) errObj.eventStatus = result.event_status;
+      if (typeof result.seat_number === 'number') errObj.seatNumber = result.seat_number;
+      if (result.student_name) errObj.studentName = result.student_name;
+      return errObj;
     }
 
-    // Map snake_case RPC fields → camelCase TypeScript
-    const questions = (result.questions || []).map((q) => ({
+    const questions: FinaleQuestion[] = (result.questions || []).map((q) => ({
       slot: q.slot,
       question: q.question,
       option_a: q.option_a,
       option_b: q.option_b,
       option_c: q.option_c,
       option_d: q.option_d,
-      subject: q.subject || 'General',
+      subject: q.subject || 'Clinical Medicine',
+      ...(q.difficulty ? { difficulty: q.difficulty } : {}),
     }));
 
     return {
       success: true,
+      isTest: Boolean(result.is_test),
       sessionId: result.session_id || '',
       startedAt: result.started_at || '',
       expiresAt: result.expires_at || '',
       durationSeconds: result.duration_seconds || FINALE_DURATION_SECONDS,
-      seatNumber: result.seat_number || 0,
+      seatNumber: result.seat_number ?? 0,
       studentName: result.student_name || '',
       questions,
     };
@@ -263,23 +568,6 @@ export async function startFinaleSession(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RPC 3: submit_finale_pulse_attempt_atomic
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Submit answers for a Grand Finale session.
- *
- * @param sessionId  UUID of the active session.
- * @param answers    Array of exactly 10 integers, each in {-1,0,1,2,3}.
- *                   -1 = skipped, 0=A, 1=B, 2=C, 3=D.
- *
- * The server enforces:
- *   - Session belongs to caller.
- *   - Deadline not exceeded (expires_at + 2s tolerance).
- *   - Attempt is immutable after first commit.
- *   - Score = correct_count * 100 (max 1000).
- */
 export async function submitFinaleAttempt(params: {
   sessionId: string;
   answers: number[];
@@ -293,10 +581,13 @@ export async function submitFinaleAttempt(params: {
     };
   }
 
+  const deviceId = getOrCreateFinaleDeviceId();
+
   try {
     const { data, error } = await (supabase.rpc as any)('submit_finale_pulse_attempt_atomic', {
       p_session_id: sessionId,
       p_answers: answers,
+      p_device_id: deviceId,
     });
 
     if (error) {
@@ -308,15 +599,18 @@ export async function submitFinaleAttempt(params: {
     if (!result.success) {
       return {
         success: false,
-        error: result.error || 'Submission failed.',
+        error: result.error || result.message || 'Submission failed.',
+        isTest: Boolean(result.is_test),
         alreadySubmitted: Boolean(result.already_submitted),
         deadlineExceeded: Boolean(result.deadline_exceeded),
+        eventEnded: Boolean(result.event_ended),
+        deviceMismatch: Boolean(result.device_mismatch),
+        deviceRequired: Boolean(result.device_required),
+        testDeviceUnauthorized: Boolean(result.test_device_unauthorized),
       };
     }
 
-    // Map explanations: snake_case → camelCase
-    const rawExpl = result.explanations || [];
-    const explanations: FinaleExplanation[] = rawExpl.map((e) => ({
+    const explanations: FinaleExplanation[] = (result.explanations || []).map((e) => ({
       slot: e.slot,
       question: e.question,
       userAnswer: e.user_answer,
@@ -326,6 +620,7 @@ export async function submitFinaleAttempt(params: {
 
     return {
       success: true,
+      isTest: Boolean(result.is_test),
       attemptId: result.attempt_id || '',
       score: result.score || 0,
       accuracy: result.accuracy || 0,
@@ -340,19 +635,13 @@ export async function submitFinaleAttempt(params: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RPC 4: get_public_finale_roster
+// Public Roster & Leaderboard RPCs
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Returns the 10 public-safe finalist slots (name, college, batch only).
- * No PII, no user_ids, no emails.
- */
 export async function getPublicFinaleRoster(): Promise<FinaleRosterEntry[]> {
   try {
     const { data, error } = await (supabase.rpc as any)('get_public_finale_roster');
-
     if (error || !data) return [];
-
     return (data as RosterRowRaw[]).map((r) => ({
       seatNumber: r.seat_number,
       studentName: r.student_name,
@@ -364,15 +653,6 @@ export async function getPublicFinaleRoster(): Promise<FinaleRosterEntry[]> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RPC 5: get_public_finale_leaderboard
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns the public leaderboard ordered by rank (score DESC, accuracy DESC,
- * elapsed_seconds ASC, submitted_at ASC).
- * No user_ids, no raw answers exposed.
- */
 export async function getPublicFinaleLeaderboard(
   finaleCode: string = DEFAULT_FINALE_CODE
 ): Promise<FinaleLeaderboardEntry[]> {
@@ -380,9 +660,7 @@ export async function getPublicFinaleLeaderboard(
     const { data, error } = await (supabase.rpc as any)('get_public_finale_leaderboard', {
       p_finale_code: finaleCode,
     });
-
     if (error || !data) return [];
-
     return (data as LeaderboardRowRaw[]).map((r) => ({
       rank: r.rank,
       seatNumber: r.seat_number,
@@ -400,41 +678,68 @@ export async function getPublicFinaleLeaderboard(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test Device Self-Registration (Classic Crew Only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function requestFinaleTestDevice(
+  deviceLabel?: string
+): Promise<{ success: boolean; deviceId?: string; isAuthorized?: boolean; error?: string }> {
+  const deviceId = getOrCreateFinaleDeviceId();
+  try {
+    const { data, error } = await (supabase.rpc as any)('request_finale_test_device', {
+      p_device_id: deviceId,
+      p_device_label: deviceLabel?.trim() || getDefaultDeviceLabel(),
+      p_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    });
+
+    if (error) return { success: false, error: error.message };
+    const r = data as { success: boolean; device_id?: string; is_authorized?: boolean; error?: string };
+    if (!r.success) return { success: false, error: r.error || 'Device registration failed.' };
+    return {
+      success: true,
+      deviceId: r.device_id || deviceId,
+      isAuthorized: Boolean(r.is_authorized),
+    };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Local answer persistence helpers (sessionStorage)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Persist the current session state for refresh-recovery. */
 export function saveFinaleSessionCache(cache: FinaleSessionCache): void {
   try {
     sessionStorage.setItem(FINALE_SESSION_STORAGE_KEY, JSON.stringify(cache));
   } catch {
-    // sessionStorage unavailable (private browsing edge case) — silent failure.
+    // non-fatal
   }
 }
 
-/** Load a cached session. Returns null if none exists or the session has expired. */
 export function loadFinaleSessionCache(): FinaleSessionCache | null {
   try {
     const raw = sessionStorage.getItem(FINALE_SESSION_STORAGE_KEY);
     if (!raw) return null;
-    const cache = JSON.parse(raw) as FinaleSessionCache;
-    // Discard if the session has already expired on the client side.
-    if (new Date(cache.expiresAt).getTime() <= Date.now()) {
-      clearFinaleSessionCache();
+    const parsed = JSON.parse(raw) as FinaleSessionCache;
+    if (!parsed.sessionId || !parsed.expiresAt || !Array.isArray(parsed.questions)) {
       return null;
     }
-    return cache;
+    if (Date.now() > new Date(parsed.expiresAt).getTime()) {
+      sessionStorage.removeItem(FINALE_SESSION_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
 }
 
-/** Clear the cache after submission or expiry. */
 export function clearFinaleSessionCache(): void {
   try {
     sessionStorage.removeItem(FINALE_SESSION_STORAGE_KEY);
   } catch {
-    // silent
+    // non-fatal
   }
 }
 
@@ -442,38 +747,23 @@ export function clearFinaleSessionCache(): void {
 // Answer encoding helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Convert a 0-based option index (0=A,1=B,2=C,3=D) or null → server integer (-1..3). */
 export function encodeAnswer(selected: number | null): number {
   if (selected === null || selected < 0 || selected > 3) return -1;
   return selected;
 }
 
-/** Decode a server answer integer → option index (null if skipped). */
 export function decodeAnswer(encoded: number): number | null {
-  if (encoded < 0 || encoded > 3) return null;
-  return encoded;
+  return encoded >= 0 && encoded <= 3 ? encoded : null;
 }
 
-/** Map a correct_answer letter ('A'|'B'|'C'|'D') → 0-based option index. */
 export function letterToIndex(letter: string): number {
-  return { A: 0, B: 1, C: 2, D: 3 }[letter.toUpperCase()] ?? -1;
+  const map: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+  return map[letter.toUpperCase()] ?? -1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Admin helpers (publish_finale_set_atomic & set fetching)
+// Admin Helpers & Lifecycle Controls
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface FinaleQuestionAdminInput {
-  slot: number;
-  question: string;
-  option_a: string;
-  option_b: string;
-  option_c: string;
-  option_d: string;
-  correct_answer: 'A' | 'B' | 'C' | 'D';
-  explanation?: string;
-  subject?: string;
-}
 
 export function createEmptyFinaleQuestions(): FinaleQuestionAdminInput[] {
   return Array.from({ length: FINALE_QUESTION_COUNT }, (_, i) => ({
@@ -486,58 +776,336 @@ export function createEmptyFinaleQuestions(): FinaleQuestionAdminInput[] {
     correct_answer: 'A',
     explanation: '',
     subject: 'Clinical Medicine',
+    difficulty: 'Medium',
   }));
+}
+
+export function normalizeAdminQuestions(raw: unknown): FinaleQuestionAdminInput[] {
+  const defaults = createEmptyFinaleQuestions();
+  if (!Array.isArray(raw)) return defaults;
+
+  return defaults.map((fallback, idx) => {
+    const item = raw[idx] as Record<string, unknown> | undefined;
+    if (!item || typeof item !== 'object') return fallback;
+
+    const rawAns = String(item['correct_answer'] || 'A').trim().toUpperCase();
+    const correctAnswer: 'A' | 'B' | 'C' | 'D' =
+      rawAns === 'B' || rawAns === 'C' || rawAns === 'D' ? rawAns : 'A';
+
+    const rawDiff = String(item['difficulty'] || 'Medium').trim().toLowerCase();
+    const difficulty: FinaleDifficulty =
+      rawDiff === 'easy' ? 'Easy' : rawDiff === 'hard' ? 'Hard' : 'Medium';
+
+    return {
+      slot: idx + 1,
+      question: String(item['question'] ?? ''),
+      option_a: String(item['option_a'] ?? ''),
+      option_b: String(item['option_b'] ?? ''),
+      option_c: String(item['option_c'] ?? ''),
+      option_d: String(item['option_d'] ?? ''),
+      correct_answer: correctAnswer,
+      explanation: String(item['explanation'] ?? ''),
+      subject: String(item['subject'] || 'Clinical Medicine'),
+      difficulty,
+    };
+  });
+}
+
+export function validateFinaleQuestionsForPublish(
+  questions: FinaleQuestionAdminInput[]
+): { valid: boolean; firstInvalidSlot?: number; error?: string } {
+  if (!Array.isArray(questions) || questions.length !== FINALE_QUESTION_COUNT) {
+    return {
+      valid: false,
+      firstInvalidSlot: 1,
+      error: `Exactly ${FINALE_QUESTION_COUNT} complete questions are required to publish.`,
+    };
+  }
+
+  for (let i = 0; i < FINALE_QUESTION_COUNT; i++) {
+    const q = questions[i];
+    const slot = i + 1;
+    if (!q || !q.question.trim()) {
+      return { valid: false, firstInvalidSlot: slot, error: `Slot ${slot}: question text is required.` };
+    }
+    if (!q.option_a.trim() || !q.option_b.trim() || !q.option_c.trim() || !q.option_d.trim()) {
+      return { valid: false, firstInvalidSlot: slot, error: `Slot ${slot}: all 4 options (A–D) are required.` };
+    }
+    if (!['A', 'B', 'C', 'D'].includes(q.correct_answer)) {
+      return { valid: false, firstInvalidSlot: slot, error: `Slot ${slot}: select correct answer A, B, C, or D.` };
+    }
+    if (!q.explanation || !q.explanation.trim()) {
+      return { valid: false, firstInvalidSlot: slot, error: `Slot ${slot}: faculty explanation is required.` };
+    }
+    if (!q.subject || !q.subject.trim()) {
+      return { valid: false, firstInvalidSlot: slot, error: `Slot ${slot}: subject is required.` };
+    }
+    if (!FINALE_DIFFICULTIES.includes(q.difficulty)) {
+      return { valid: false, firstInvalidSlot: slot, error: `Slot ${slot}: difficulty must be Easy, Medium, or Hard.` };
+    }
+  }
+
+  return { valid: true };
 }
 
 export async function publishFinaleSet(params: {
   finaleCode?: string;
   questions: FinaleQuestionAdminInput[];
-  status?: 'draft' | 'published' | 'closed';
+  status?: 'draft' | 'published';
   title?: string;
-}): Promise<{ success: boolean; error?: string; setId?: string }> {
+}): Promise<{ success: boolean; error?: string; setId?: string; status?: string }> {
   try {
+    const targetStatus = params.status || 'published';
+    const sanitizedQuestions = params.questions.slice(0, FINALE_QUESTION_COUNT).map((q, idx) => ({
+      slot: idx + 1,
+      question: q.question,
+      option_a: q.option_a,
+      option_b: q.option_b,
+      option_c: q.option_c,
+      option_d: q.option_d,
+      correct_answer: q.correct_answer || 'A',
+      explanation: q.explanation || '',
+      subject: q.subject || 'Clinical Medicine',
+      difficulty: FINALE_DIFFICULTIES.includes(q.difficulty) ? q.difficulty : 'Medium',
+    }));
+
     const { data, error } = await (supabase.rpc as any)('publish_finale_set_atomic', {
       p_finale_code: params.finaleCode || DEFAULT_FINALE_CODE,
-      p_questions: params.questions,
-      p_status: params.status || 'published',
+      p_questions: sanitizedQuestions,
+      p_status: targetStatus,
       p_title: params.title || 'MedTrail Championship Season 1 Grand Finale',
     });
 
-    if (error) {
-      return { success: false, error: error.message };
-    }
+    if (error) return { success: false, error: error.message };
 
-    const res = data as PublishSetRaw;
-    if (!res.success) {
-      return { success: false, error: res.error || 'Publish failed' };
-    }
+    const res = data as { success: boolean; error?: string; set_id?: string; status?: string };
+    if (!res.success) return { success: false, error: res.error || 'Operation failed' };
 
-    return res.set_id ? { success: true, setId: res.set_id } : { success: true };
+    return {
+      success: true,
+      ...(res.set_id ? { setId: res.set_id } : {}),
+      ...(res.status ? { status: res.status } : {}),
+    };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+export async function goLiveFinale(
+  finaleCode: string = DEFAULT_FINALE_CODE
+): Promise<{ success: boolean; liveStartedAt?: string; error?: string }> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('go_live_finale_atomic', {
+      p_finale_code: finaleCode,
+    });
+    if (error) return { success: false, error: error.message };
+    const res = data as { success: boolean; error?: string; live_started_at?: string };
+    if (!res.success) return { success: false, error: res.error || 'Failed to Go Live Finale.' };
+    return {
+      success: true,
+      ...(res.live_started_at ? { liveStartedAt: res.live_started_at } : {}),
+    };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+export async function endFinale(
+  finaleCode: string = DEFAULT_FINALE_CODE
+): Promise<{ success: boolean; endedAt?: string; expiredSessions?: number; error?: string }> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('end_finale_atomic', {
+      p_finale_code: finaleCode,
+    });
+    if (error) return { success: false, error: error.message };
+    const res = data as {
+      success: boolean;
+      error?: string;
+      ended_at?: string;
+      expired_sessions?: number;
+    };
+    if (!res.success) return { success: false, error: res.error || 'Failed to End Finale.' };
+    return {
+      success: true,
+      ...(res.ended_at ? { endedAt: res.ended_at } : {}),
+      ...(typeof res.expired_sessions === 'number' ? { expiredSessions: res.expired_sessions } : {}),
+    };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+export async function fetchFinaleAdminOverview(
+  finaleCode: string = DEFAULT_FINALE_CODE
+): Promise<FinaleAdminOverview> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_get_finale_overview', {
+      p_finale_code: finaleCode,
+    });
+
+    if (error) {
+      return { success: false, error: error.message, finaleCode, set: null, roster: [], leaderboard: [], tester: null };
+    }
+
+    const r = data as any;
+    if (!r?.success) {
+      return {
+        success: false,
+        error: r?.error || 'Failed to load Finale overview.',
+        finaleCode,
+        set: null,
+        roster: [],
+        leaderboard: [],
+        tester: null,
+      };
+    }
+
+    return {
+      success: true,
+      finaleCode: r.finale_code || finaleCode,
+      set: r.set
+        ? {
+            id: r.set.id,
+            title: r.set.title,
+            status: (r.set.status as FinaleLifecycleStatus) || 'draft',
+            questions: normalizeAdminQuestions(r.set.questions),
+            questionCount: Number(r.set.question_count || 0),
+            durationSeconds: Number(r.set.duration_seconds || FINALE_DURATION_SECONDS),
+            questionsFrozen: Boolean(r.set.questions_frozen),
+            officialSessionCount: Number(r.set.official_session_count || 0),
+            publishedAt: r.set.published_at || null,
+            liveStartedAt: r.set.live_started_at || null,
+            endedAt: r.set.ended_at || null,
+            updatedAt: r.set.updated_at || '',
+          }
+        : null,
+      roster: Array.isArray(r.roster)
+        ? r.roster.map((row: any) => ({
+            seatNumber: Number(row.seat_number),
+            studentName: String(row.student_name || ''),
+            college: String(row.college || ''),
+            batch: String(row.batch || ''),
+            isActive: Boolean(row.is_active),
+            accountLinked: Boolean(row.account_linked),
+            sessionStatus: row.session_status || null,
+            sessionStartedAt: row.session_started_at || null,
+            sessionExpiresAt: row.session_expires_at || null,
+            deviceBound: Boolean(row.device_bound),
+            attemptScore: row.attempt_score ?? null,
+            attemptAccuracy: row.attempt_accuracy !== null && row.attempt_accuracy !== undefined ? Number(row.attempt_accuracy) : null,
+            attemptElapsedSeconds:
+              row.attempt_elapsed_seconds !== null && row.attempt_elapsed_seconds !== undefined
+                ? Number(row.attempt_elapsed_seconds)
+                : null,
+            attemptSubmittedAt: row.attempt_submitted_at || null,
+          }))
+        : [],
+      leaderboard: Array.isArray(r.leaderboard)
+        ? r.leaderboard.map((lb: any) => ({
+            rank: Number(lb.rank),
+            seatNumber: Number(lb.seat_number),
+            studentName: String(lb.student_name || ''),
+            college: String(lb.college || ''),
+            batch: String(lb.batch || ''),
+            score: Number(lb.score || 0),
+            accuracy: Number(lb.accuracy || 0),
+            elapsedSeconds: Number(lb.elapsed_seconds || 0),
+            submittedAt: String(lb.submitted_at || ''),
+          }))
+        : [],
+      tester: r.tester
+        ? {
+            displayName: String(r.tester.display_name || 'Classic crew'),
+            email: String(r.tester.email || ''),
+            isActive: Boolean(r.tester.is_active),
+            allowPreLive: Boolean(r.tester.allow_pre_live),
+            devices: Array.isArray(r.tester.devices)
+              ? r.tester.devices.map((d: any) => ({
+                  deviceId: String(d.device_id || ''),
+                  deviceLabel: d.device_label || null,
+                  userAgent: d.user_agent || null,
+                  isAuthorized: Boolean(d.is_authorized),
+                  requestedAt: String(d.requested_at || ''),
+                  authorizedAt: d.authorized_at || null,
+                  revokedAt: d.revoked_at || null,
+                  lastSeenAt: String(d.last_seen_at || ''),
+                }))
+              : [],
+            attempts: Array.isArray(r.tester.attempts)
+              ? r.tester.attempts.map((a: any) => ({
+                  id: String(a.id || ''),
+                  sessionId: String(a.session_id || ''),
+                  score: Number(a.score || 0),
+                  accuracy: Number(a.accuracy || 0),
+                  correctCount: Number(a.correct_count || 0),
+                  elapsedSeconds: Number(a.elapsed_seconds || 0),
+                  isTest: Boolean(a.is_test),
+                  deviceId: a.device_id || null,
+                  submittedAt: String(a.submitted_at || ''),
+                }))
+              : [],
+          }
+        : null,
+    };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Network error',
+      finaleCode,
+      set: null,
+      roster: [],
+      leaderboard: [],
+      tester: null,
+    };
+  }
+}
+
+export async function manageFinaleTestDevice(params: {
+  deviceId: string;
+  action: 'approve' | 'revoke';
+  deviceLabel?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_manage_finale_test_device', {
+      p_device_id: params.deviceId,
+      p_action: params.action,
+      p_device_label: params.deviceLabel || null,
+    });
+    if (error) return { success: false, error: error.message };
+    const r = data as { success: boolean; error?: string };
+    return r.success ? { success: true } : { success: false, error: r.error || 'Device update failed.' };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+export async function resetFinaleTestSessions(
+  finaleCode: string = DEFAULT_FINALE_CODE
+): Promise<{ success: boolean; expiredTestSessions?: number; error?: string }> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_reset_finale_test_sessions', {
+      p_finale_code: finaleCode,
+    });
+    if (error) return { success: false, error: error.message };
+    const r = data as { success: boolean; expired_test_sessions?: number; error?: string };
+    if (!r.success) return { success: false, error: r.error || 'Reset failed.' };
+    return {
+      success: true,
+      ...(typeof r.expired_test_sessions === 'number' ? { expiredTestSessions: r.expired_test_sessions } : {}),
+    };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
   }
 }
 
 export async function fetchFinaleSetAdmin(
   finaleCode: string = DEFAULT_FINALE_CODE
 ): Promise<{ status: string; questions: FinaleQuestionAdminInput[]; published_at?: string } | null> {
-  try {
-    const { data, error } = await (supabase as any)
-      .from('championship_finale_sets')
-      .select('status, questions, published_at')
-      .eq('finale_code', finaleCode)
-      .maybeSingle();
-
-    if (error || !data) return null;
-    return {
-      status: data.status,
-      questions: Array.isArray(data.questions) ? data.questions : [],
-      published_at: data.published_at,
-    };
-  } catch {
-    return null;
-  }
+  const ov = await fetchFinaleAdminOverview(finaleCode);
+  if (!ov.success || !ov.set) return null;
+  return {
+    status: ov.set.status,
+    questions: ov.set.questions,
+    ...(ov.set.publishedAt ? { published_at: ov.set.publishedAt } : {}),
+  };
 }
-
-

@@ -87,7 +87,16 @@ import trophyImg from "@/assets/championship-trophy.jpg";
 import hoodieImg from "@/assets/championship-hoodie.jpg";
 // Grand Finale Format B — isolated, no shared state with Daily Pulse
 import { FinaleRapidFireModal } from "@/components/championship/finale-rapid-fire-modal";
-import { DEFAULT_FINALE_CODE } from "@/lib/finale-service";
+import {
+  DEFAULT_FINALE_CODE,
+  getPublicFinaleLeaderboard,
+  getPublicFinaleRoster,
+  getPublicFinaleStatus,
+  subscribeToFinalePublicState,
+  type FinaleLeaderboardEntry,
+  type FinaleRosterEntry,
+  type PublicFinaleStatus,
+} from "@/lib/finale-service";
 
 export const Route = createFileRoute("/championship")({
   component: RouteComponent,
@@ -200,39 +209,17 @@ function RouteComponent() {
     [pulseSettings.end_time]
   );
 
-  // Finale Day 1 Schedule & Sealed Finalist Roster
-  const [finaleDay1, setFinaleDay1] = useState<{
-    competition_date: string | null;
-    window_opens_at: string | null;
-    window_closes_at: string | null;
-    status: string | null;
-  } | null>(null);
+  // Format B Grand Finale state (isolated from Daily Pulse pulse_settings)
+  const [finalePublicState, setFinalePublicState] = useState<PublicFinaleStatus | null>(null);
+  const [finaleRoster, setFinaleRoster] = useState<FinaleRosterEntry[]>([]);
+  const [finaleLeaderboard, setFinaleLeaderboard] = useState<FinaleLeaderboardEntry[]>([]);
 
-  const [finaleRoster, setFinaleRoster] = useState<Array<{
-    id: string;
-    seat_type: "finalist" | "reserve";
-    seat_number: number;
-    student_name: string;
-    college: string;
-    batch: string;
-    qualification_rank: number;
-    verification_status: string;
-    attendance_confirmed: boolean;
-    participation_status: string;
-  }>>([]);
-  const [loadingRoster, setLoadingRoster] = useState(false);
-
-  // Authoritative Finale Target Date (Day 1 Window Opens At, or pulse_settings)
   const finalEventTargetUTC = useMemo(() => {
-    if (finaleDay1?.window_opens_at) {
-      const d = new Date(finaleDay1.window_opens_at);
-      if (!isNaN(d.getTime())) return d;
-    }
     if (seasonStartUTC && !isNaN(seasonStartUTC.getTime())) {
       return seasonStartUTC;
     }
     return null;
-  }, [finaleDay1?.window_opens_at, seasonStartUTC]);
+  }, [seasonStartUTC]);
 
   const finalEventDisplay = useMemo(() => {
     if (!finalEventTargetUTC) return null;
@@ -643,41 +630,28 @@ function RouteComponent() {
 
     initPulseSettings();
 
-    // Fetch Finale Day 1 & Finalist Roster
+    // Fetch Format B Grand Finale sanitized state, roster & leaderboard
     async function loadFinaleMetadata() {
       try {
-        const { data: day1Data } = await (supabase as any)
-          .from("championship_finale_days")
-          .select("competition_date, window_opens_at, window_closes_at, status")
-          .eq("day_number", 1)
-          .maybeSingle();
-
-        if (isMounted && day1Data) {
-          setFinaleDay1(day1Data);
+        const [statusRes, rosterRes, lbRes] = await Promise.all([
+          getPublicFinaleStatus(DEFAULT_FINALE_CODE),
+          getPublicFinaleRoster(),
+          getPublicFinaleLeaderboard(DEFAULT_FINALE_CODE),
+        ]);
+        if (isMounted) {
+          setFinalePublicState(statusRes);
+          setFinaleRoster(rosterRes);
+          setFinaleLeaderboard(lbRes);
         }
       } catch (e) {
-        console.warn("[Pulse Final] Days fetch note:", e);
-      }
-
-      try {
-        setLoadingRoster(true);
-        const { data: rosterData } = await (supabase as any)
-          .from("championship_finale_roster")
-          .select("*")
-          .order("seat_type", { ascending: true })
-          .order("seat_number", { ascending: true });
-
-        if (isMounted && rosterData && rosterData.length > 0) {
-          setFinaleRoster(rosterData);
-        }
-      } catch (e) {
-        console.warn("[Pulse Final] Roster fetch note:", e);
-      } finally {
-        if (isMounted) setLoadingRoster(false);
+        console.warn("[Pulse Final] Format B fetch note:", e);
       }
     }
 
     loadFinaleMetadata();
+    const unsubFinale = subscribeToFinalePublicState(DEFAULT_FINALE_CODE, () => {
+      loadFinaleMetadata();
+    });
 
     // 2. Subscribe to "pulse_settings" using Supabase Realtime ("postgres_changes" on UPDATE)
     const channel = supabase
@@ -712,9 +686,10 @@ function RouteComponent() {
 
     return () => {
       isMounted = false;
+      unsubFinale();
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [user?.id]);
 
   // Synchronized dynamic leaderboard loaded strictly from championship_pulse_attempts
   const loadLeaderboard = useCallback(async () => {
@@ -1568,29 +1543,133 @@ function RouteComponent() {
                   </div>
                 </div>
 
-                {/* 4 Countdown Units or Fallback State */}
-                {seasonRemaining.status === "live" ? (
-                  <div className="p-6 rounded-2xl bg-gradient-to-r from-red-950/60 via-slate-900/80 to-amber-950/60 border border-red-500/40 text-center space-y-2">
+                {/* Format B Grand Finale Lifecycle Card (Isolated from Daily Pulse pulse_settings) */}
+                {finalePublicState?.status === "live" ? (
+                  <div className="p-6 rounded-2xl bg-gradient-to-r from-red-950/60 via-slate-900/80 to-amber-950/60 border border-red-500/40 text-center space-y-3">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-xs font-bold uppercase tracking-widest border border-red-500/30">
                       <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                      ARENA OPEN
+                      GRAND FINALE LIVE &bull; 90s RAPID FIRE
                     </div>
                     <h3 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
-                      THE FINAL HAS BEGUN
+                      THE FINAL ARENA IS OPEN
                     </h3>
-                    <p className="text-xs sm:text-sm text-slate-300 font-mono">
-                      Sequential slot challenges are currently active for qualified finalists.
+
+                    {finalePublicState.callerIsFinalist ? (
+                      finalePublicState.callerHasSubmitted ? (
+                        <div className="space-y-2 pt-1">
+                          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>
+                              Seat #{finalePublicState.callerSeatNumber} ({finalePublicState.callerStudentName}) &bull; Official Submission Recorded
+                            </span>
+                          </div>
+                          <div>
+                            <a
+                              href="#finale-standings"
+                              className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-amber-200 underline"
+                            >
+                              View Official Finale Standings
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs sm:text-sm text-slate-300 font-mono">
+                            Verified Seat #{finalePublicState.callerSeatNumber} &bull; {finalePublicState.callerStudentName} &bull; 10 Questions / 90s
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setIsFinaleModalOpen(true)}
+                            className="mt-1 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-sm uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/40"
+                          >
+                            <Trophy className="w-4 h-4" />
+                            Enter Grand Finale Examination
+                          </button>
+                        </div>
+                      )
+                    ) : finalePublicState.callerIsTester ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-indigo-300 font-semibold">
+                          Tester Profile Verified ({finalePublicState.callerTesterName}) &bull; Isolated from Official Standings
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsFinaleModalOpen(true)}
+                          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-indigo-600/40"
+                        >
+                          <Zap className="w-4 h-4" />
+                          Launch Isolated Test Run ({finalePublicState.callerTestDeviceAuthorized ? "Device Approved" : "Check Device"})
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs sm:text-sm text-slate-300 font-mono">
+                        The 10 approved Season 1 finalists are currently competing live.
+                      </p>
+                    )}
+                  </div>
+                ) : finalePublicState?.status === "published" ? (
+                  <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-950/60 via-slate-900/80 to-indigo-950/60 border border-blue-500/40 text-center space-y-3">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold uppercase tracking-widest border border-blue-500/30">
+                      <Lock className="w-3.5 h-3.5" />
+                      QUESTIONS PUBLISHED &bull; WAITING ROOM
+                    </div>
+                    <h3 className="text-xl sm:text-3xl font-black text-white tracking-tight">
+                      FINALE ARENA STANDING BY
+                    </h3>
+
+                    {finalePublicState.callerIsFinalist ? (
+                      <div className="space-y-2">
+                        <p className="text-xs sm:text-sm text-slate-300">
+                          Approved Finalist <strong>Seat #{finalePublicState.callerSeatNumber}</strong> verified. Questions remain sealed until the administrator activates <strong>Go Live</strong>.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsFinaleModalOpen(true)}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+                        >
+                          <Clock className="w-4 h-4" />
+                          Open Finalist Waiting Room
+                        </button>
+                      </div>
+                    ) : finalePublicState.callerIsTester && finalePublicState.callerTestPreLiveAllowed ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-indigo-300">
+                          Classic Crew Pre-Live Test Environment Ready ({finalePublicState.callerTestDeviceAuthorized ? "Device Authorized" : "Authorize This Device"})
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsFinaleModalOpen(true)}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-indigo-600/30"
+                        >
+                          <Zap className="w-4 h-4" />
+                          Launch Pre-Live Test Run
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs sm:text-sm text-slate-300">
+                        The 10-question Finale bank is prepared. Live examination opens once initiated by faculty ops.
+                      </p>
+                    )}
+                  </div>
+                ) : finalePublicState?.status === "ended" || finalePublicState?.status === "closed" ? (
+                  <div className="p-6 rounded-2xl bg-slate-950/90 border border-amber-500/35 text-center space-y-2.5">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-widest border border-amber-500/30">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      GRAND FINALE CONCLUDED
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-white">Submissions Closed</h3>
+                    <p className="text-xs text-slate-300 max-w-md mx-auto">
+                      The Format B 90-second Rapid Fire Grand Finale has ended. Official standings are displayed below.
                     </p>
-                    {/* Grand Finale Format B — Enter Exam Button */}
-                    <button
-                      onClick={() => setIsFinaleModalOpen(true)}
-                      className="mt-2 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-sm uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-600/40 animate-in fade-in"
+                    <a
+                      href="#finale-standings"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition"
                     >
                       <Trophy className="w-4 h-4" />
-                      Enter Grand Finale Examination
-                    </button>
+                      View Official Finale Standings
+                    </a>
                   </div>
-                ) : (finalEventTargetUTC || seasonStartUTC || finaleDay1) ? (
+                ) : (finalEventTargetUTC || seasonStartUTC) ? (
                   <div className="space-y-3">
                     <div className="grid grid-cols-4 gap-2.5 sm:gap-4">
                       {[
@@ -1613,22 +1692,28 @@ function RouteComponent() {
                       ))}
                     </div>
 
-                    <div className="flex items-center justify-between text-xs text-slate-400 px-1 pt-1 font-mono">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 px-1 pt-1 font-mono">
                       <span className="flex items-center gap-1.5 text-emerald-400 font-sans font-medium">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        10 Clinical Slots Daily &bull; 90s Duration Limit
+                        Format B: 10 Questions &bull; 90s Total &bull; Roster {finaleRoster.length}/10 Verified
                       </span>
                       <span>Asia/Kolkata (IST, UTC+5:30)</span>
                     </div>
+
+                    {finalePublicState?.callerIsTester && (
+                      <div className="p-3 rounded-xl bg-indigo-500/15 border border-indigo-500/35 text-xs text-indigo-200 text-center">
+                        Classic crew Tester Profile active ({finalePublicState.callerTestDeviceAuthorized ? "Device Approved" : "Device Registration Available once Published"}).
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-6 rounded-2xl bg-slate-950/80 border border-slate-800 text-center space-y-2">
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-amber-500/30 text-amber-300 text-sm font-semibold">
                       <Calendar className="w-4 h-4 text-amber-400" />
-                      Final Date To Be Announced
+                      Final Arena Schedule Standing By
                     </div>
                     <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      The official dates and time window for Season 1 Grand Finale will be published upon conclusion of the administrative validation window.
+                      Verified finalists ({finaleRoster.length}/10) will be admitted automatically once faculty ops publish and Go Live.
                     </p>
                   </div>
                 )}
@@ -2067,20 +2152,20 @@ function RouteComponent() {
                 Arena Roster
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
-                Qualified Finalists &amp; Reserves
+                Approved Grand Finale Finalists
               </h2>
               <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-                The 10 finalists and 2 reserves competing in PULSE FINAL Season 1. Only verified medical candidates hold seats in the official arena.
+                The 10 verified finalists competing in Season 1 Grand Finale (Format B · 10 Questions · 90s Rapid Fire).
               </p>
             </div>
 
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
               <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
-              <span>{finaleRoster.length > 0 ? "Official Roster Sealed" : "Live Qualification Standings"}</span>
+              <span>{finaleRoster.length > 0 ? `Official Roster Sealed (${finaleRoster.length}/10)` : "Syncing Approved Roster"}</span>
             </div>
           </div>
 
-          {/* Finalists Grid */}
+          {/* Approved Finalists Grid (Seats 1–10 exclusively from get_public_finale_roster) */}
           <div className="space-y-4">
             <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
               <Crown className="w-3.5 h-3.5 text-amber-400" />
@@ -2088,28 +2173,14 @@ function RouteComponent() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {(finaleRoster.length > 0
-                ? finaleRoster.filter(r => r.seat_type === "finalist")
-                : leaderboard.slice(0, 10).map((p, idx) => ({
-                    id: p.participant_id || String(idx),
-                    seat_type: "finalist" as const,
-                    seat_number: idx + 1,
-                    student_name: p.display_name || "Verified Finalist",
-                    college: p.institution || "Medical College",
-                    batch: p.batch || "MBBS",
-                    qualification_rank: idx + 1,
-                    verification_status: "verified",
-                    attendance_confirmed: true,
-                    participation_status: "active",
-                  }))
-              ).map((f) => (
+              {finaleRoster.map((f) => (
                 <div
-                  key={f.id || f.seat_number}
+                  key={f.seatNumber}
                   className="p-4 rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-950 border border-amber-500/25 hover:border-amber-400/50 transition-colors shadow-lg space-y-2 relative overflow-hidden"
                 >
                   <div className="flex items-center justify-between">
                     <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-mono font-black border border-amber-500/40 flex items-center justify-center">
-                      #{f.seat_number}
+                      #{f.seatNumber}
                     </span>
                     <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -2118,8 +2189,8 @@ function RouteComponent() {
                   </div>
 
                   <div>
-                    <h4 className="text-sm font-bold text-white truncate" title={f.student_name}>
-                      {f.student_name}
+                    <h4 className="text-sm font-bold text-white truncate" title={f.studentName}>
+                      {f.studentName}
                     </h4>
                     <p className="text-[11px] text-slate-400 truncate mt-0.5" title={f.college}>
                       {f.college}
@@ -2127,7 +2198,7 @@ function RouteComponent() {
                   </div>
 
                   <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
-                    <span>Rank {f.qualification_rank}</span>
+                    <span>Seat {f.seatNumber}</span>
                     <span className="text-amber-300">{f.batch}</span>
                   </div>
                 </div>
@@ -2135,59 +2206,61 @@ function RouteComponent() {
             </div>
           </div>
 
-          {/* Reserves Grid */}
-          <div className="space-y-4 pt-2">
-            <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <Shield className="w-3.5 h-3.5 text-blue-400" />
-              Championship Reserves (Seats 1–2)
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {(finaleRoster.length > 0
-                ? finaleRoster.filter(r => r.seat_type === "reserve")
-                : leaderboard.slice(10, 12).map((p, idx) => ({
-                    id: p.participant_id || String(idx),
-                    seat_type: "reserve" as const,
-                    seat_number: idx + 1,
-                    student_name: p.display_name || "Verified Reserve",
-                    college: p.institution || "Medical College",
-                    batch: p.batch || "MBBS",
-                    qualification_rank: 10 + idx + 1,
-                    verification_status: "verified",
-                    attendance_confirmed: true,
-                    participation_status: "active",
-                  }))
-              ).map((r) => (
-                <div
-                  key={r.id || r.seat_number}
-                  className="p-4 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-950 border border-blue-500/25 hover:border-blue-400/50 transition-colors shadow-md space-y-2 relative"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-mono font-bold border border-blue-500/40">
-                      Reserve #{r.seat_number}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      Standby Seat
-                    </span>
+          {/* Official Grand Finale Standings (Format B) */}
+          {(finaleLeaderboard.length > 0 ||
+            finalePublicState?.status === "live" ||
+            finalePublicState?.status === "ended" ||
+            finalePublicState?.status === "closed") && (
+            <div id="finale-standings" className="p-6 rounded-3xl bg-slate-900/80 border border-amber-500/30 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-[11px] font-mono font-bold uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
+                    <Trophy className="w-3.5 h-3.5" />
+                    Official Format B Results
                   </div>
-
-                  <div>
-                    <h4 className="text-sm font-bold text-white truncate" title={r.student_name}>
-                      {r.student_name}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 truncate mt-0.5" title={r.college}>
-                      {r.college}
-                    </p>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
-                    <span>Rank {r.qualification_rank}</span>
-                    <span className="text-blue-300">{r.batch}</span>
-                  </div>
+                  <h3 className="text-xl font-black text-white">Grand Finale Standings</h3>
                 </div>
-              ))}
+                <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300">
+                  Max 1,000 pts &bull; Tiebreak: Accuracy &amp; Time
+                </span>
+              </div>
+
+              {finaleLeaderboard.length === 0 ? (
+                <p className="text-xs text-slate-400 py-4 text-center">
+                  No official finalist submissions recorded yet. Test runs are strictly excluded.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
+                      <tr>
+                        <th className="py-2.5 px-3">Rank</th>
+                        <th className="py-2.5 px-3">Seat</th>
+                        <th className="py-2.5 px-3">Finalist</th>
+                        <th className="py-2.5 px-3">College</th>
+                        <th className="py-2.5 px-3">Score</th>
+                        <th className="py-2.5 px-3">Accuracy</th>
+                        <th className="py-2.5 px-3">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {finaleLeaderboard.map((lb) => (
+                        <tr key={lb.seatNumber}>
+                          <td className="py-2.5 px-3 font-mono font-black text-amber-400">#{lb.rank}</td>
+                          <td className="py-2.5 px-3 font-mono text-slate-400">Seat #{lb.seatNumber}</td>
+                          <td className="py-2.5 px-3 font-semibold text-white">{lb.studentName}</td>
+                          <td className="py-2.5 px-3">{lb.college}</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-400">{lb.score} / 1000</td>
+                          <td className="py-2.5 px-3 font-mono text-blue-300">{lb.accuracy}%</td>
+                          <td className="py-2.5 px-3 font-mono">{Number(lb.elapsedSeconds).toFixed(2)}s</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </section>
 
         {/* 3. REAL-TIME LEADERBOARD TABS */}
@@ -3551,6 +3624,17 @@ function RouteComponent() {
         isOpen={isFinaleModalOpen}
         onClose={() => setIsFinaleModalOpen(false)}
         finaleCode={DEFAULT_FINALE_CODE}
+        onCompleted={() => {
+          Promise.all([
+            getPublicFinaleStatus(DEFAULT_FINALE_CODE),
+            getPublicFinaleLeaderboard(DEFAULT_FINALE_CODE),
+          ])
+            .then(([statusRes, lbRes]) => {
+              setFinalePublicState(statusRes);
+              setFinaleLeaderboard(lbRes);
+            })
+            .catch(() => {});
+        }}
       />
     </div>
   );

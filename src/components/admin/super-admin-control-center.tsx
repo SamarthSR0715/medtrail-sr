@@ -44,7 +44,7 @@ import { CompetitionSettings } from "@/components/admin/competition-settings";
 import { ResultControl } from "@/components/admin/result-control";
 import { OverallLeaderboard } from "@/components/admin/overall-leaderboard";
 import { AntiCheatDashboard } from "@/components/admin/anti-cheat-dashboard";
-import { FinaleAdminCenter } from "@/components/admin/finale-admin-center";
+import { FinaleFormatBOps } from "@/components/admin/finale-format-b-ops";
 import { Settings2 } from "lucide-react";
 import { sendRealFCMPush, requestAndRegisterNotificationPermission, detectDevicePlatform } from "@/lib/fcm-client";
 import {
@@ -1776,7 +1776,7 @@ export function SuperAdminControlCenter() {
       {/* ── TAB: GRAND FINALE OPERATIONS ── */}
       {activeTab === "grand_finale_ops" && (
         <div className="space-y-6">
-          <FinaleAdminCenter />
+          <FinaleFormatBOps />
         </div>
       )}
     </div>
