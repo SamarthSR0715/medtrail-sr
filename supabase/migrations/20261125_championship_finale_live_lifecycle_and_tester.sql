@@ -811,7 +811,7 @@ BEGIN
 
   SELECT count(*) INTO v_roster_count
   FROM public.championship_finale_approved_roster
-  WHERE is_active = true AND seat_number BETWEEN 1 AND 10;
+  WHERE seat_number BETWEEN 1 AND 10;
 
   IF v_roster_count <> 10 THEN
     RETURN jsonb_build_object(
@@ -980,7 +980,7 @@ BEGIN
   -- 1. Check Official Finalist Roster first
   SELECT * INTO v_finalist
   FROM public.championship_finale_approved_roster
-  WHERE is_active = true
+  WHERE seat_number BETWEEN 1 AND 10
     AND (
       (user_id IS NOT NULL AND user_id = v_caller_uid)
       OR
@@ -1369,10 +1369,10 @@ BEGIN
 
     SELECT * INTO v_finalist
     FROM public.championship_finale_approved_roster
-    WHERE user_id = v_caller_uid AND is_active = true;
+    WHERE user_id = v_caller_uid AND seat_number BETWEEN 1 AND 10;
 
     IF v_finalist.id IS NULL THEN
-      RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: not in active approved finalist roster.');
+      RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: not in approved finalist roster.');
     END IF;
   ELSE
     SELECT * INTO v_tester
@@ -1574,7 +1574,7 @@ BEGIN
 
     SELECT * INTO v_finalist
     FROM public.championship_finale_approved_roster
-    WHERE is_active = true
+    WHERE seat_number BETWEEN 1 AND 10
       AND (
         user_id = v_caller_uid
         OR (user_id IS NULL AND v_caller_email <> '' AND lower(trim(email)) = v_caller_email)
@@ -1854,7 +1854,7 @@ BEGIN
       r.student_name,
       r.college,
       r.batch,
-      r.is_active,
+      (r.seat_number BETWEEN 1 AND 10) AS is_active,
       (r.user_id IS NOT NULL) AS account_linked,
       s.status AS session_status,
       s.started_at AS session_started_at,
@@ -1939,7 +1939,7 @@ $$;
 REVOKE ALL ON FUNCTION public.admin_get_finale_overview(TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_get_finale_overview(TEXT) TO authenticated, service_role;
 
--- Harden get_public_finale_roster & get_public_finale_leaderboard to exclude inactive/test records explicitly
+-- Harden get_public_finale_roster & get_public_finale_leaderboard to enforce seats 1-10 and exclude test accounts
 CREATE OR REPLACE FUNCTION public.get_public_finale_roster()
 RETURNS TABLE (
   seat_number  INTEGER,
@@ -1954,8 +1954,12 @@ SET search_path = public, auth, pg_temp
 AS $$
   SELECT r.seat_number, r.student_name, r.college, r.batch
   FROM public.championship_finale_approved_roster r
-  WHERE r.is_active = true
-    AND r.seat_number BETWEEN 1 AND 10
+  WHERE r.seat_number BETWEEN 1 AND 10
+    AND NOT EXISTS (
+      SELECT 1 FROM public.championship_finale_test_access t
+      WHERE (r.user_id IS NOT NULL AND t.user_id = r.user_id)
+         OR lower(trim(t.email)) = lower(trim(r.email))
+    )
   ORDER BY r.seat_number ASC;
 $$;
 
@@ -1985,7 +1989,7 @@ AS $$
          lb.score, lb.accuracy, lb.elapsed_seconds, lb.submitted_at
   FROM public.championship_finale_leaderboard lb
   JOIN public.championship_finale_approved_roster r
-    ON r.user_id = lb.user_id AND r.is_active = true
+    ON r.user_id = lb.user_id AND r.seat_number BETWEEN 1 AND 10
   WHERE lb.finale_code = trim(coalesce(p_finale_code, ''))
     AND lb.seat_number BETWEEN 1 AND 10
     AND NOT EXISTS (
