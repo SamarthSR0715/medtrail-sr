@@ -339,21 +339,31 @@ CREATE TRIGGER trg_finale_no_overlap_roster
 -- Dynamically verify Classic crew (dpsvsambbs@gmail.com) exists in auth.users before seeding tester access
 DO $seed_classic_crew$
 DECLARE
-  v_tester_uid    UUID;
-  v_match_count   INTEGER;
-  v_roster_count  INTEGER;
+  v_tester_uid         UUID;
+  v_email_confirmed_at TIMESTAMPTZ;
+  v_match_count        INTEGER;
+  v_roster_count       INTEGER;
 BEGIN
-  SELECT count(*), min(id)
-  INTO v_match_count, v_tester_uid
+  SELECT count(*)
+  INTO v_match_count
   FROM auth.users
   WHERE lower(trim(email)) = 'dpsvsambbs@gmail.com';
 
-  IF v_match_count = 0 OR v_tester_uid IS NULL THEN
-    RAISE EXCEPTION 'FINALE_TESTER_SEED_FAILED: Verified auth.users account for dpsvsambbs@gmail.com was not found.';
+  IF v_match_count = 0 THEN
+    RAISE EXCEPTION 'FINALE_TESTER_SEED_FAILED: auth.users account for dpsvsambbs@gmail.com was not found.';
   END IF;
 
   IF v_match_count > 1 THEN
-    RAISE EXCEPTION 'FINALE_TESTER_SEED_FAILED: Multiple auth.users rows matched dpsvsambbs@gmail.com.';
+    RAISE EXCEPTION 'FINALE_TESTER_SEED_FAILED: Multiple auth.users rows matched dpsvsambbs@gmail.com (% rows).', v_match_count;
+  END IF;
+
+  SELECT id, email_confirmed_at
+  INTO STRICT v_tester_uid, v_email_confirmed_at
+  FROM auth.users
+  WHERE lower(trim(email)) = 'dpsvsambbs@gmail.com';
+
+  IF v_email_confirmed_at IS NULL THEN
+    RAISE EXCEPTION 'FINALE_TESTER_SEED_FAILED: auth.users account for dpsvsambbs@gmail.com is not email-confirmed.';
   END IF;
 
   SELECT count(*) INTO v_roster_count
