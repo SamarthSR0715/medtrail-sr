@@ -32,6 +32,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAntiCheatTelemetry } from '@/lib/anti-cheat-service';
 import {
   clearFinaleSessionCache,
   DEFAULT_FINALE_CODE,
@@ -65,7 +66,9 @@ type ExamPhase =
 
 interface SubmitResult {
   isTest: boolean;
+  finaleCode: string;
   score: number;
+  maxScore: number;
   accuracy: number;
   correctCount: number;
   elapsedSeconds: number;
@@ -112,6 +115,9 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
 
   const [phase, setPhase] = useState<ExamPhase>('IDLE');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeFinaleCode, setActiveFinaleCode] = useState<string>(code);
+  const [sessionNumber, setSessionNumber] = useState<number>(1);
+  const [maxScore, setMaxScore] = useState<number>(FINALE_MAX_SCORE);
   const [expiresAt, setExpiresAt] = useState<number>(0);
   const [questions, setQuestions] = useState<FinaleQuestion[]>([]);
   const [seatNumber, setSeatNumber] = useState<number>(0);
@@ -151,6 +157,18 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
     onCompletedRef.current = onCompleted;
   }, [onCompleted]);
 
+  // Reuse Daily Pulse passive anti-cheat telemetry pipeline for Grand Finale sessions
+  const { flushQueue: flushAntiCheatTelemetry } = useAntiCheatTelemetry({
+    sessionId,
+    active: (phase === 'ACTIVE_EXAM' || phase === 'CONFIRMING') && Boolean(sessionId),
+    onWarning: (msg) => toast.warning(msg, { duration: 3000 }),
+  });
+
+  const flushAntiCheatRef = useRef(flushAntiCheatTelemetry);
+  useEffect(() => {
+    flushAntiCheatRef.current = flushAntiCheatTelemetry;
+  }, [flushAntiCheatTelemetry]);
+
   const handleClose = useCallback(() => {
     if (phase === 'ACTIVE_EXAM' || phase === 'CONFIRMING') {
       toast.warning('The exam is active. Click "Submit All" to finish or wait for auto-submit.');
@@ -162,6 +180,9 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
     }
     setPhase('IDLE');
     setSessionId(null);
+    setActiveFinaleCode(code);
+    setSessionNumber(1);
+    setMaxScore(FINALE_MAX_SCORE);
     setExpiresAt(0);
     setQuestions([]);
     setAnswers(Array(FINALE_QUESTION_COUNT).fill(-1));
@@ -183,7 +204,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
       if (!sessionId || expiresAt === 0 || questions.length === 0) return;
       saveFinaleSessionCache({
         sessionId,
-        finaleCode: code,
+        finaleCode: activeFinaleCode || code,
         startedAt: new Date(expiresAt - FINALE_DURATION_SECONDS * 1000).toISOString(),
         expiresAt: new Date(expiresAt).toISOString(),
         seatNumber,
@@ -194,7 +215,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
         currentSlot: newSlot,
       });
     },
-    [sessionId, expiresAt, questions, seatNumber, studentName, isTestSession, code]
+    [sessionId, activeFinaleCode, expiresAt, questions, seatNumber, studentName, isTestSession, code]
   );
 
   const doSubmit = useCallback(async (finalAnswers: number[]) => {
@@ -216,6 +237,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
     });
 
     try {
+      await flushAntiCheatRef.current();
       const res = await submitFinaleAttempt({
         sessionId: sessionIdRef.current,
         answers: safeAnswers,
@@ -254,7 +276,9 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
 
       setResult({
         isTest: res.isTest,
+        finaleCode: res.finaleCode || activeFinaleCode || code,
         score: res.score,
+        maxScore: res.maxScore ?? maxScore,
         accuracy: res.accuracy,
         correctCount: res.correctCount,
         elapsedSeconds: res.elapsedSeconds,
@@ -354,22 +378,29 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
       return;
     }
 
+    const resolvedCode = res.finaleCode || code;
     const expMs = new Date(res.expiresAt).getTime();
     const cached = loadFinaleSessionCache();
     const restoredAnswers =
       cached &&
       cached.sessionId === res.sessionId &&
-      cached.finaleCode === code &&
+      cached.finaleCode === resolvedCode &&
       Array.isArray(cached.answers) &&
       cached.answers.length === FINALE_QUESTION_COUNT
         ? cached.answers
         : (Array(FINALE_QUESTION_COUNT).fill(-1) as number[]);
     const restoredSlot =
-      cached && cached.sessionId === res.sessionId && typeof cached.currentSlot === 'number'
+      cached &&
+      cached.sessionId === res.sessionId &&
+      cached.finaleCode === resolvedCode &&
+      typeof cached.currentSlot === 'number'
         ? Math.max(0, Math.min(FINALE_QUESTION_COUNT - 1, cached.currentSlot))
         : 0;
 
     setSessionId(res.sessionId);
+    setActiveFinaleCode(resolvedCode);
+    setSessionNumber(res.sessionNumber ?? 1);
+    setMaxScore(res.maxScore ?? FINALE_MAX_SCORE);
     setExpiresAt(expMs);
     setQuestions(res.questions);
     setAnswers(restoredAnswers);
@@ -382,7 +413,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
 
     saveFinaleSessionCache({
       sessionId: res.sessionId,
-      finaleCode: code,
+      finaleCode: resolvedCode,
       startedAt: res.startedAt,
       expiresAt: res.expiresAt,
       seatNumber: res.seatNumber,
@@ -393,7 +424,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
       currentSlot: restoredSlot,
     });
 
-    if (cached && cached.sessionId === res.sessionId) {
+    if (cached && cached.sessionId === res.sessionId && cached.finaleCode === resolvedCode) {
       toast.success('Active session synced with server clock.');
     }
   }, [code, startTimer]);
@@ -418,8 +449,8 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
       if (pub.status === 'live') {
         toast.success('Grand Finale is now LIVE! Opening examination...');
         handleOpen();
-      } else if (pub.status === 'ended' || pub.status === 'closed') {
-        setErrorMsg('The Grand Finale has ended.');
+      } else if (pub.status === 'ended' || pub.status === 'closed' || pub.status === 'archived') {
+        setErrorMsg('This Grand Finale session has ended.');
         setPhase('IDLE');
       }
     });
@@ -667,7 +698,8 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
   // RENDER: RESULTS
   if (phase === 'RESULTS' && result !== null) {
     const r = result;
-    const scorePercent = (r.score / FINALE_MAX_SCORE) * 100;
+    const totalMax = r.maxScore > 0 ? r.maxScore : FINALE_MAX_SCORE;
+    const scorePercent = Math.min(100, (r.score / totalMax) * 100);
     const mins = Math.floor(r.elapsedSeconds / 60);
     const secs = Math.round(r.elapsedSeconds % 60);
     const timeDisplay = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
@@ -689,7 +721,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
               <Trophy className="w-8 h-8 text-amber-400" />
             </div>
             <h2 className="text-2xl font-black text-white">
-              {r.isTest ? 'Test Run Complete!' : 'Grand Finale Complete!'}
+              {r.isTest ? `Session #${sessionNumber} Test Run Complete!` : `Grand Finale Session #${sessionNumber} Complete!`}
             </h2>
             <p className="text-sm text-slate-400">
               {studentName} · {r.isTest ? 'Isolated Tester' : `Seat #${seatNumber}`}
@@ -698,7 +730,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
 
           <div className="rounded-2xl bg-slate-800/60 border border-slate-700/60 p-5 text-center space-y-1">
             <div className="text-5xl font-black text-white">{r.score}</div>
-            <div className="text-sm text-slate-400 font-medium">/ {FINALE_MAX_SCORE} Points</div>
+            <div className="text-sm text-slate-400 font-medium">/ {totalMax} Points</div>
             <div className="mt-2 h-2 w-full rounded-full bg-slate-700 overflow-hidden">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all"
@@ -760,7 +792,7 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
                           : 'bg-rose-500/20 text-rose-400'
                       }`}
                     >
-                      {isSkipped ? 'Skipped' : isCorrect ? `+${FINALE_POINTS_PER_CORRECT}` : '0'}
+                      {isSkipped ? 'Skipped' : isCorrect ? `+${expl.points ?? FINALE_POINTS_PER_CORRECT}` : '0'}
                     </span>
                   </button>
 
@@ -906,7 +938,9 @@ export function FinaleRapidFireModal({ isOpen, onClose, finaleCode, onCompleted 
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">Grand Finale</div>
+            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">
+              Grand Finale · Session #{sessionNumber}
+            </div>
             <div className="text-xs text-slate-300 font-medium truncate">
               {studentName || 'Contestant'} · {isTestSession ? 'Test Seat #0' : `Seat #${seatNumber}`}
             </div>

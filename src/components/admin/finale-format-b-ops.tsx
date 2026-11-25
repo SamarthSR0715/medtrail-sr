@@ -2,16 +2,20 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   Award,
   Check,
   CheckCircle2,
   Clock,
+  CopyPlus,
+  Eraser,
   FileEdit,
   FlaskConical,
   Laptop,
   Loader2,
   Lock,
   Play,
+  PlusCircle,
   Radio,
   RefreshCw,
   RotateCcw,
@@ -21,26 +25,33 @@ import {
   ShieldOff,
   Square,
   Trophy,
+  Unlock,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   createEmptyFinaleQuestions,
-  DEFAULT_FINALE_CODE,
+  createNewFinaleSession,
+  CURRENT_FINALE_CODE,
   endFinale,
   fetchFinaleAdminOverview,
+  fetchFinaleSessionSummary,
   FINALE_DIFFICULTIES,
   FINALE_QUESTION_COUNT,
+  getTotalFinalePoints,
   goLiveFinale,
   manageFinaleTestDevice,
   publishFinaleSet,
+  resetFinaleSession,
   resetFinaleTestSessions,
   subscribeToFinalePublicState,
+  unlockFinaleForEdit,
   validateFinaleQuestionsForPublish,
   type FinaleAdminOverview,
   type FinaleDifficulty,
   type FinaleLifecycleStatus,
   type FinaleQuestionAdminInput,
+  type FinaleSessionSummary,
 } from "@/lib/finale-service";
 
 const FINALE_SUBJECT_SUGGESTIONS = [
@@ -66,7 +77,10 @@ function isSlotComplete(q: FinaleQuestionAdminInput): boolean {
     ["A", "B", "C", "D"].includes(q.correct_answer) &&
     q.explanation.trim().length > 0 &&
     q.subject.trim().length > 0 &&
-    FINALE_DIFFICULTIES.includes(q.difficulty)
+    FINALE_DIFFICULTIES.includes(q.difficulty) &&
+    Number.isInteger(q.points) &&
+    q.points >= 1 &&
+    q.points <= 1000
   );
 }
 
@@ -100,16 +114,29 @@ function formatShortIST(iso: string | null): string {
   }
 }
 
+type ConfirmActionType =
+  | "go_live"
+  | "end"
+  | "new_session_blank"
+  | "new_session_copy"
+  | "reset_current_session"
+  | "clear_standings";
+
 export function FinaleFormatBOps() {
-  const [subTab, setSubTab] = useState<"questions" | "roster" | "tester" | "leaderboard">("questions");
+  const [subTab, setSubTab] = useState<"questions" | "roster" | "tester" | "leaderboard" | "archives">("questions");
   const [overview, setOverview] = useState<FinaleAdminOverview | null>(null);
   const [questions, setQuestions] = useState<FinaleQuestionAdminInput[]>(createEmptyFinaleQuestions());
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
   const [activeSlot, setActiveSlot] = useState<number>(1);
   const [loading, setLoading] = useState(true);
-  const [actionBusy, setActionBusy] = useState<"draft" | "publish" | "go_live" | "end" | "reset_test" | null>(null);
+  const [actionBusy, setActionBusy] = useState<
+    "draft" | "validate" | "publish" | "go_live" | "end" | "reset_test" | "session_mgmt" | null
+  >(null);
   const [deviceBusyId, setDeviceBusyId] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<"go_live" | "end" | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmActionType | null>(null);
+  const [confirmSummary, setConfirmSummary] = useState<FinaleSessionSummary | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmAckChecked, setConfirmAckChecked] = useState(false);
   const [manualDeviceId, setManualDeviceId] = useState("");
   const [manualDeviceLabel, setManualDeviceLabel] = useState("");
   const [bannerError, setBannerError] = useState<string | null>(null);
@@ -118,14 +145,19 @@ export function FinaleFormatBOps() {
   const loadOverview = useCallback(async (preserveEdits: boolean = false) => {
     setLoading(true);
     try {
-      const res = await fetchFinaleAdminOverview(DEFAULT_FINALE_CODE);
+      const res = await fetchFinaleAdminOverview(CURRENT_FINALE_CODE);
       if (!res.success) {
         setBannerError(res.error || "Could not load Grand Finale Ops state from Supabase.");
       } else {
         setBannerError(null);
         setOverview(res);
-        if (!preserveEdits && res.set && res.set.questions.length > 0) {
-          setQuestions(res.set.questions);
+        if (!preserveEdits) {
+          if (res.set && res.set.questions.length > 0) {
+            setQuestions(res.set.questions);
+          } else {
+            setQuestions(createEmptyFinaleQuestions());
+          }
+          setHasUnsavedEdits(false);
         }
       }
     } catch (err: unknown) {
@@ -137,21 +169,29 @@ export function FinaleFormatBOps() {
 
   useEffect(() => {
     loadOverview(false);
-    const unsub = subscribeToFinalePublicState(DEFAULT_FINALE_CODE, () => {
-      loadOverview(true);
+    const unsub = subscribeToFinalePublicState(CURRENT_FINALE_CODE, () => {
+      loadOverview(false);
     });
     return () => {
       unsub();
     };
   }, [loadOverview]);
 
+  const activeCode = overview?.set?.finaleCode || overview?.finaleCode || CURRENT_FINALE_CODE;
+  const sessionNumber = overview?.set?.sessionNumber || overview?.sessionNumber || 1;
   const serverStatus: FinaleLifecycleStatus | "not_created" = overview?.set?.status || "not_created";
-  const isFrozen = Boolean(overview?.set?.questionsFrozen) || serverStatus === "live" || serverStatus === "ended" || serverStatus === "closed";
+  const isFrozen =
+    Boolean(overview?.set?.questionsFrozen) ||
+    serverStatus === "live" ||
+    serverStatus === "ended" ||
+    serverStatus === "archived" ||
+    serverStatus === "closed";
   const completedCount = questions.filter(isSlotComplete).length;
+  const totalMaxPoints = getTotalFinalePoints(questions);
 
   const updateQuestionSlot = (slotIdx: number, patch: Partial<FinaleQuestionAdminInput>) => {
     if (isFrozen) {
-      toast.error("Questions are permanently frozen because the Grand Finale has started.");
+      toast.error("This session is frozen/completed. Click EDIT QUESTIONS or START NEW FINALE SESSION to unlock an editable copy.");
       return;
     }
     setHasUnsavedEdits(true);
@@ -169,6 +209,7 @@ export function FinaleFormatBOps() {
         explanation: "",
         subject: "Clinical Medicine",
         difficulty: "Medium",
+        points: 100,
       };
       const base: FinaleQuestionAdminInput = next[slotIdx] ?? fallback;
       next[slotIdx] = { ...base, ...patch, slot: slotIdx + 1 };
@@ -176,9 +217,25 @@ export function FinaleFormatBOps() {
     });
   };
 
+  const openSafetyConfirm = async (action: ConfirmActionType) => {
+    setConfirmAckChecked(false);
+    setConfirmAction(action);
+    if (action === "go_live" || action === "end") {
+      setConfirmSummary(null);
+      return;
+    }
+    setConfirmLoading(true);
+    try {
+      const sum = await fetchFinaleSessionSummary(activeCode);
+      setConfirmSummary(sum);
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
   const handleSaveDraft = async () => {
     if (isFrozen) {
-      toast.error("Cannot save draft: question set is frozen.");
+      toast.error("Cannot modify frozen/ended session directly. Start a New Session to edit.");
       return;
     }
     setActionBusy("draft");
@@ -186,9 +243,10 @@ export function FinaleFormatBOps() {
     setBannerSuccess(null);
     try {
       const res = await publishFinaleSet({
-        finaleCode: DEFAULT_FINALE_CODE,
+        finaleCode: activeCode,
         questions,
         status: "draft",
+        title: overview?.set?.title || `MedTrail Championship Grand Finale — Session ${sessionNumber}`,
       });
       if (!res.success) {
         setBannerError(res.error || "Failed to save Grand Finale draft.");
@@ -196,8 +254,44 @@ export function FinaleFormatBOps() {
         return;
       }
       setHasUnsavedEdits(false);
-      setBannerSuccess("Draft saved in Supabase (`draft`). Students cannot see questions yet.");
+      setBannerSuccess(`Session #${sessionNumber} draft saved cleanly. Students cannot see questions yet.`);
       toast.success("Grand Finale draft saved.");
+      await loadOverview(false);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleValidateSet = async () => {
+    if (isFrozen) {
+      toast.error("Session is frozen. Start a New Session to edit and validate.");
+      return;
+    }
+    const check = validateFinaleQuestionsForPublish(questions);
+    if (!check.valid) {
+      if (check.firstInvalidSlot) setActiveSlot(check.firstInvalidSlot);
+      setBannerError(check.error || "Fix incomplete fields before validating.");
+      toast.error(check.error || "Fix incomplete fields before validating.");
+      return;
+    }
+    setActionBusy("validate");
+    setBannerError(null);
+    setBannerSuccess(null);
+    try {
+      const res = await publishFinaleSet({
+        finaleCode: activeCode,
+        questions,
+        status: "validated",
+        title: overview?.set?.title || `MedTrail Championship Grand Finale — Session ${sessionNumber}`,
+      });
+      if (!res.success) {
+        setBannerError(res.error || "Validation failed.");
+        toast.error(res.error || "Validation failed.");
+        return;
+      }
+      setHasUnsavedEdits(false);
+      setBannerSuccess(`Session #${sessionNumber} VALIDATED (10/10 slots, ${totalMaxPoints} max pts). Click PUBLISH 10 QUESTIONS when ready.`);
+      toast.success("10/10 questions validated!");
       await loadOverview(false);
     } finally {
       setActionBusy(null);
@@ -206,7 +300,7 @@ export function FinaleFormatBOps() {
 
   const handlePublish = async () => {
     if (isFrozen) {
-      toast.error("Cannot re-publish: question set is frozen.");
+      toast.error("Cannot re-publish frozen session. Start a New Session to publish updates.");
       return;
     }
     const check = validateFinaleQuestionsForPublish(questions);
@@ -222,9 +316,10 @@ export function FinaleFormatBOps() {
     setBannerSuccess(null);
     try {
       const res = await publishFinaleSet({
-        finaleCode: DEFAULT_FINALE_CODE,
+        finaleCode: activeCode,
         questions,
         status: "published",
+        title: overview?.set?.title || `MedTrail Championship Grand Finale — Session ${sessionNumber}`,
       });
       if (!res.success) {
         setBannerError(res.error || "Publish failed.");
@@ -233,60 +328,142 @@ export function FinaleFormatBOps() {
       }
       setHasUnsavedEdits(false);
       setBannerSuccess(
-        "10 Finale questions published (`published`). Finalists see the Waiting Screen until you click Go Live Finale."
+        `Session #${sessionNumber} PUBLISHED (Waiting Room). Finalists stay in the Waiting Screen until you click GO LIVE FINALE.`
       );
-      toast.success("10 questions published! Click Go Live Finale when ready to start.");
+      toast.success("10 questions published! Click Go Live Finale when ready.");
       await loadOverview(false);
     } finally {
       setActionBusy(null);
     }
   };
 
-  const handleGoLiveConfirmed = async () => {
-    setConfirmAction(null);
-    if (hasUnsavedEdits) {
-      const msg = "You have unsaved editor changes. Publish the 10 questions before going live.";
-      setBannerError(msg);
-      toast.error(msg);
+  const handleEditQuestions = async () => {
+    setActionBusy("session_mgmt");
+    setBannerError(null);
+    setBannerSuccess(null);
+    try {
+      const res = await unlockFinaleForEdit(activeCode);
+      if (res.success) {
+        setSubTab("questions");
+        setBannerSuccess(`Session #${sessionNumber} unlocked to DRAFT for question editing.`);
+        toast.success("Questions unlocked for editing.");
+        await loadOverview(false);
+        return;
+      }
+      if (res.requiresNewSession) {
+        await openSafetyConfirm("new_session_copy");
+        return;
+      }
+      setBannerError(res.error || "Could not unlock questions.");
+      toast.error(res.error || "Could not unlock questions.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleConfirmAction = async () => {
+    const action = confirmAction;
+    if (!action) return;
+    if (action !== "go_live" && action !== "end" && !confirmAckChecked) {
+      toast.error("Please check the confirmation box first.");
       return;
     }
-    setActionBusy("go_live");
-    setBannerError(null);
-    setBannerSuccess(null);
-    try {
-      const res = await goLiveFinale(DEFAULT_FINALE_CODE);
-      if (!res.success) {
-        setBannerError(res.error || "Failed to Go Live.");
-        toast.error(res.error || "Failed to Go Live.");
-        return;
-      }
-      setBannerSuccess("GRAND FINALE IS LIVE! Questions are permanently frozen and the 90-second arena is open to the 10 approved finalists.");
-      toast.success("Grand Finale is now LIVE!");
-      await loadOverview(false);
-    } finally {
-      setActionBusy(null);
-    }
-  };
-
-  const handleEndFinaleConfirmed = async () => {
     setConfirmAction(null);
-    setActionBusy("end");
     setBannerError(null);
     setBannerSuccess(null);
-    try {
-      const res = await endFinale(DEFAULT_FINALE_CODE);
-      if (!res.success) {
-        setBannerError(res.error || "Failed to End Finale.");
-        toast.error(res.error || "Failed to End Finale.");
+
+    if (action === "go_live") {
+      if (hasUnsavedEdits) {
+        const msg = "You have unsaved editor changes. Publish the 10 questions before going live.";
+        setBannerError(msg);
+        toast.error(msg);
         return;
       }
-      const expNote =
-        typeof res.expiredSessions === "number" && res.expiredSessions > 0
-          ? ` (${res.expiredSessions} unsubmitted active session(s) closed)`
-          : "";
-      setBannerSuccess(`Grand Finale ENDED cleanly${expNote}. Late submissions are rejected.`);
-      toast.success("Grand Finale ended successfully.");
-      await loadOverview(false);
+      setActionBusy("go_live");
+      try {
+        const res = await goLiveFinale(activeCode);
+        if (!res.success) {
+          setBannerError(res.error || "Failed to Go Live.");
+          toast.error(res.error || "Failed to Go Live.");
+          return;
+        }
+        setBannerSuccess(`Session #${sessionNumber} is LIVE! Questions are locked for participants and the 90s arena is open.`);
+        toast.success("Grand Finale is now LIVE!");
+        await loadOverview(false);
+      } finally {
+        setActionBusy(null);
+      }
+      return;
+    }
+
+    if (action === "end") {
+      setActionBusy("end");
+      try {
+        const res = await endFinale(activeCode);
+        if (!res.success) {
+          setBannerError(res.error || "Failed to End Finale.");
+          toast.error(res.error || "Failed to End Finale.");
+          return;
+        }
+        const expNote =
+          typeof res.expiredSessions === "number" && res.expiredSessions > 0
+            ? ` (${res.expiredSessions} active session(s) expired)`
+            : "";
+        setBannerSuccess(`Session #${sessionNumber} ENDED${expNote}. Click START NEW FINALE SESSION when ready for the next round.`);
+        toast.success("Grand Finale ended.");
+        await loadOverview(false);
+      } finally {
+        setActionBusy(null);
+      }
+      return;
+    }
+
+    setActionBusy("session_mgmt");
+    try {
+      if (action === "new_session_blank" || action === "new_session_copy") {
+        const copyQ = action === "new_session_copy";
+        const res = await createNewFinaleSession({
+          copyQuestions: copyQ,
+          reason: copyQ
+            ? "Admin archived session and cloned questions into editable draft"
+            : "Admin archived session and created fresh blank session",
+        });
+        if (!res.success) {
+          setBannerError(res.error || "Failed to start new Finale session.");
+          toast.error(res.error || "Failed to start new Finale session.");
+          return;
+        }
+        setSubTab("questions");
+        setActiveSlot(1);
+        setBannerSuccess(
+          `Session #${res.sessionNumber} created cleanly (${copyQ ? "10 questions cloned to editable draft" : "blank 10-slot draft"}). Previous results safely archived (${res.archivedSubmissions ?? 0} official submission(s) preserved).`
+        );
+        toast.success(`Started Session #${res.sessionNumber}!`);
+        await loadOverview(false);
+        return;
+      }
+
+      if (action === "reset_current_session" || action === "clear_standings") {
+        const clearQuestions = action === "reset_current_session";
+        const res = await resetFinaleSession({
+          finaleCode: activeCode,
+          clearQuestions,
+        });
+        if (!res.success) {
+          setBannerError(res.error || "Reset failed.");
+          toast.error(res.error || "Reset failed.");
+          return;
+        }
+        setSubTab("questions");
+        setActiveSlot(1);
+        setBannerSuccess(
+          res.archived
+            ? `Archived ${res.affectedSubmissions ?? 0} submission(s) safely and activated fresh zero-standings Session #${res.sessionNumber} (${clearQuestions ? "blank draft" : "10 questions preserved for editing"}).`
+            : `Pre-live session reset cleanly to DRAFT (${clearQuestions ? "questions cleared" : "questions preserved"}).`
+        );
+        toast.success(clearQuestions ? "Current session reset cleanly." : "Session standings cleared and previous results archived.");
+        await loadOverview(false);
+      }
     } finally {
       setActionBusy(null);
     }
@@ -321,12 +498,12 @@ export function FinaleFormatBOps() {
   const handleResetTestSessions = async () => {
     setActionBusy("reset_test");
     try {
-      const res = await resetFinaleTestSessions(DEFAULT_FINALE_CODE);
+      const res = await resetFinaleTestSessions(activeCode);
       if (!res.success) {
         toast.error(res.error || "Could not reset active test sessions.");
         return;
       }
-      toast.success("Active Classic crew test session(s) cleared. Next test launch opens a fresh 90s run.");
+      toast.success("Active Classic crew test session(s) cleared.");
       await loadOverview(true);
     } finally {
       setActionBusy(null);
@@ -337,15 +514,18 @@ export function FinaleFormatBOps() {
   const statusMeta: Record<string, { label: string; cls: string }> = {
     not_created: { label: "DRAFT (NOT SAVED)", cls: "bg-slate-800 text-slate-300 border-slate-700" },
     draft: defaultStatusBadge,
+    validated: { label: "VALIDATED • READY TO PUBLISH", cls: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40" },
     published: { label: "PUBLISHED • WAITING ROOM", cls: "bg-blue-500/20 text-blue-300 border-blue-500/40" },
-    live: { label: "LIVE • ARENA OPEN", cls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 animate-pulse" },
-    ended: { label: "ENDED • SUBMISSIONS CLOSED", cls: "bg-rose-500/20 text-rose-300 border-rose-500/40" },
+    live: { label: "LIVE • 90s ARENA OPEN", cls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 animate-pulse" },
+    ended: { label: "ENDED • READY FOR NEXT SESSION", cls: "bg-rose-500/20 text-rose-300 border-rose-500/40" },
+    archived: { label: "ARCHIVED", cls: "bg-purple-500/20 text-purple-300 border-purple-500/40" },
     closed: { label: "ENDED • SUBMISSIONS CLOSED", cls: "bg-rose-500/20 text-rose-300 border-rose-500/40" },
   };
   const activeStatusBadge = statusMeta[serverStatus] ?? defaultStatusBadge;
 
   const rosterList = overview?.roster || [];
   const leaderboardList = overview?.leaderboard || [];
+  const archivesList = overview?.archives || [];
   const testerInfo = overview?.tester || null;
 
   const curIdx = activeSlot - 1;
@@ -360,20 +540,24 @@ export function FinaleFormatBOps() {
     explanation: "",
     subject: "Clinical Medicine",
     difficulty: "Medium",
+    points: 100,
   };
   const curQ: FinaleQuestionAdminInput = questions[curIdx] ?? fallbackQ;
 
   return (
     <div className="space-y-6 pt-2">
-      {/* ── LIFECYCLE CONTROL DECK ───────────────────────────────────────────── */}
-      <div className="p-6 rounded-3xl bg-slate-900/85 border border-amber-500/30 shadow-xl space-y-5">
+      {/* ── FINALE SESSION MANAGEMENT DECK ──────────────────────────────────── */}
+      <div className="p-6 rounded-3xl bg-slate-900/90 border border-amber-500/35 shadow-xl space-y-5">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase tracking-wider">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider">
                 <Trophy className="w-3.5 h-3.5" />
-                Grand Finale Ops (Format B)
-              </div>
+                FINALE SESSION MANAGEMENT
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono text-xs font-bold">
+                Session #{sessionNumber}
+              </span>
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-black uppercase tracking-wider ${activeStatusBadge.cls}`}>
                 <Radio className="w-3.5 h-3.5" />
                 {activeStatusBadge.label}
@@ -381,27 +565,113 @@ export function FinaleFormatBOps() {
               {isFrozen && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/15 border border-indigo-500/40 text-indigo-300 text-[11px] font-bold">
                   <Lock className="w-3 h-3" />
-                  Questions Frozen
+                  Archived/Session Bank Locked
                 </span>
               )}
             </div>
-            <h3 className="text-xl font-black text-white">Authoritative 10-Question Finale Control</h3>
+            <h3 className="text-xl font-black text-white">
+              Reusable Grand Finale Ops &amp; Multi-Session Control
+            </h3>
             <p className="text-xs text-slate-400">
-              Independent of Daily Pulse controls &bull; Lifecycle:{" "}
-              <span className="text-slate-200 font-semibold">DRAFT → PUBLISHED (Waiting Room) → LIVE (90s Exam) → ENDED</span>
+              Active Session Code: <span className="font-mono text-slate-200">{activeCode}</span> &bull; Max Score:{" "}
+              <span className="font-mono text-amber-300">{totalMaxPoints} pts</span> &bull; Lifecycle:{" "}
+              <span className="text-slate-200 font-semibold">DRAFT → VALIDATED → PUBLISHED → LIVE → ENDED → ARCHIVED</span>
             </p>
           </div>
 
+          <button
+            type="button"
+            onClick={() => loadOverview(hasUnsavedEdits)}
+            disabled={loading || actionBusy !== null}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition cursor-pointer disabled:opacity-50 w-fit"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            <span>Sync Server</span>
+          </button>
+        </div>
+
+        {/* Ended Session Prominent Restart Banner */}
+        {(serverStatus === "ended" || serverStatus === "archived" || serverStatus === "closed") && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/70 via-slate-900 to-amber-950/60 border border-amber-500/40 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                Session #{sessionNumber} Completed ({leaderboardList.length} official ranking(s))
+              </div>
+              <p className="text-xs text-slate-300">
+                Start the next Grand Finale round cleanly. Session #{sessionNumber}&rsquo;s questions and standings are preserved permanently in the Archive.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => openSafetyConfirm("new_session_copy")}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-500/25 disabled:opacity-40"
+              >
+                <CopyPlus className="w-4 h-4" />
+                <span>START NEW FINALE SESSION (Clone Qs)</span>
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => openSafetyConfirm("new_session_blank")}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider transition cursor-pointer disabled:opacity-40"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>START NEW FINALE SESSION (Blank)</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Primary Session Management & Lifecycle Action Buttons */}
+        <div className="space-y-2">
+          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+            Session Lifecycle &amp; Reset Controls (Server-Authorized)
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => loadOverview(hasUnsavedEdits)}
-              disabled={loading || actionBusy !== null}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition cursor-pointer disabled:opacity-50"
+              disabled={actionBusy !== null}
+              onClick={() => openSafetyConfirm("new_session_blank")}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-200 border border-indigo-500/40 text-xs font-bold transition cursor-pointer disabled:opacity-40"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              <span>Sync Server</span>
+              <PlusCircle className="w-3.5 h-3.5 text-indigo-300" />
+              <span>NEW SESSION</span>
             </button>
+
+            <button
+              type="button"
+              disabled={actionBusy !== null}
+              onClick={() => openSafetyConfirm("reset_current_session")}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 text-xs font-bold transition cursor-pointer disabled:opacity-40"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
+              <span>RESET CURRENT SESSION</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={actionBusy !== null}
+              onClick={handleEditQuestions}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-200 border border-amber-500/35 text-xs font-bold transition cursor-pointer disabled:opacity-40"
+            >
+              <Unlock className="w-3.5 h-3.5 text-amber-400" />
+              <span>EDIT QUESTIONS</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={actionBusy !== null}
+              onClick={() => openSafetyConfirm("clear_standings")}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 text-xs font-bold transition cursor-pointer disabled:opacity-40"
+            >
+              <Eraser className="w-3.5 h-3.5 text-amber-400" />
+              <span>CLEAR SESSION STANDINGS</span>
+            </button>
+
+            <div className="h-6 w-px bg-slate-800 hidden sm:block mx-1" />
 
             <button
               type="button"
@@ -410,7 +680,17 @@ export function FinaleFormatBOps() {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {actionBusy === "draft" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5 text-slate-400" />}
-              <span>{actionBusy === "draft" ? "Saving..." : "Save Draft"}</span>
+              <span>{actionBusy === "draft" ? "Saving..." : "SAVE NEW DRAFT"}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isFrozen || actionBusy !== null}
+              onClick={handleValidateSet}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-600/25 hover:bg-cyan-600/40 text-cyan-200 border border-cyan-500/40 text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {actionBusy === "validate" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />}
+              <span>VALIDATE ({completedCount}/10)</span>
             </button>
 
             <button
@@ -420,69 +700,81 @@ export function FinaleFormatBOps() {
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-lg shadow-blue-600/25 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {actionBusy === "publish" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              <span>{actionBusy === "publish" ? "Publishing..." : `Publish 10 Questions (${completedCount}/10)`}</span>
+              <span>{actionBusy === "publish" ? "Publishing..." : `PUBLISH 10 QUESTIONS`}</span>
             </button>
 
             <button
               type="button"
               disabled={serverStatus !== "published" || hasUnsavedEdits || actionBusy !== null}
-              onClick={() => setConfirmAction("go_live")}
+              onClick={() => openSafetyConfirm("go_live")}
               title={
                 hasUnsavedEdits
                   ? "Publish your latest edits before going live"
                   : serverStatus !== "published"
                   ? "Requires status = PUBLISHED"
-                  : "Start the LIVE Finale for approved finalists"
+                  : "Start the LIVE 90s Finale"
               }
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-lg shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {actionBusy === "go_live" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-white" />}
-              <span>{actionBusy === "go_live" ? "Starting..." : "Go Live Finale"}</span>
+              <span>{actionBusy === "go_live" ? "Starting..." : "GO LIVE FINALE"}</span>
             </button>
 
             <button
               type="button"
               disabled={serverStatus !== "live" || actionBusy !== null}
-              onClick={() => setConfirmAction("end")}
+              onClick={() => openSafetyConfirm("end")}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-lg shadow-rose-600/30 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {actionBusy === "end" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5 fill-white" />}
-              <span>{actionBusy === "end" ? "Ending..." : "End Finale"}</span>
+              <span>{actionBusy === "end" ? "Ending..." : "END FINALE"}</span>
             </button>
           </div>
         </div>
 
-        {/* Lifecycle Stepper & Timestamps */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+        {/* 6-Stage Reusable Lifecycle Stepper */}
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5 pt-1">
           {[
             {
               step: "1. Draft",
               active: serverStatus === "draft" || serverStatus === "not_created",
-              done: ["published", "live", "ended", "closed"].includes(serverStatus),
-              detail: `${completedCount}/10 validated locally`,
+              done: ["validated", "published", "live", "ended", "archived", "closed"].includes(serverStatus),
+              detail: `${completedCount}/10 ready`,
             },
             {
-              step: "2. Published (Waiting)",
+              step: "2. Validated",
+              active: serverStatus === "validated",
+              done: ["published", "live", "ended", "archived", "closed"].includes(serverStatus),
+              detail: `${totalMaxPoints} max pts`,
+            },
+            {
+              step: "3. Published",
               active: serverStatus === "published",
-              done: ["live", "ended", "closed"].includes(serverStatus),
-              detail: overview?.set?.publishedAt ? formatShortIST(overview.set.publishedAt) : "Not published yet",
+              done: ["live", "ended", "archived", "closed"].includes(serverStatus),
+              detail: overview?.set?.publishedAt ? formatShortIST(overview.set.publishedAt) : "Waiting Room",
             },
             {
-              step: "3. Live Arena (90s)",
+              step: "4. Live (90s)",
               active: serverStatus === "live",
-              done: ["ended", "closed"].includes(serverStatus),
-              detail: overview?.set?.liveStartedAt ? formatShortIST(overview.set.liveStartedAt) : "Locked until Go Live",
+              done: ["ended", "archived", "closed"].includes(serverStatus),
+              detail: overview?.set?.liveStartedAt ? formatShortIST(overview.set.liveStartedAt) : "Arena Locked",
             },
             {
-              step: "4. Ended (Closed)",
+              step: "5. Ended",
               active: serverStatus === "ended" || serverStatus === "closed",
-              done: serverStatus === "ended" || serverStatus === "closed",
-              detail: overview?.set?.endedAt ? formatShortIST(overview.set.endedAt) : "Pending closure",
+              done: serverStatus === "archived",
+              detail: overview?.set?.endedAt ? formatShortIST(overview.set.endedAt) : "Pending End",
+            },
+            {
+              step: "6. Archived",
+              active: serverStatus === "archived",
+              done: archivesList.length > 0,
+              detail: `${archivesList.length} archived`,
             },
           ].map((item) => (
             <div
               key={item.step}
-              className={`p-3 rounded-2xl border text-xs ${
+              className={`p-2.5 rounded-2xl border text-xs ${
                 item.active
                   ? "bg-amber-500/15 border-amber-500/50 text-white"
                   : item.done
@@ -492,19 +784,18 @@ export function FinaleFormatBOps() {
             >
               <div className="font-bold flex items-center justify-between">
                 <span>{item.step}</span>
-                {item.done && !item.active && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                {item.done && !item.active && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
               </div>
-              <div className="text-[11px] opacity-80 font-mono mt-1 truncate">{item.detail}</div>
+              <div className="text-[10px] opacity-80 font-mono mt-1 truncate">{item.detail}</div>
             </div>
           ))}
         </div>
 
-        {/* Unsaved edits warning & feedback banners */}
         {hasUnsavedEdits && !isFrozen && (
           <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-200 text-xs">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
             <span>
-              You have unpublished local changes. Click <strong>Save Draft</strong> or <strong>Publish 10 Questions</strong> to persist them to Supabase.
+              You have unpublished local changes for Session #{sessionNumber}. Click <strong>SAVE NEW DRAFT</strong>, <strong>VALIDATE</strong>, or <strong>PUBLISH 10 QUESTIONS</strong>.
             </span>
           </div>
         )}
@@ -529,7 +820,8 @@ export function FinaleFormatBOps() {
             { id: "questions", label: `10-Slot Bank (${completedCount}/10)`, icon: FileEdit },
             { id: "roster", label: `Finalist Roster (${rosterList.length}/10)`, icon: Users },
             { id: "tester", label: "Classic Crew Test Access", icon: FlaskConical },
-            { id: "leaderboard", label: `Official Standings (${leaderboardList.length})`, icon: Award },
+            { id: "leaderboard", label: `Session #${sessionNumber} Standings (${leaderboardList.length})`, icon: Award },
+            { id: "archives", label: `Archived Sessions (${archivesList.length})`, icon: Archive },
           ].map((tab) => {
             const Icon = tab.icon;
             const active = subTab === tab.id;
@@ -576,17 +868,31 @@ export function FinaleFormatBOps() {
                 >
                   <span className="text-[10px] font-mono uppercase text-slate-400">Slot</span>
                   <span className="text-base font-black">{slotNum}</span>
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      complete ? "bg-emerald-400" : partial ? "bg-amber-400" : "bg-slate-700"
-                    }`}
-                  />
+                  <span className={`w-2 h-2 rounded-full ${complete ? "bg-emerald-400" : partial ? "bg-amber-400" : "bg-slate-700"}`} />
                 </button>
               );
             })}
           </div>
 
           <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-6">
+            {isFrozen && (
+              <div className="p-3.5 rounded-2xl bg-indigo-500/15 border border-indigo-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-indigo-200">
+                <span className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>
+                    Session #{sessionNumber} questions are immutable to preserve live/completed integrity. Start a new session to unlock editing without altering history.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openSafetyConfirm("new_session_copy")}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black uppercase tracking-wider transition cursor-pointer shrink-0"
+                >
+                  Archive &amp; Clone to New Editable Session
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
               <div className="flex items-center gap-3">
                 <span className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black text-sm">
@@ -594,10 +900,10 @@ export function FinaleFormatBOps() {
                 </span>
                 <div>
                   <h4 className="text-base font-bold text-white flex items-center gap-2">
-                    Grand Finale Slot #{activeSlot}
+                    Session #{sessionNumber} · Slot #{activeSlot}
                     {isFrozen && <Lock className="w-3.5 h-3.5 text-indigo-400" />}
                   </h4>
-                  <span className="text-xs text-slate-400">100 pts per correct &bull; Shared 90-second timer</span>
+                  <span className="text-xs text-slate-400">{curQ.points} pts &bull; Shared 90-second timer</span>
                 </div>
               </div>
 
@@ -611,7 +917,7 @@ export function FinaleFormatBOps() {
                     value={curQ.subject}
                     onChange={(e) => updateQuestionSlot(curIdx, { subject: e.target.value })}
                     placeholder="e.g. Clinical Medicine"
-                    className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-amber-500 outline-none w-44 disabled:opacity-60"
+                    className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-amber-500 outline-none w-40 disabled:opacity-60"
                   />
                   <datalist id="finale-subject-options">
                     {FINALE_SUBJECT_SUGGESTIONS.map((s) => (
@@ -634,6 +940,23 @@ export function FinaleFormatBOps() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-slate-400">Points:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    step={10}
+                    disabled={isFrozen}
+                    value={curQ.points}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      updateQuestionSlot(curIdx, { points: Number.isNaN(val) ? 100 : Math.max(1, Math.min(1000, val)) });
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-amber-300 font-mono font-bold text-xs focus:border-amber-500 outline-none w-20 disabled:opacity-60"
+                  />
                 </div>
               </div>
             </div>
@@ -708,7 +1031,8 @@ export function FinaleFormatBOps() {
             {FINALE_QUESTION_COUNT > 0 && (
               <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
                 <span>
-                  Slot completion: <strong className={isSlotComplete(curQ) ? "text-emerald-400" : "text-amber-300"}>
+                  Slot completion:{" "}
+                  <strong className={isSlotComplete(curQ) ? "text-emerald-400" : "text-amber-300"}>
                     {isSlotComplete(curQ) ? "Complete" : "Missing required fields"}
                   </strong>
                 </span>
@@ -743,7 +1067,7 @@ export function FinaleFormatBOps() {
             <div>
               <h4 className="text-base font-bold text-white">Approved Grand Finale Roster ({rosterList.length}/10 Finalists)</h4>
               <p className="text-xs text-slate-400">
-                Verified from <span className="font-mono text-amber-400">championship_finale_approved_roster</span> with live session &amp; device state
+                Live telemetry scoped strictly to <span className="font-mono text-amber-400">Session #{sessionNumber}</span> ({activeCode})
               </p>
             </div>
             <button
@@ -763,9 +1087,9 @@ export function FinaleFormatBOps() {
                   <th className="py-3 px-4">Seat</th>
                   <th className="py-3 px-4">Finalist</th>
                   <th className="py-3 px-4">College &amp; Batch</th>
-                  <th className="py-3 px-4">Session</th>
+                  <th className="py-3 px-4">Session #{sessionNumber}</th>
                   <th className="py-3 px-4">Device</th>
-                  <th className="py-3 px-4">Official Score</th>
+                  <th className="py-3 px-4">Session Score</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -789,16 +1113,12 @@ export function FinaleFormatBOps() {
                       )}
                     </td>
                     <td className="py-3 px-4 font-mono">
-                      {r.deviceBound ? (
-                        <span className="text-emerald-400">Locked</span>
-                      ) : (
-                        <span className="text-slate-500">—</span>
-                      )}
+                      {r.deviceBound ? <span className="text-emerald-400">Locked</span> : <span className="text-slate-500">—</span>}
                     </td>
                     <td className="py-3 px-4 font-mono">
                       {r.attemptScore !== null ? (
                         <span className="text-emerald-400 font-bold">
-                          {r.attemptScore}/1000 ({Number(r.attemptElapsedSeconds || 0).toFixed(1)}s)
+                          {r.attemptScore}/{totalMaxPoints} ({Number(r.attemptElapsedSeconds || 0).toFixed(1)}s)
                         </span>
                       ) : (
                         <span className="text-slate-500">—</span>
@@ -841,7 +1161,6 @@ export function FinaleFormatBOps() {
               </button>
             </div>
 
-            {/* Manually pre-approve a test device ID */}
             <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
               <div className="text-xs font-bold text-slate-200 flex items-center gap-2">
                 <Laptop className="w-4 h-4 text-indigo-400" />
@@ -873,14 +1192,13 @@ export function FinaleFormatBOps() {
               </div>
             </div>
 
-            {/* Registered & Authorized Devices Table */}
             <div className="space-y-2">
               <h5 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
                 Test Devices ({testerInfo?.devices.length || 0})
               </h5>
               {!testerInfo || testerInfo.devices.length === 0 ? (
                 <div className="p-6 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-xs text-slate-400">
-                  No test devices registered yet. Classic crew can click &ldquo;Register This Device&rdquo; from the Championship page or you can paste a Device ID above.
+                  No test devices registered yet.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -939,14 +1257,13 @@ export function FinaleFormatBOps() {
               )}
             </div>
 
-            {/* Test Attempt History */}
             <div className="space-y-2 pt-2">
               <h5 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
-                Isolated Test Run History ({testerInfo?.attempts.length || 0})
+                Session #{sessionNumber} Test Run History ({testerInfo?.attempts.length || 0})
               </h5>
               {!testerInfo || testerInfo.attempts.length === 0 ? (
                 <div className="p-6 text-center rounded-2xl bg-slate-950/50 border border-slate-800 text-xs text-slate-400">
-                  No Classic crew test submissions recorded yet.
+                  No Classic crew test submissions recorded in Session #{sessionNumber} yet.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -969,7 +1286,7 @@ export function FinaleFormatBOps() {
                               is_test = true
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-white">{ta.score} / 1000</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-white">{ta.score} / {totalMaxPoints}</td>
                           <td className="py-2.5 px-3 font-mono text-blue-300">{ta.accuracy}%</td>
                           <td className="py-2.5 px-3 font-mono">{ta.elapsedSeconds.toFixed(2)}s</td>
                           <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">{ta.deviceId || "—"}</td>
@@ -985,32 +1302,42 @@ export function FinaleFormatBOps() {
         </div>
       )}
 
-      {/* ── SUB-TAB 4: OFFICIAL STANDINGS ──────────────────────────────────────── */}
+      {/* ── SUB-TAB 4: CURRENT SESSION OFFICIAL STANDINGS ──────────────────────── */}
       {subTab === "leaderboard" && (
         <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h4 className="text-base font-bold text-white">Official Grand Finale Standings</h4>
+              <h4 className="text-base font-bold text-white">Session #{sessionNumber} Official Standings</h4>
               <p className="text-xs text-slate-400">
-                Ranked strictly from approved finalists (score DESC, accuracy DESC, elapsed ASC) — test attempts excluded
+                Isolated to <span className="font-mono text-amber-300">{activeCode}</span> (score DESC, accuracy DESC, elapsed ASC)
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => loadOverview(true)}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              <span>Refresh</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openSafetyConfirm("clear_standings")}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 text-xs font-bold border border-amber-500/40 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                <span>Clear Session Standings</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => loadOverview(true)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
 
           {leaderboardList.length === 0 ? (
             <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800/80 text-slate-400 space-y-2">
               <Award className="w-8 h-8 mx-auto text-slate-600" />
-              <p className="text-sm font-semibold text-slate-300">No Official Submissions Recorded Yet</p>
+              <p className="text-sm font-semibold text-slate-300">No Official Submissions in Session #{sessionNumber}</p>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Standings populate automatically as approved finalists complete their 90-second attempt during the LIVE Finale.
+                Standings start cleanly at zero for each new session and exclude Classic Crew test attempts.
               </p>
             </div>
           ) : (
@@ -1034,7 +1361,7 @@ export function FinaleFormatBOps() {
                       <td className="py-3 px-4 font-mono text-slate-400">Seat #{lb.seatNumber}</td>
                       <td className="py-3 px-4 font-semibold text-white">{lb.studentName}</td>
                       <td className="py-3 px-4 text-slate-300">{lb.college}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-emerald-400">{lb.score} / 1000</td>
+                      <td className="py-3 px-4 font-mono font-bold text-emerald-400">{lb.score} / {totalMaxPoints}</td>
                       <td className="py-3 px-4 font-mono text-blue-400">{lb.accuracy}%</td>
                       <td className="py-3 px-4 font-mono text-slate-300">{Number(lb.elapsedSeconds).toFixed(2)}s</td>
                     </tr>
@@ -1046,52 +1373,217 @@ export function FinaleFormatBOps() {
         </div>
       )}
 
-      {/* ── CONFIRMATION MODALS (GO LIVE / END FINALE) ─────────────────────────── */}
+      {/* ── SUB-TAB 5: IMMUTABLE ARCHIVED SESSIONS ─────────────────────────────── */}
+      {subTab === "archives" && (
+        <div className="space-y-4">
+          <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-4">
+            <div>
+              <h4 className="text-base font-bold text-white">Immutable Archived Sessions ({archivesList.length})</h4>
+              <p className="text-xs text-slate-400">
+                Historical results and question banks preserved cleanly whenever sessions end, reset, or restart.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadOverview(true)}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {archivesList.length === 0 ? (
+            <div className="p-10 text-center rounded-3xl bg-slate-900/60 border border-slate-800 text-slate-400 space-y-2">
+              <Archive className="w-8 h-8 mx-auto text-slate-600" />
+              <p className="text-sm font-semibold text-slate-300">No Archived Sessions Yet</p>
+              <p className="text-xs text-slate-500">
+                Completed sessions appear here automatically when you reset standings or start a new Finale session.
+              </p>
+            </div>
+          ) : (
+            archivesList.map((arch) => (
+              <div key={arch.finaleCode} className="p-6 rounded-3xl bg-slate-900/80 border border-purple-500/30 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono text-xs font-bold">
+                        Session #{arch.sessionNumber}
+                      </span>
+                      <span className="font-mono text-xs text-slate-400">{arch.finaleCode}</span>
+                      <span className="text-[11px] text-slate-400">Archived {formatShortIST(arch.archivedAt)}</span>
+                    </div>
+                    <h5 className="text-base font-bold text-white mt-1">{arch.title}</h5>
+                    {arch.archiveReason && <p className="text-[11px] text-slate-400">{arch.archiveReason}</p>}
+                  </div>
+                  <div className="text-right font-mono text-xs text-slate-300 shrink-0">
+                    <div>{arch.submissionCount} Official Submission(s)</div>
+                    <div className="text-[11px] text-slate-500">{arch.participantCount} Participant(s)</div>
+                  </div>
+                </div>
+
+                {arch.standings.length === 0 ? (
+                  <p className="text-xs text-slate-400">Zero official standings recorded in this archived session.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
+                        <tr>
+                          <th className="py-2 px-3">Rank</th>
+                          <th className="py-2 px-3">Seat</th>
+                          <th className="py-2 px-3">Finalist</th>
+                          <th className="py-2 px-3">Score</th>
+                          <th className="py-2 px-3">Accuracy</th>
+                          <th className="py-2 px-3">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {arch.standings.map((lb) => (
+                          <tr key={`${arch.finaleCode}_${lb.seatNumber}`}>
+                            <td className="py-2 px-3 font-mono font-bold text-amber-400">#{lb.rank}</td>
+                            <td className="py-2 px-3 font-mono text-slate-400">Seat #{lb.seatNumber}</td>
+                            <td className="py-2 px-3 font-semibold text-white">{lb.studentName}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-emerald-400">{lb.score}</td>
+                            <td className="py-2 px-3 font-mono text-blue-300">{lb.accuracy}%</td>
+                            <td className="py-2 px-3 font-mono">{Number(lb.elapsedSeconds).toFixed(2)}s</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── CONFIRMATION MODAL (SESSION SAFETY & LIFECYCLE) ────────────────────── */}
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
           <div
-            className={`w-full max-w-md rounded-3xl bg-slate-900 p-6 sm:p-8 space-y-5 shadow-2xl border ${
-              confirmAction === "go_live" ? "border-emerald-500/40" : "border-rose-500/40"
+            className={`w-full max-w-lg rounded-3xl bg-slate-900 p-6 sm:p-8 space-y-5 shadow-2xl border ${
+              confirmAction === "go_live"
+                ? "border-emerald-500/40"
+                : confirmAction === "end" || confirmAction === "reset_current_session"
+                ? "border-rose-500/40"
+                : "border-amber-500/40"
             }`}
           >
             <div
               className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
                 confirmAction === "go_live"
                   ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
-                  : "bg-rose-500/20 border-rose-500/40 text-rose-400"
+                  : confirmAction === "end" || confirmAction === "reset_current_session"
+                  ? "bg-rose-500/20 border-rose-500/40 text-rose-400"
+                  : "bg-amber-500/20 border-amber-500/40 text-amber-400"
               }`}
             >
-              {confirmAction === "go_live" ? <Play className="w-6 h-6 fill-emerald-400" /> : <Clock className="w-6 h-6" />}
+              {confirmAction === "go_live" ? (
+                <Play className="w-6 h-6 fill-emerald-400" />
+              ) : confirmAction === "end" ? (
+                <Clock className="w-6 h-6" />
+              ) : (
+                <AlertTriangle className="w-6 h-6" />
+              )}
             </div>
 
             {confirmAction === "go_live" ? (
               <div className="space-y-1.5">
-                <h3 className="text-xl font-black text-white">Confirm Go Live Grand Finale</h3>
+                <h3 className="text-xl font-black text-white">Confirm Go Live — Session #{sessionNumber}</h3>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  All 10 published questions will become <strong>permanently frozen</strong> and the 90-second Rapid Fire examination will open immediately for the 10 approved finalists on <span className="font-mono">/championship</span>. Daily Pulse remains untouched.
+                  All 10 published questions will lock for participants and the 90-second Rapid Fire examination will open immediately for the 10 approved finalists. Daily Pulse remains untouched.
+                </p>
+              </div>
+            ) : confirmAction === "end" ? (
+              <div className="space-y-1.5">
+                <h3 className="text-xl font-black text-white">Confirm End Finale — Session #{sessionNumber}</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Transitions Session #{sessionNumber} to <strong>ENDED</strong>, immediately closes any remaining active participant sessions, and rejects further submissions. You can archive &amp; start Session #{sessionNumber + 1} immediately afterwards.
                 </p>
               </div>
             ) : (
-              <div className="space-y-1.5">
-                <h3 className="text-xl font-black text-white">Confirm End Grand Finale</h3>
+              <div className="space-y-3">
+                <h3 className="text-xl font-black text-white">
+                  {confirmAction === "clear_standings"
+                    ? "Confirm Clear Session Standings"
+                    : confirmAction === "reset_current_session"
+                    ? "Confirm Reset Current Session"
+                    : "Confirm Start New Finale Session"}
+                </h3>
+
+                {confirmLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Checking live participant &amp; submission impact…</span>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Target Session:</span>
+                      <span className="font-mono font-bold text-white">
+                        Session #{confirmSummary?.sessionNumber ?? sessionNumber} ({confirmSummary?.finaleCode ?? activeCode})
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Official Participants Affected:</span>
+                      <span className="font-mono font-bold text-amber-300">
+                        {confirmSummary?.officialParticipantCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Official Submissions Affected:</span>
+                      <span className="font-mono font-bold text-emerald-300">
+                        {confirmSummary?.officialSubmissionCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Test Runs Recorded:</span>
+                      <span className="font-mono text-indigo-300">{confirmSummary?.testSubmissionCount ?? 0}</span>
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  This transitions the Finale status to <strong>ENDED</strong>, immediately closes any remaining active sessions, and rejects all further submissions.
+                  Existing results for Session #{confirmSummary?.sessionNumber ?? sessionNumber} will be{" "}
+                  <strong>archived permanently</strong> in <span className="font-mono text-purple-300">championship_finale_archives</span> before rotating to a clean zero-standings draft. Historical Season 1 Daily Pulse and Roster records are never deleted. This rotation cannot be casually undone.
                 </p>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer text-xs text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={confirmAckChecked}
+                    onChange={(e) => setConfirmAckChecked(e.target.checked)}
+                    className="mt-0.5 accent-amber-500"
+                  />
+                  <span>
+                    I understand existing session standings will be archived and a fresh draft session will open with zero active scores.
+                  </span>
+                </label>
               </div>
             )}
 
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={confirmAction === "go_live" ? handleGoLiveConfirmed : handleEndFinaleConfirmed}
-                className={`flex-1 py-3 rounded-xl text-white font-black text-xs uppercase tracking-wider transition cursor-pointer inline-flex items-center justify-center gap-1.5 ${
+                disabled={confirmAction !== "go_live" && confirmAction !== "end" && (!confirmAckChecked || confirmLoading)}
+                onClick={handleConfirmAction}
+                className={`flex-1 py-3 rounded-xl text-white font-black text-xs uppercase tracking-wider transition cursor-pointer inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
                   confirmAction === "go_live"
                     ? "bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/30"
-                    : "bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/30"
+                    : confirmAction === "end" || confirmAction === "reset_current_session"
+                    ? "bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/30"
+                    : "bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-600/30"
                 }`}
               >
                 <Check className="w-4 h-4" />
-                <span>{confirmAction === "go_live" ? "Yes, Go Live Now" : "Yes, End Finale"}</span>
+                <span>
+                  {confirmAction === "go_live"
+                    ? "Yes, Go Live Now"
+                    : confirmAction === "end"
+                    ? "Yes, End Finale"
+                    : "Confirm Archive & Reset"}
+                </span>
               </button>
               <button
                 type="button"

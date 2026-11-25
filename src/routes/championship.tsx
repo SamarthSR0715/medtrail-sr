@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import {
   AlertCircle,
+  Archive,
   Award,
   BookOpen,
   Calendar,
@@ -89,10 +90,13 @@ import hoodieImg from "@/assets/championship-hoodie.jpg";
 import { FinaleRapidFireModal } from "@/components/championship/finale-rapid-fire-modal";
 import {
   DEFAULT_FINALE_CODE,
+  FINALE_MAX_SCORE,
+  getPublicFinaleArchives,
   getPublicFinaleLeaderboard,
   getPublicFinaleRoster,
   getPublicFinaleStatus,
   subscribeToFinalePublicState,
+  type FinaleArchiveEntry,
   type FinaleLeaderboardEntry,
   type FinaleRosterEntry,
   type PublicFinaleStatus,
@@ -213,6 +217,7 @@ function RouteComponent() {
   const [finalePublicState, setFinalePublicState] = useState<PublicFinaleStatus | null>(null);
   const [finaleRoster, setFinaleRoster] = useState<FinaleRosterEntry[]>([]);
   const [finaleLeaderboard, setFinaleLeaderboard] = useState<FinaleLeaderboardEntry[]>([]);
+  const [finaleArchives, setFinaleArchives] = useState<FinaleArchiveEntry[]>([]);
 
   const finalEventTargetUTC = useMemo(() => {
     if (seasonStartUTC && !isNaN(seasonStartUTC.getTime())) {
@@ -630,18 +635,20 @@ function RouteComponent() {
 
     initPulseSettings();
 
-    // Fetch Format B Grand Finale sanitized state, roster & leaderboard
+    // Fetch Format B Grand Finale sanitized state, roster, leaderboard & session archives
     async function loadFinaleMetadata() {
       try {
-        const [statusRes, rosterRes, lbRes] = await Promise.all([
+        const [statusRes, rosterRes, lbRes, archiveRes] = await Promise.all([
           getPublicFinaleStatus(DEFAULT_FINALE_CODE),
           getPublicFinaleRoster(),
           getPublicFinaleLeaderboard(DEFAULT_FINALE_CODE),
+          getPublicFinaleArchives(),
         ]);
         if (isMounted) {
           setFinalePublicState(statusRes);
           setFinaleRoster(rosterRes);
           setFinaleLeaderboard(lbRes);
+          setFinaleArchives(archiveRes);
         }
       } catch (e) {
         console.warn("[Pulse Final] Format B fetch note:", e);
@@ -1548,7 +1555,7 @@ function RouteComponent() {
                   <div className="p-6 rounded-2xl bg-gradient-to-r from-red-950/60 via-slate-900/80 to-amber-950/60 border border-red-500/40 text-center space-y-3">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-xs font-bold uppercase tracking-widest border border-red-500/30">
                       <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                      GRAND FINALE LIVE &bull; 90s RAPID FIRE
+                      GRAND FINALE SESSION #{finalePublicState.sessionNumber ?? 1} LIVE &bull; 90s RAPID FIRE
                     </div>
                     <h3 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
                       THE FINAL ARENA IS OPEN
@@ -1611,7 +1618,7 @@ function RouteComponent() {
                   <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-950/60 via-slate-900/80 to-indigo-950/60 border border-blue-500/40 text-center space-y-3">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold uppercase tracking-widest border border-blue-500/30">
                       <Lock className="w-3.5 h-3.5" />
-                      QUESTIONS PUBLISHED &bull; WAITING ROOM
+                      SESSION #{finalePublicState.sessionNumber ?? 1} PUBLISHED &bull; WAITING ROOM
                     </div>
                     <h3 className="text-xl sm:text-3xl font-black text-white tracking-tight">
                       FINALE ARENA STANDING BY
@@ -1651,11 +1658,14 @@ function RouteComponent() {
                       </p>
                     )}
                   </div>
-                ) : finalePublicState?.status === "ended" || finalePublicState?.status === "closed" ? (
+                ) : finalePublicState?.status === "ended" ||
+                  finalePublicState?.status === "closed" ||
+                  finalePublicState?.status === "archived" ? (
                   <div className="p-6 rounded-2xl bg-slate-950/90 border border-amber-500/35 text-center space-y-2.5">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-widest border border-amber-500/30">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      GRAND FINALE CONCLUDED
+                      SESSION #{finalePublicState.sessionNumber ?? 1}{" "}
+                      {finalePublicState.status === "archived" ? "ARCHIVED" : "CONCLUDED"}
                     </div>
                     <h3 className="text-xl sm:text-2xl font-black text-white">Submissions Closed</h3>
                     <p className="text-xs text-slate-300 max-w-md mx-auto">
@@ -2210,24 +2220,25 @@ function RouteComponent() {
           {(finaleLeaderboard.length > 0 ||
             finalePublicState?.status === "live" ||
             finalePublicState?.status === "ended" ||
+            finalePublicState?.status === "archived" ||
             finalePublicState?.status === "closed") && (
             <div id="finale-standings" className="p-6 rounded-3xl bg-slate-900/80 border border-amber-500/30 space-y-4">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <div className="text-[11px] font-mono font-bold uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
                     <Trophy className="w-3.5 h-3.5" />
-                    Official Format B Results
+                    Official Format B Results &bull; Session #{finalePublicState?.sessionNumber ?? 1}
                   </div>
                   <h3 className="text-xl font-black text-white">Grand Finale Standings</h3>
                 </div>
                 <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300">
-                  Max 1,000 pts &bull; Tiebreak: Accuracy &amp; Time
+                  Max {FINALE_MAX_SCORE.toLocaleString()} pts &bull; Tiebreak: Accuracy &amp; Time
                 </span>
               </div>
 
               {finaleLeaderboard.length === 0 ? (
                 <p className="text-xs text-slate-400 py-4 text-center">
-                  No official finalist submissions recorded yet. Test runs are strictly excluded.
+                  No official finalist submissions recorded yet for Session #{finalePublicState?.sessionNumber ?? 1}. Test runs are strictly excluded.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -2250,7 +2261,9 @@ function RouteComponent() {
                           <td className="py-2.5 px-3 font-mono text-slate-400">Seat #{lb.seatNumber}</td>
                           <td className="py-2.5 px-3 font-semibold text-white">{lb.studentName}</td>
                           <td className="py-2.5 px-3">{lb.college}</td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-400">{lb.score} / 1000</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-400">
+                            {lb.score} / {FINALE_MAX_SCORE}
+                          </td>
                           <td className="py-2.5 px-3 font-mono text-blue-300">{lb.accuracy}%</td>
                           <td className="py-2.5 px-3 font-mono">{Number(lb.elapsedSeconds).toFixed(2)}s</td>
                         </tr>
@@ -2259,6 +2272,57 @@ function RouteComponent() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {finaleArchives.length > 0 && (
+            <div id="finale-archives" className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-slate-400" />
+                  <h3 className="text-base font-black text-white">Previous Finale Session Archives</h3>
+                </div>
+                <span className="text-[11px] font-mono text-slate-400">
+                  {finaleArchives.length} archived {finaleArchives.length === 1 ? "session" : "sessions"}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {finaleArchives.map((arch) => (
+                  <div
+                    key={arch.id ?? arch.finaleCode}
+                    className="rounded-2xl bg-slate-950/70 border border-slate-800 p-4 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">
+                          Session #{arch.sessionNumber}
+                        </span>
+                        <h4 className="text-sm font-bold text-white truncate">{arch.title}</h4>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                        {arch.submissionCount} submissions
+                      </span>
+                    </div>
+                    {arch.standings.length > 0 ? (
+                      <div className="space-y-1 text-xs">
+                        {arch.standings.slice(0, 3).map((row) => (
+                          <div key={`${arch.finaleCode}-${row.seatNumber}`} className="flex items-center justify-between text-slate-300">
+                            <span className="truncate">
+                              <span className="font-mono text-amber-400 mr-1.5">#{row.rank}</span>
+                              {row.studentName}
+                            </span>
+                            <span className="font-mono text-emerald-400 shrink-0">
+                              {row.score} pts ({Number(row.elapsedSeconds).toFixed(1)}s)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500">No official submissions recorded in this session.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </section>
@@ -3628,10 +3692,12 @@ function RouteComponent() {
           Promise.all([
             getPublicFinaleStatus(DEFAULT_FINALE_CODE),
             getPublicFinaleLeaderboard(DEFAULT_FINALE_CODE),
+            getPublicFinaleArchives(),
           ])
-            .then(([statusRes, lbRes]) => {
+            .then(([statusRes, lbRes, archiveRes]) => {
               setFinalePublicState(statusRes);
               setFinaleLeaderboard(lbRes);
+              setFinaleArchives(archiveRes);
             })
             .catch(() => {});
         }}

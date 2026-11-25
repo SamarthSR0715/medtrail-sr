@@ -41,6 +41,7 @@ import {
   type SuspiciousAttemptRow,
   type AntiCheatEventDetail,
   type PulseSessionDetail,
+  type CompetitionType,
   type RiskLevel,
   type ReviewStatus,
   type AntiCheatFilterOptions,
@@ -57,6 +58,7 @@ export function AntiCheatDashboard() {
 
   // ── 3. Filters State ───────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
+  const [competitionFilter, setCompetitionFilter] = useState<"all" | CompetitionType>("all");
   const [riskFilter, setRiskFilter] = useState<"all" | RiskLevel>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | ReviewStatus>("all");
   const [dateFilter, setDateFilter] = useState("all");
@@ -86,6 +88,7 @@ export function AntiCheatDashboard() {
         fetchAntiCheatStats(),
         fetchAttemptsWithTelemetry({
           search,
+          competitionType: competitionFilter,
           riskLevel: riskFilter,
           reviewStatus: statusFilter,
           pulseDate: dateFilter,
@@ -103,7 +106,7 @@ export function AntiCheatDashboard() {
       setIsLoadingAttempts(false);
       setIsRefreshing(false);
     }
-  }, [search, riskFilter, statusFilter, dateFilter, collegeFilter]);
+  }, [search, competitionFilter, riskFilter, statusFilter, dateFilter, collegeFilter]);
 
   // Initial load and filter change
   useEffect(() => {
@@ -136,6 +139,16 @@ export function AntiCheatDashboard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "championship_pulse_attempts" },
+        () => loadData(true)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_finale_sessions" },
+        () => loadData(true)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "championship_finale_attempts" },
         () => loadData(true)
       )
       .subscribe();
@@ -173,7 +186,7 @@ export function AntiCheatDashboard() {
       if (attempt.session_id) {
         const [timeline, session] = await Promise.all([
           fetchAttemptTelemetryTimeline(attempt.session_id),
-          fetchSessionDetails(attempt.session_id),
+          fetchSessionDetails(attempt.session_id, attempt.competition_type),
         ]);
         setEventTimeline(timeline);
         setSelectedSession(session);
@@ -476,6 +489,17 @@ export function AntiCheatDashboard() {
 
           {/* Filters row */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Competition filter */}
+            <select
+              value={competitionFilter}
+              onChange={(e) => setCompetitionFilter(e.target.value as any)}
+              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-rose-500 cursor-pointer"
+            >
+              <option value="all">Competition: All</option>
+              <option value="daily_pulse">Daily Pulse</option>
+              <option value="grand_finale">Grand Finale</option>
+            </select>
+
             {/* Risk filter */}
             <select
               value={riskFilter}
@@ -531,10 +555,11 @@ export function AntiCheatDashboard() {
             </select>
 
             {/* Clear Filters */}
-            {(search || riskFilter !== "all" || statusFilter !== "all" || dateFilter !== "all" || collegeFilter !== "all") && (
+            {(search || competitionFilter !== "all" || riskFilter !== "all" || statusFilter !== "all" || dateFilter !== "all" || collegeFilter !== "all") && (
               <button
                 onClick={() => {
                   setSearch("");
+                  setCompetitionFilter("all");
                   setRiskFilter("all");
                   setStatusFilter("all");
                   setDateFilter("all");
@@ -602,10 +627,23 @@ export function AntiCheatDashboard() {
                   >
                     {/* Student */}
                     <td className="py-3 px-4">
-                      <div className="font-bold text-white group-hover:text-rose-300 transition">
-                        {row.student_name}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-bold text-white group-hover:text-rose-300 transition">
+                          {row.student_name}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                            row.competition_type === "grand_finale"
+                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                              : "bg-slate-800 text-slate-400"
+                          }`}
+                        >
+                          {row.competition_type === "grand_finale"
+                            ? `GRAND FINALE${row.seat_number ? ` #${row.seat_number}` : ""}`
+                            : "DAILY PULSE"}
+                        </span>
                       </div>
-                      <div className="text-[11px] text-slate-400 font-mono truncate max-w-[180px]">
+                      <div className="text-[11px] text-slate-400 font-mono truncate max-w-[200px]">
                         {row.user_email}
                       </div>
                     </td>
@@ -789,18 +827,50 @@ export function AntiCheatDashboard() {
             {/* Modal Header */}
             <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-800 bg-slate-900/80">
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-mono text-[10px] font-bold uppercase">
-                    Attempt Audit
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold uppercase ${
+                      selectedAttempt.competition_type === "grand_finale"
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : "bg-rose-500/20 text-rose-300"
+                    }`}
+                  >
+                    {selectedAttempt.competition_type === "grand_finale"
+                      ? `Grand Finale Audit${selectedAttempt.seat_number ? ` · Seat #${selectedAttempt.seat_number}` : ""}`
+                      : "Daily Pulse Audit"}
                   </span>
                   <span className="font-mono text-xs text-slate-400">
                     ID: {selectedAttempt.id.slice(0, 8)}...
                   </span>
+                  {selectedAttempt.finale_code && (
+                    <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-800 text-amber-200">
+                      {selectedAttempt.finale_code}
+                    </span>
+                  )}
                   {getRiskBadge(selectedAttempt.risk_level, selectedAttempt.risk_score)}
                   {getReviewStatusBadge(selectedAttempt.review_status)}
                 </div>
                 <h2 className="text-xl font-black text-white">{selectedAttempt.student_name}</h2>
-                <div className="text-xs text-slate-400 font-mono">{selectedAttempt.user_email}</div>
+                <div className="text-xs text-slate-400 font-mono">
+                  {selectedAttempt.user_email}
+                  {(selectedAttempt.device_id || selectedSession?.bound_device_id) && (
+                    <span className="ml-2 text-cyan-300">
+                      · Device: {(selectedAttempt.device_id || selectedSession?.bound_device_id || "").slice(0, 14)}…
+                    </span>
+                  )}
+                </div>
+                {selectedAttempt.integrity_flags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {selectedAttempt.integrity_flags.map((flag) => (
+                      <span
+                        key={flag}
+                        className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-[10px] font-mono text-amber-300"
+                      >
+                        {flag}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button

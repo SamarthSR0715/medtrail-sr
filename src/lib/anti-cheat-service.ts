@@ -146,8 +146,16 @@ export function useAntiCheatTelemetry({
 
       eventQueueRef.current.push(event);
 
-      // Trigger immediate flush if queue grows large
-      if (eventQueueRef.current.length >= 8) {
+      // Flush immediately on high-signal violation events or full batch
+      if (
+        eventQueueRef.current.length >= 8 ||
+        eventType === "TAB_HIDDEN" ||
+        eventType === "COPY_ATTEMPT" ||
+        eventType === "PASTE_ATTEMPT" ||
+        eventType === "DEVTOOLS_OPENED" ||
+        eventType === "SCRIPT_INJECTION" ||
+        eventType === "EXTENSION_TAMPERING"
+      ) {
         flushQueue();
       }
     },
